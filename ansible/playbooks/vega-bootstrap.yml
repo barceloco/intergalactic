@@ -1,5 +1,5 @@
 ---
-- name: Bootstrap Vega
+- name: Bootstrap Vega (create ansible user, disable password auth, set up keys)
   hosts: vega
   become: true
   roles:

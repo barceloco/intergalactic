@@ -1,33 +1,45 @@
 ---
 automation_user: "ansible"
-automation_authorized_keys:
-  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdYrr6ERlcqtG9507wmbYogvoh4WvDgFTOhjZ74QDFK ansible@control"
+# SSH public keys for automation user - set in all.secrets.yml
+# See all.secrets.yml.example for template
+automation_authorized_keys: []
 
-human_users:
-  - name: armand
-    authorized_keys:
-      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMW1TbIl1CIO39nFgl3wt+ru+GUXZvZ5tLDHS89uAa9u armand@mbpm1"
+# Human user accounts with SSH keys - set in all.secrets.yml
+# See all.secrets.yml.example for template
+human_users: []
 
 ssh_port: 22
-ssh_allow_users:
-  - "{{ automation_user }}"
-  - "armand"
+# SSH allowlist is automatically generated from automation_user + human_users
+# If you need additional users, override ssh_allow_users in host_vars or secrets
+ssh_allow_users: "{{ [automation_user] + (human_users | default([]) | map(attribute='name') | list) }}"
 
 firewall_allow_tcp_ports:
   - "{{ ssh_port }}"
-firewall_allow_udp_ports: []
+# Tailscale requires UDP 41641 for initial connection
+# Traffic on tailscale0 interface is handled separately in firewall template
+firewall_allow_udp_ports: "{{ [41641] if enable_tailscale | default(false) else [] }}"
+# Rate limit for dropped packets (packets/second)
+firewall_rate_limit: 10
 
 fail2ban_maxretry: 2
+# Ban time: 315360000 seconds = ~10 years (effectively permanent)
+# Rationale: Password attempts are treated as hostile; long bans deter attackers
+# To manually unban an IP: fail2ban-client set sshd unbanip <IP>
 fail2ban_bantime_seconds: 315360000
 
 enable_unattended_upgrades: true
 
 enable_tailscale: true
-tailscale_authkey: "tskey-REPLACE_ME"
+# Tailscale authentication key - set in all.secrets.yml
+# See all.secrets.yml.example for template
+tailscale_authkey: ""
 tailscale_advertise_exit_node: false
 tailscale_advertise_routes: []
 
 enable_docker: true
+# Add automation user to docker group (grants root-equivalent access)
+# Set to false if you prefer using sudo for docker commands
+docker_add_automation_user: true
 enable_desktop: false
 
 disable_default_pi_user: true

@@ -1,5 +1,5 @@
 ---
-- name: Bootstrap Rigel (create automation + humans + keys before hardening)
+- name: Bootstrap Rigel (create ansible user, disable password auth, set up keys)
   hosts: rigel
   become: true
   roles:

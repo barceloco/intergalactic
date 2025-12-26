@@ -154,6 +154,44 @@ def main() -> None:
                 txt.append(f"127.0.1.1 {hostname}")
             write_file(hosts_file, "\n".join(txt) + "\n")
 
+            # Ensure automation user exists before writing authorized_keys
+            passwd_file = root_mnt / "etc" / "passwd"
+            user_exists = False
+            if passwd_file.exists():
+                with open(passwd_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.startswith(f"{automation_user}:"):
+                            user_exists = True
+                            break
+
+            if not user_exists:
+                print(f"[+] Creating user {automation_user}")
+                try:
+                    # Use chroot to run useradd in the mounted filesystem
+                    run([
+                        "chroot",
+                        str(root_mnt),
+                        "useradd",
+                        "-m",  # Create home directory
+                        "-s", "/bin/bash",  # Set shell
+                        automation_user,
+                    ])
+                    print(f"[+] User {automation_user} created successfully")
+                except subprocess.CalledProcessError as e:
+                    error_msg = e.stderr if e.stderr else (e.stdout if e.stdout else "Unknown error")
+                    print(
+                        f"Failed to create user {automation_user} (exit code {e.returncode}): {error_msg}",
+                        file=sys.stderr,
+                    )
+                    sys.exit(2)
+            else:
+                print(f"[i] User {automation_user} already exists")
+
+            # Ensure home directory exists
+            home_dir = root_mnt / "home" / automation_user
+            home_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(home_dir, 0o755)
+
             ak = root_mnt / "home" / automation_user / ".ssh" / "authorized_keys"
             write_file(ak, "\n".join(keys).strip() + "\n", mode=0o600)
             os.chmod(ak.parent, 0o700)

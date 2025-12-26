@@ -1,4 +1,32 @@
 ---
+# CRITICAL: Disable password authentication FIRST to secure the system
+# This must happen before any other changes to prevent password-based access
+- name: Ensure OpenSSH server is installed
+  apt:
+    name: openssh-server
+    state: present
+    update_cache: true
+
+- name: Immediately disable password authentication (CRITICAL SECURITY STEP)
+  copy:
+    dest: /etc/ssh/sshd_config.d/10-intergalactic-bootstrap.conf
+    mode: "0600"
+    owner: root
+    group: root
+    content: |
+      # Emergency SSH hardening - disable password auth immediately
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      PubkeyAuthentication yes
+      AuthenticationMethods publickey
+  notify: Restart ssh
+
+- name: Restart SSH service to apply password disable
+  service:
+    name: ssh
+    state: restarted
+
 - name: Ensure base packages for Ansible are installed
   apt:
     name:
@@ -31,7 +59,9 @@
     content: "{{ automation_user }} ALL=(ALL) NOPASSWD:ALL\n"
     mode: "0440"
 
-- name: Ensure human users exist
+# Human users may already exist (e.g., from standard Raspberry Pi image)
+# Ensure they exist, then set their SSH keys
+- name: Ensure human users exist (may already exist from standard image)
   user:
     name: "{{ item.name }}"
     shell: /bin/bash

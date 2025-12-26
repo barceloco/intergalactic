@@ -2,6 +2,18 @@
 - name: Install tailscale (Debian repo)
   when: enable_tailscale | default(false)
   block:
+    - name: Validate Tailscale auth key is set
+      assert:
+        that:
+          - tailscale_authkey is defined
+          - tailscale_authkey | length > 0
+          - tailscale_authkey != "tskey-REPLACE_ME"
+          - not tailscale_authkey.startswith("tskey-REPLACE")
+        fail_msg: |
+          Tailscale auth key is not set or is a placeholder.
+          Please set tailscale_authkey in all.secrets.yml
+          See all.secrets.yml.example for template.
+        success_msg: "Tailscale auth key is configured"
     - name: Install prerequisites
       apt:
         name:
@@ -38,11 +50,44 @@
         enabled: true
         state: started
 
-    - name: Bring up tailscale (skip if already up)
-      shell: |
-        set -e
-        tailscale status >/dev/null 2>&1 && exit 0
-        tailscale up --authkey={{ tailscale_authkey }} \
-          {% if tailscale_advertise_exit_node | default(false) %} --advertise-exit-node {% endif %} \
-          {% if (tailscale_advertise_routes | default([])) | length > 0 %} --advertise-routes={{ tailscale_advertise_routes | join(',') }} {% endif %}
+    - name: Check if Tailscale is already connected
+      command: tailscale status
+      register: tailscale_status_check
       changed_when: false
+      failed_when: false
+      ignore_errors: true
+
+    - name: Build Tailscale up command arguments
+      when: tailscale_status_check.rc != 0
+      set_fact:
+        tailscale_args:
+          - "up"
+          - "--authkey={{ tailscale_authkey }}"
+
+    - name: Add exit node flag if enabled
+      when:
+        - tailscale_status_check.rc != 0
+        - tailscale_advertise_exit_node | default(false)
+      set_fact:
+        tailscale_args: "{{ tailscale_args + ['--advertise-exit-node'] }}"
+
+    - name: Add routes if configured
+      when:
+        - tailscale_status_check.rc != 0
+        - (tailscale_advertise_routes | default([])) | length > 0
+      set_fact:
+        tailscale_args: "{{ tailscale_args + ['--advertise-routes=' + (tailscale_advertise_routes | join(','))] }}"
+
+    - name: Bring up tailscale
+      when: tailscale_status_check.rc != 0
+      command:
+        cmd: tailscale
+        argv: "{{ tailscale_args }}"
+      register: tailscale_up_result
+      changed_when: tailscale_up_result.rc == 0
+      failed_when: tailscale_up_result.rc != 0
+
+    - name: Display Tailscale connection status
+      when: tailscale_status_check.rc == 0
+      debug:
+        msg: "Tailscale is already connected. Skipping authentication."

@@ -1,0 +1,5 @@
+# Python dependencies for Ansible
+# These versions should match docker/ansible-runner/Dockerfile
+ansible==10.5.0
+PyYAML==6.0.2
+

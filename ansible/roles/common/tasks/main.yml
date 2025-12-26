@@ -1,4 +1,45 @@
 ---
+# Pre-flight validation: ensure required variables are set
+- name: Validate automation SSH keys are configured
+  assert:
+    that:
+      - automation_authorized_keys is defined
+      - automation_authorized_keys | length > 0
+    fail_msg: |
+      automation_authorized_keys is not set or is empty.
+      Please configure SSH keys in all.secrets.yml
+      See ansible/inventories/prod/group_vars/all.secrets.yml.example for template.
+    success_msg: "Automation SSH keys are configured"
+
+- name: Validate human users SSH keys are configured (if human_users is defined)
+  when: human_users is defined and human_users | length > 0
+  assert:
+    that:
+      - item.authorized_keys is defined
+      - item.authorized_keys | length > 0
+    fail_msg: |
+      Human user '{{ item.name }}' has no authorized_keys configured.
+      Please add SSH keys for this user in all.secrets.yml
+      See ansible/inventories/prod/group_vars/all.secrets.yml.example for template.
+    success_msg: "Human user '{{ item.name }}' SSH keys are configured"
+  loop: "{{ human_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Validate Tailscale auth key (if Tailscale is enabled)
+  when: enable_tailscale | default(false)
+  assert:
+    that:
+      - tailscale_authkey is defined
+      - tailscale_authkey | length > 0
+      - tailscale_authkey != "tskey-REPLACE_ME"
+      - not tailscale_authkey.startswith("tskey-REPLACE")
+    fail_msg: |
+      Tailscale is enabled but auth key is not set or is a placeholder.
+      Please set tailscale_authkey in all.secrets.yml
+      See ansible/inventories/prod/group_vars/all.secrets.yml.example for template.
+    success_msg: "Tailscale auth key is configured"
+
 - name: Install minimal base packages (headless safe)
   apt:
     name:

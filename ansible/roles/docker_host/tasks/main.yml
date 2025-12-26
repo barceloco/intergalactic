@@ -42,7 +42,18 @@
         enabled: true
         state: started
 
-    - name: Add automation user to docker group (optional)
+    # SECURITY NOTE: Adding a user to the docker group grants root-equivalent access
+    # because the Docker daemon runs as root. Any user in the docker group can:
+    # - Run containers with root privileges
+    # - Mount host filesystems
+    # - Access all host resources
+    #
+    # This is a security trade-off for convenience. Consider:
+    # - Using rootless Docker for better isolation (more complex setup)
+    # - Limiting docker group membership to trusted users only
+    # - Using sudo for docker commands instead (better audit trail)
+    - name: Add automation user to docker group
+      when: docker_add_automation_user | default(true)
       user:
         name: "{{ automation_user }}"
         groups: docker

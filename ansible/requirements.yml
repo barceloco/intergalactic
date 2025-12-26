@@ -1,3 +1,11 @@
 ---
+# Ansible and Python dependencies
+# These versions should match the Docker image in docker/ansible-runner/Dockerfile
 collections: []
 roles: []
+
+# Note: When installing locally (not using Docker), use:
+# pip install -r requirements.txt
+# where requirements.txt contains:
+# ansible==10.5.0
+# PyYAML==6.0.2

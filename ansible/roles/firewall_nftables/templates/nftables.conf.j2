@@ -8,6 +8,10 @@ table inet filter {
     policy drop;
 
     iif lo accept
+    {% if enable_tailscale | default(false) %}
+    # Accept all traffic on Tailscale interface (more secure than opening UDP port globally)
+    iif "tailscale0" accept
+    {% endif %}
     ct state established,related accept
 
     ip protocol icmp accept
@@ -21,7 +25,7 @@ table inet filter {
     udp dport {{ p }} accept
     {% endfor %}
 
-    limit rate 5/second counter log prefix "nft-in-drop: " drop
+    limit rate {{ firewall_rate_limit | default(10) }}/second counter log prefix "nft-in-drop: " drop
   }
 
   chain forward {
