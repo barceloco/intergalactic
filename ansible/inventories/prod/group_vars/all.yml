@@ -1,12 +1,12 @@
 ---
 automation_user: "ansible"
 automation_authorized_keys:
-  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMW1TbIl1CIO39nFgl3wt+ru+GUXZvZ5tLDHS89uAa9u armand@mbpm1"
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdYrr6ERlcqtG9507wmbYogvoh4WvDgFTOhjZ74QDFK ansible@control"
 
 human_users:
   - name: armand
     authorized_keys:
-      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJOHNDOE_REPLACE_ME armand@laptop"
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMW1TbIl1CIO39nFgl3wt+ru+GUXZvZ5tLDHS89uAa9u armand@mbpm1"
 
 ssh_port: 22
 ssh_allow_users:
