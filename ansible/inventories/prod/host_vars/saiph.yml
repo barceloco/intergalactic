@@ -1,0 +1,4 @@
+---
+hostname: "saiph"
+enable_desktop: false
+enable_docker: false

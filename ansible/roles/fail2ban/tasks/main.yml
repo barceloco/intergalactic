@@ -1,0 +1,54 @@
+---
+- name: Install fail2ban
+  apt:
+    name: fail2ban
+    state: present
+    update_cache: true
+
+- name: Configure fail2ban jail.local for sshd (nftables)
+  copy:
+    dest: /etc/fail2ban/jail.local
+    mode: "0644"
+    content: |
+      [DEFAULT]
+      banaction = nftables-multiport
+      bantime  = {{ fail2ban_bantime_seconds }}
+      findtime = 10m
+      maxretry = {{ fail2ban_maxretry }}
+
+      [sshd]
+      enabled = true
+      port = {{ ssh_port }}
+      logpath = %(sshd_log)s
+
+- name: Create persistent offender log directory
+  file:
+    path: /var/log/intergalactic
+    state: directory
+    mode: "0750"
+    owner: root
+    group: root
+
+- name: Add fail2ban action to log offender IPs
+  copy:
+    dest: /etc/fail2ban/action.d/intergalactic-log.conf
+    mode: "0644"
+    content: |
+      [Definition]
+      actionban = /usr/bin/printf "%s %s %s\n" "$(date -Is)" "<name>" "<ip>" >> /var/log/intergalactic/fail2ban-offenders.log
+      actionunban = true
+
+- name: Enable extra action for sshd jail
+  blockinfile:
+    path: /etc/fail2ban/jail.local
+    insertafter: '^\[sshd\]'
+    block: |
+      action = %(action_)s
+               intergalactic-log[name=sshd]
+  notify: Restart fail2ban
+
+- name: Ensure fail2ban enabled and running
+  service:
+    name: fail2ban
+    enabled: true
+    state: started

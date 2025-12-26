@@ -1,0 +1,73 @@
+---
+- name: Install minimal base packages (headless safe)
+  apt:
+    name:
+      - openssh-server
+      - sudo
+      - ca-certificates
+      - curl
+      - vim
+      - rsync
+      - chrony
+      - python3
+      - python3-apt
+    state: present
+    update_cache: true
+
+- name: Ensure chrony enabled
+  service:
+    name: chrony
+    enabled: true
+    state: started
+
+- name: Enforce automation authorized_keys (exclusive)
+  authorized_key:
+    user: "{{ automation_user }}"
+    key: "{{ item }}"
+    state: present
+    exclusive: true
+  loop: "{{ automation_authorized_keys }}"
+
+- name: Enforce human users authorized_keys (exclusive)
+  authorized_key:
+    user: "{{ item.0.name }}"
+    key: "{{ item.1 }}"
+    state: present
+    exclusive: true
+  loop: "{{ (human_users | default([])) | subelements('authorized_keys') }}"
+
+- name: Optionally disable default 'pi' user (if present)
+  when: disable_default_pi_user | default(false)
+  block:
+    - name: Check if 'pi' user exists
+      command: id pi
+      register: pi_id
+      changed_when: false
+      failed_when: false
+
+    - name: Lock 'pi' user
+      when: pi_id.rc == 0
+      user:
+        name: pi
+        password_lock: true
+        shell: /usr/sbin/nologin
+
+- name: Basic sysctl hardening (safe defaults)
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop:
+    - { name: "net.ipv4.conf.all.rp_filter", value: "1" }
+    - { name: "net.ipv4.conf.default.rp_filter", value: "1" }
+    - { name: "net.ipv4.tcp_syncookies", value: "1" }
+    - { name: "net.ipv4.conf.all.accept_redirects", value: "0" }
+    - { name: "net.ipv4.conf.default.accept_redirects", value: "0" }
+    - { name: "net.ipv4.conf.all.send_redirects", value: "0" }
+    - { name: "net.ipv4.conf.default.send_redirects", value: "0" }
+
+- name: Ensure hostname (if provided)
+  when: hostname is defined
+  hostname:
+    name: "{{ hostname }}"

@@ -1,0 +1,4 @@
+---
+hostname: "rigel"
+enable_desktop: false
+enable_docker: true

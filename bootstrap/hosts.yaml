@@ -1,0 +1,42 @@
+defaults:
+  debian_release: trixie
+  admin_user: ansible
+  ssh_authorized_keys:
+    - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdYrr6ERlcqtG9507wmbYogvoh4WvDgFTOhjZ74QDFK ansible@control"
+
+hosts:
+  rigel:
+    generation: 4
+    galaxy: milkyway
+    arch: arm64
+    image: "images/debian-trixie-rpi4.img"
+    target_device: "/dev/sdX"
+
+  vega:
+    generation: 5
+    galaxy: milkyway
+    arch: arm64
+    image: "images/debian-trixie-rpi5.img"
+    target_device: "/dev/sdY"
+    desktop: true
+
+  saiph:
+    generation: 1
+    galaxy: milkyway
+    arch: armhf
+    image: "images/debian-trixie-rpi1.img"
+    target_device: "/dev/sdZ"
+
+  g1:
+    generation: 1
+    galaxy: andromeda_m31
+    arch: armhf
+    image: "images/debian-trixie-rpi1.img"
+    target_device: "/dev/sdZ"
+
+  ngc604:
+    generation: 1
+    galaxy: triangulum_m33
+    arch: armhf
+    image: "images/debian-trixie-rpi1.img"
+    target_device: "/dev/sdZ"

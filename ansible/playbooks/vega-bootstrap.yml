@@ -1,0 +1,6 @@
+---
+- name: Bootstrap Vega
+  hosts: vega
+  become: true
+  roles:
+    - common_bootstrap

@@ -1,0 +1,12 @@
+---
+- name: Rigel (RPi4 headless endpoint + docker host)
+  hosts: rigel
+  become: true
+  roles:
+    - common
+    - ssh_hardening
+    - firewall_nftables
+    - fail2ban
+    - updates
+    - tailscale
+    - docker_host

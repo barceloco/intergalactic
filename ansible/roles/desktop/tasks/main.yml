@@ -1,0 +1,18 @@
+---
+- name: Install Debian desktop (XFCE) - workstation only
+  when: enable_desktop | default(false)
+  apt:
+    name:
+      - task-xfce-desktop
+      - lightdm
+      - network-manager
+      - firefox-esr
+    state: present
+    update_cache: true
+
+- name: Ensure NetworkManager enabled
+  when: enable_desktop | default(false)
+  service:
+    name: NetworkManager
+    enabled: true
+    state: started

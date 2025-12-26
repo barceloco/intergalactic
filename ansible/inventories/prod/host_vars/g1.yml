@@ -1,0 +1,4 @@
+---
+hostname: "g1"
+enable_desktop: false
+enable_docker: false

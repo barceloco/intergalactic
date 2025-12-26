@@ -1,0 +1,62 @@
+# -------------------------
+# Secrets / local overrides
+# -------------------------
+*.secrets.yml
+*.secrets.yaml
+bootstrap/hosts.secrets.yaml
+ansible/inventories/**/group_vars/*secrets*.yml
+.env
+.env.*
+
+# -------------------------
+# SSH keys (never commit)
+# -------------------------
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+intergalactic_*_key
+intergalactic_*_key.pub
+
+# -------------------------
+# Ansible runtime artifacts
+# -------------------------
+*.retry
+ansible.log
+ansible/*.log
+ansible/tmp/
+.ansible/
+.ansible.cfg
+
+# -------------------------
+# Docker / build artifacts
+# -------------------------
+docker/**/build/
+docker/**/.cache/
+*.tar
+*.tar.gz
+*.tgz
+
+# -------------------------
+# OS / editor junk
+# -------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.bak
+*.tmp
+.vscode/
+.idea/
+
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/

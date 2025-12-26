@@ -1,0 +1,48 @@
+---
+- name: Install tailscale (Debian repo)
+  when: enable_tailscale | default(false)
+  block:
+    - name: Install prerequisites
+      apt:
+        name:
+          - curl
+          - ca-certificates
+          - gnupg
+        state: present
+        update_cache: true
+
+    - name: Add Tailscale apt keyring
+      shell: |
+        install -d -m 0755 /usr/share/keyrings
+        curl -fsSL https://pkgs.tailscale.com/stable/debian/{{ ansible_distribution_release }}.noarmor.gpg \
+          -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+      args:
+        creates: /usr/share/keyrings/tailscale-archive-keyring.gpg
+
+    - name: Add Tailscale apt repo
+      copy:
+        dest: /etc/apt/sources.list.d/tailscale.list
+        mode: "0644"
+        content: |
+          deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian {{ ansible_distribution_release }} main
+
+    - name: Install tailscale package
+      apt:
+        name: tailscale
+        state: present
+        update_cache: true
+
+    - name: Enable tailscaled
+      service:
+        name: tailscaled
+        enabled: true
+        state: started
+
+    - name: Bring up tailscale (skip if already up)
+      shell: |
+        set -e
+        tailscale status >/dev/null 2>&1 && exit 0
+        tailscale up --authkey={{ tailscale_authkey }} \
+          {% if tailscale_advertise_exit_node | default(false) %} --advertise-exit-node {% endif %} \
+          {% if (tailscale_advertise_routes | default([])) | length > 0 %} --advertise-routes={{ tailscale_advertise_routes | join(',') }} {% endif %}
+      changed_when: false

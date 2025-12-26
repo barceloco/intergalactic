@@ -1,0 +1,47 @@
+---
+- name: Ensure OpenSSH server installed
+  apt:
+    name: openssh-server
+    state: present
+    update_cache: true
+
+- name: Configure sshd drop-in
+  copy:
+    dest: /etc/ssh/sshd_config.d/10-intergalactic.conf
+    mode: "0600"
+    owner: root
+    group: root
+    content: |
+      Port {{ ssh_port }}
+      Protocol 2
+
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      UsePAM yes
+
+      PubkeyAuthentication yes
+      AuthenticationMethods publickey
+
+      X11Forwarding no
+      AllowTcpForwarding no
+      AllowAgentForwarding yes
+      PermitTunnel no
+
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+      LoginGraceTime 20
+      MaxAuthTries 3
+      MaxSessions 5
+
+      {% if ssh_allow_users is defined and ssh_allow_users|length > 0 %}
+      AllowUsers {% for u in ssh_allow_users %}{{ u }} {% endfor %}
+      {% endif %}
+  notify: Restart ssh
+
+- name: Ensure SSH service enabled
+  service:
+    name: ssh
+    enabled: true
+    state: started

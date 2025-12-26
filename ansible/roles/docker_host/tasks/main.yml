@@ -1,0 +1,49 @@
+---
+- name: Install Docker engine (Debian)
+  when: enable_docker | default(false)
+  block:
+    - name: Install prerequisites
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+        update_cache: true
+
+    - name: Add Docker apt keyring
+      shell: |
+        install -d -m 0755 /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+
+    - name: Add Docker apt repo
+      copy:
+        dest: /etc/apt/sources.list.d/docker.list
+        mode: "0644"
+        content: |
+          deb [arch={{ 'arm64' if ansible_architecture in ['aarch64','arm64'] else 'armhf' }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
+
+    - name: Install docker packages
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Enable docker
+      service:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Add automation user to docker group (optional)
+      user:
+        name: "{{ automation_user }}"
+        groups: docker
+        append: true

@@ -1,0 +1,33 @@
+---
+automation_user: "ansible"
+automation_authorized_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMW1TbIl1CIO39nFgl3wt+ru+GUXZvZ5tLDHS89uAa9u armand@mbpm1"
+
+human_users:
+  - name: armand
+    authorized_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJOHNDOE_REPLACE_ME armand@laptop"
+
+ssh_port: 22
+ssh_allow_users:
+  - "{{ automation_user }}"
+  - "armand"
+
+firewall_allow_tcp_ports:
+  - "{{ ssh_port }}"
+firewall_allow_udp_ports: []
+
+fail2ban_maxretry: 2
+fail2ban_bantime_seconds: 315360000
+
+enable_unattended_upgrades: true
+
+enable_tailscale: true
+tailscale_authkey: "tskey-REPLACE_ME"
+tailscale_advertise_exit_node: false
+tailscale_advertise_routes: []
+
+enable_docker: true
+enable_desktop: false
+
+disable_default_pi_user: true

@@ -1,0 +1,52 @@
+---
+- name: Ensure base packages for Ansible are installed
+  apt:
+    name:
+      - sudo
+      - python3
+      - python3-apt
+      - ca-certificates
+    state: present
+    update_cache: true
+
+- name: Ensure automation user exists
+  user:
+    name: "{{ automation_user }}"
+    groups: sudo
+    append: true
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+- name: Ensure automation authorized_keys are present
+  authorized_key:
+    user: "{{ automation_user }}"
+    key: "{{ item }}"
+    state: present
+  loop: "{{ automation_authorized_keys }}"
+
+- name: Passwordless sudo for automation user (no-password policy)
+  copy:
+    dest: "/etc/sudoers.d/90-{{ automation_user }}"
+    content: "{{ automation_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    mode: "0440"
+
+- name: Ensure human users exist
+  user:
+    name: "{{ item.name }}"
+    shell: /bin/bash
+    create_home: true
+    state: present
+  loop: "{{ human_users | default([]) }}"
+
+- name: Ensure human users authorized_keys
+  authorized_key:
+    user: "{{ item.0.name }}"
+    key: "{{ item.1 }}"
+    state: present
+  loop: "{{ (human_users | default([])) | subelements('authorized_keys') }}"
+
+- name: Set hostname (if provided)
+  when: hostname is defined
+  hostname:
+    name: "{{ hostname }}"

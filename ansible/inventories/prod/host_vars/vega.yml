@@ -1,0 +1,4 @@
+---
+hostname: "vega"
+enable_desktop: true
+enable_docker: true

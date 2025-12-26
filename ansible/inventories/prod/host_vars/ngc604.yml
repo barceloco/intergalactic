@@ -1,0 +1,4 @@
+---
+hostname: "ngc604"
+enable_desktop: false
+enable_docker: false

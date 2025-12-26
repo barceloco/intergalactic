@@ -1,0 +1,6 @@
+---
+- name: Bootstrap Rigel (create automation + humans + keys before hardening)
+  hosts: rigel
+  become: true
+  roles:
+    - common_bootstrap

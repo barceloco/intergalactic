@@ -1,0 +1,36 @@
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+table inet filter {
+  chain input {
+    type filter hook input priority 0;
+    policy drop;
+
+    iif lo accept
+    ct state established,related accept
+
+    ip protocol icmp accept
+    ip6 nexthdr icmpv6 accept
+
+    {% for p in firewall_allow_tcp_ports %}
+    tcp dport {{ p }} accept
+    {% endfor %}
+
+    {% for p in firewall_allow_udp_ports %}
+    udp dport {{ p }} accept
+    {% endfor %}
+
+    limit rate 5/second counter log prefix "nft-in-drop: " drop
+  }
+
+  chain forward {
+    type filter hook forward priority 0;
+    policy drop;
+  }
+
+  chain output {
+    type filter hook output priority 0;
+    policy accept;
+  }
+}
