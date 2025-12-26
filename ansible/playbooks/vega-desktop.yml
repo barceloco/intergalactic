@@ -2,6 +2,8 @@
 - name: Vega (RPi5 workstation: hardened + desktop)
   hosts: vega
   become: true
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
   roles:
     - common
     - ssh_hardening

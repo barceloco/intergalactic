@@ -1,0 +1,19 @@
+# Security Rules - CRITICAL
+
+## NEVER Reduce Security
+
+**YOU MUST NEVER make changes that have security implications:**
+- NO reducing safety checks
+- NO ignoring signature or key verifications
+- NO disabling host key checking
+- NO bypassing authentication mechanisms
+- NO weakening encryption or cryptographic verification
+- NO removing security validations
+
+**If a change would reduce security, you MUST:**
+1. Reject the change
+2. Explain the security risk
+3. Suggest a secure alternative that maintains or improves security
+
+**Security is non-negotiable. When in doubt, choose the more secure option.**
+

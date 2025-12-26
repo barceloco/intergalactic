@@ -2,6 +2,8 @@
 - name: Rigel (RPi4 headless endpoint + docker host)
   hosts: rigel
   become: true
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
   roles:
     - common
     - ssh_hardening

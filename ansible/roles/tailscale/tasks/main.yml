@@ -11,8 +11,8 @@
           - not tailscale_authkey.startswith("tskey-REPLACE")
         fail_msg: |
           Tailscale auth key is not set or is a placeholder.
-          Please set tailscale_authkey in all.secrets.yml
-          See all.secrets.yml.example for template.
+          Please set tailscale_authkey in all_secrets.yml
+          See all_secrets.yml.example for template.
         success_msg: "Tailscale auth key is configured"
     - name: Install prerequisites
       apt:

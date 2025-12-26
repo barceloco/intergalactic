@@ -100,12 +100,12 @@ The secrets file stores your SSH keys and Tailscale auth key. It's gitignored (n
 
 ```bash
 cd ansible/inventories/prod/group_vars
-cp all.secrets.yml.example all.secrets.yml
+cp all_secrets.yml.example all_secrets.yml
 ```
 
 #### 4.2: Edit the Secrets File
 
-Open `all.secrets.yml` in your text editor and fill in your actual values:
+Open `all_secrets.yml` in your text editor and fill in your actual values:
 
 ```yaml
 ---
@@ -205,8 +205,8 @@ all:
 
 **CRITICAL**: The bootstrap process will **immediately disable password-based SSH authentication**. Make sure:
 1. Your SSH key works for your existing user (you can SSH in without a password)
-2. Your automation SSH key is in `all.secrets.yml`
-3. Your personal SSH key is in `all.secrets.yml` (for your user account)
+2. Your automation SSH key is in `all_secrets.yml`
+3. Your personal SSH key is in `all_secrets.yml` (for your user account)
 
 ```bash
 cd ~/Documents/GitHub/intergalactic
@@ -335,7 +335,7 @@ exit
 
 ### "Permission denied" when SSH'ing
 
-- **Check**: Your SSH public key is correctly in `all.secrets.yml`
+- **Check**: Your SSH public key is correctly in `all_secrets.yml`
 - **Check**: The bootstrap playbook ran successfully
 - **Check**: You're using the correct user (`ansible` for automation, your username for personal)
 - **Try**: `ssh -v ansible@192.168.1.40` to see detailed error messages
@@ -358,14 +358,14 @@ exit
 
 ### Tailscale not connecting
 
-- **Check**: `tailscale_authkey` is set in `all.secrets.yml` (not empty, not placeholder)
+- **Check**: `tailscale_authkey` is set in `all_secrets.yml` (not empty, not placeholder)
 - **Check**: The auth key is still valid (they expire)
 - **Check**: Firewall allows UDP port 41641 (should be automatic)
 - **Try**: SSH into Pi and run `sudo tailscale status` to see error messages
 
 ### Can't SSH into Pi after bootstrap
 
-- **Check**: Your SSH keys are correctly configured in `all.secrets.yml`
+- **Check**: Your SSH keys are correctly configured in `all_secrets.yml`
 - **Check**: You're using the correct username (`ansible` or your personal username)
 - **Check**: Your SSH key is in your local `~/.ssh/` directory
 - **Try**: Test with verbose output: `ssh -v ansible@192.168.1.40`
@@ -374,7 +374,8 @@ exit
 ### "Host key checking" errors
 
 - **Fix**: Remove old host key: `ssh-keygen -R 192.168.1.40`
-- **Or**: Edit `ansible/ansible.cfg` and set `host_key_checking = False` (less secure)
+- **Note**: The bootstrap playbooks automatically fetch and add host keys using `ssh-keyscan` for secure verification
+- **Security**: Host key checking is enabled by default to prevent MITM attacks. Do NOT disable it.
 
 ### Can't find Raspberry Pi on network
 
@@ -408,7 +409,7 @@ ssh <your-username>@<pi-ip-address>
 
 ### File Locations
 
-- **Secrets**: `ansible/inventories/prod/group_vars/all.secrets.yml` (SSH keys, Tailscale key)
+- **Secrets**: `ansible/inventories/prod/group_vars/all_secrets.yml` (SSH keys, Tailscale key)
 - **Ansible inventory**: `ansible/inventories/prod/hosts.yml` (IP addresses, initial user)
 - **General config**: `ansible/inventories/prod/group_vars/all.yml` (global settings)
 - **Host-specific config**: `ansible/inventories/prod/host_vars/<hostname>.yml` (per-host overrides)

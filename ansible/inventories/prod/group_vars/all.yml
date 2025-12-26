@@ -1,12 +1,12 @@
 ---
 automation_user: "ansible"
-# SSH public keys for automation user - set in all.secrets.yml
-# See all.secrets.yml.example for template
-automation_authorized_keys: []
+# SSH public keys for automation user - MUST be set in all_secrets.yml
+# See all_secrets.yml.example for template
+# Do not define automation_authorized_keys here - it must come from all_secrets.yml
 
-# Human user accounts with SSH keys - set in all.secrets.yml
-# See all.secrets.yml.example for template
-human_users: []
+# Human user accounts with SSH keys - MUST be set in all_secrets.yml
+# See all_secrets.yml.example for template
+# Do not define human_users here - it must come from all_secrets.yml
 
 ssh_port: 22
 # SSH allowlist is automatically generated from automation_user + human_users
@@ -30,8 +30,8 @@ fail2ban_bantime_seconds: 315360000
 enable_unattended_upgrades: true
 
 enable_tailscale: true
-# Tailscale authentication key - set in all.secrets.yml
-# See all.secrets.yml.example for template
+# Tailscale authentication key - set in all_secrets.yml
+# See all_secrets.yml.example for template
 tailscale_authkey: ""
 tailscale_advertise_exit_node: false
 tailscale_advertise_routes: []

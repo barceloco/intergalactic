@@ -7,8 +7,8 @@
       - automation_authorized_keys | length > 0
     fail_msg: |
       automation_authorized_keys is not set or is empty.
-      Please configure SSH keys in all.secrets.yml
-      See ansible/inventories/prod/group_vars/all.secrets.yml.example for template.
+      Please configure SSH keys in all_secrets.yml
+      See ansible/inventories/prod/group_vars/all_secrets.yml.example for template.
     success_msg: "Automation SSH keys are configured"
 
 - name: Validate human users SSH keys are configured (if human_users is defined)
@@ -19,8 +19,8 @@
       - item.authorized_keys | length > 0
     fail_msg: |
       Human user '{{ item.name }}' has no authorized_keys configured.
-      Please add SSH keys for this user in all.secrets.yml
-      See ansible/inventories/prod/group_vars/all.secrets.yml.example for template.
+      Please add SSH keys for this user in all_secrets.yml
+      See ansible/inventories/prod/group_vars/all_secrets.yml.example for template.
     success_msg: "Human user '{{ item.name }}' SSH keys are configured"
   loop: "{{ human_users }}"
   loop_control:
@@ -36,8 +36,8 @@
       - not tailscale_authkey.startswith("tskey-REPLACE")
     fail_msg: |
       Tailscale is enabled but auth key is not set or is a placeholder.
-      Please set tailscale_authkey in all.secrets.yml
-      See ansible/inventories/prod/group_vars/all.secrets.yml.example for template.
+      Please set tailscale_authkey in all_secrets.yml
+      See ansible/inventories/prod/group_vars/all_secrets.yml.example for template.
     success_msg: "Tailscale auth key is configured"
 
 - name: Install minimal base packages (headless safe)

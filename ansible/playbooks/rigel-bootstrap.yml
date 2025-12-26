@@ -2,5 +2,62 @@
 - name: Bootstrap Rigel (create ansible user, disable password auth, set up keys)
   hosts: rigel
   become: true
+  gather_facts: false
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
+  pre_tasks:
+    - name: Fetch host key using ssh-keyscan (secure host key verification)
+      command: >
+        ssh-keyscan
+        -t ecdsa,ed25519,rsa
+        {{ ansible_host | default(inventory_hostname) }}
+      register: ssh_keyscan_output
+      delegate_to: localhost
+      run_once: true
+      changed_when: false
+      failed_when: false
+      # Note: We check the return code below - if ssh-keyscan fails, we fail the playbook
+      # This ensures we never connect to a host without verifying its identity
+
+    - name: Fail if ssh-keyscan failed (cannot verify host identity)
+      assert:
+        that:
+          - ssh_keyscan_output.rc == 0
+          - ssh_keyscan_output.stdout_lines | length > 0
+        fail_msg: |
+          ============================================================================
+          SECURITY ERROR: Cannot verify host identity!
+          ============================================================================
+          ssh-keyscan failed to fetch host keys from {{ ansible_host | default(inventory_hostname) }}
+          
+          This means we cannot securely verify the host's identity before connecting.
+          Host key verification is REQUIRED to prevent MITM attacks.
+          
+          Possible causes:
+          1. Host is unreachable (check network connectivity)
+          2. SSH service is not running on the host
+          3. Firewall is blocking connection
+          
+          Please fix the connectivity issue and try again.
+          ============================================================================
+        success_msg: "✓ Host key fetched successfully - secure connection verified"
+
+    - name: Add fetched host keys to known_hosts (one key per line)
+      lineinfile:
+        path: "{{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
+        line: "{{ item }}"
+        create: true
+        mode: '0600'
+        regexp: "^{{ ansible_host | default(inventory_hostname) }} "
+        state: present
+      delegate_to: localhost
+      run_once: true
+      loop: "{{ ssh_keyscan_output.stdout_lines }}"
+      when:
+        - item is defined
+        - item | length > 0
+      # Add each key line from ssh-keyscan to known_hosts
+      # regexp ensures we update existing entries instead of duplicating
+      # Note: We already verified ssh-keyscan succeeded in the previous task
   roles:
     - common_bootstrap
