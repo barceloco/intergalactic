@@ -85,13 +85,6 @@
     group: "{{ automation_user }}"
     mode: "0700"
 
-- name: Debug - Show automation_authorized_keys variable
-  debug:
-    msg: |
-      automation_authorized_keys value: {{ automation_authorized_keys | default('NOT SET') }}
-      automation_authorized_keys length: {{ automation_authorized_keys | default([]) | length }}
-      automation_authorized_keys type: {{ automation_authorized_keys | type_debug }}
-
 - name: Ensure automation authorized_keys are present
   when: automation_authorized_keys is defined and automation_authorized_keys | length > 0
   authorized_key:
@@ -101,12 +94,6 @@
     path: "/home/{{ automation_user }}/.ssh/authorized_keys"
   loop: "{{ automation_authorized_keys }}"
   register: authorized_keys_result
-  no_log: false
-
-- name: Display authorized_keys task results
-  when: automation_authorized_keys is defined and automation_authorized_keys | length > 0
-  debug:
-    var: authorized_keys_result
 
 - name: Verify authorized_keys file exists
   stat:
@@ -161,11 +148,64 @@
       ============================================================================
     success_msg: "✓ SSH authorized_keys successfully added for {{ automation_user }} ({{ authorized_keys_file.stat.size }} bytes)"
 
-- name: Passwordless sudo for automation user (no-password policy)
+- name: Passwordless sudo for automation user (no-password policy, no TTY required)
   copy:
     dest: "/etc/sudoers.d/90-{{ automation_user }}"
-    content: "{{ automation_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    content: |
+      # Allow {{ automation_user }} to run all commands without password
+      # Disable requiretty to allow non-interactive sudo (required for Ansible)
+      Defaults:{{ automation_user }} !requiretty
+      {{ automation_user }} ALL=(ALL) NOPASSWD:ALL
     mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Verify sudoers file syntax
+  command: visudo -c -f /etc/sudoers.d/90-{{ automation_user }}
+  changed_when: false
+  failed_when: false
+  register: sudoers_check
+
+- name: Fail if sudoers file is invalid
+  assert:
+    that:
+      - sudoers_check.rc == 0
+    fail_msg: |
+      ============================================================================
+      ERROR: Sudoers file syntax is invalid!
+      ============================================================================
+      The sudoers file for {{ automation_user }} has syntax errors.
+      This will prevent passwordless sudo from working.
+      
+      Check output: {{ sudoers_check.stdout | default('No output') }}
+      ============================================================================
+
+- name: Test passwordless sudo access
+  command: sudo -n id
+  register: sudo_test
+  changed_when: false
+  failed_when: false
+
+- name: Fail if passwordless sudo doesn't work
+  assert:
+    that:
+      - sudo_test.rc == 0
+    fail_msg: |
+      ============================================================================
+      ERROR: Passwordless sudo is not working for {{ automation_user }}!
+      ============================================================================
+      The sudoers file was created, but passwordless sudo is not functioning.
+      This will cause Ansible tasks to timeout waiting for password prompts.
+      
+      Sudo test output: {{ sudo_test.stdout | default('No output') }}
+      Sudo test error: {{ sudo_test.stderr | default('No error') }}
+      
+      Please check:
+      1. The sudoers file exists: /etc/sudoers.d/90-{{ automation_user }}
+      2. The file has correct permissions (0440)
+      3. The user is in the sudo group
+      4. There are no conflicting sudoers rules
+      ============================================================================
+    success_msg: "✓ Passwordless sudo verified for {{ automation_user }}"
 
 # Human users may already exist (e.g., from standard Raspberry Pi image)
 # Ensure they exist, then set their SSH keys

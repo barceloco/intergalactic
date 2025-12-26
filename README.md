@@ -174,9 +174,9 @@ exit
 
 Tell Ansible where your Raspberry Pi will be on the network.
 
-#### 6.1: Edit ansible/inventories/prod/hosts.yml
+#### 6.1: Edit ansible/inventories/prod/hosts-bootstrap.yml
 
-Open `ansible/inventories/prod/hosts.yml` and update the IP address and initial user:
+Open `ansible/inventories/prod/hosts-bootstrap.yml` and update the IP address and initial user:
 
 ```yaml
 all:
@@ -193,7 +193,27 @@ all:
 **Important**: 
 - Set `ansible_user` to your **existing username** (the one you use to SSH in now)
 - This user must have **sudo access** (passwordless sudo is preferred, but password sudo will work)
-- After bootstrap completes, Ansible will use the `ansible` user for future runs
+- This file is only used during bootstrap - the script automatically selects it
+
+#### 6.2: Edit ansible/inventories/prod/hosts.yml (Production Inventory)
+
+The production inventory (`hosts.yml`) should use the `ansible` automation user for all hosts that have been bootstrapped:
+
+```yaml
+all:
+  children:
+    home_milkyway:
+      children:
+        rpi4:
+          hosts:
+            rigel:
+              ansible_host: 192.168.1.40
+              ansible_user: ansible  # Automation user (after bootstrap)
+```
+
+**Note**: The `run-ansible.sh` script automatically uses:
+- `hosts-bootstrap.yml` for bootstrap playbooks (e.g., `rigel-bootstrap`)
+- `hosts.yml` for regular playbooks (e.g., `rigel`)
 
 **How to find your Pi's IP address:**
 - If connected via Ethernet: Check your router's admin page
@@ -246,6 +266,8 @@ rigel                      : ok=10   changed=7    unreachable=0    failed=0
 - After this step, **password-based SSH is disabled** - only SSH keys will work
 - If bootstrap fails, you can still SSH in with your existing user/key to troubleshoot
 - The `ansible` user is now created and ready for automation
+- The bootstrap inventory (`hosts-bootstrap.yml`) uses your initial user
+- The production inventory (`hosts.yml`) uses the `ansible` user - make sure it's configured correctly
 
 ### Step 8: Run Main Ansible Playbook
 
@@ -286,7 +308,7 @@ rigel                      : ok=45   changed=12   unreachable=0    failed=0
 
 **This may take 5-10 minutes** depending on your internet connection (it downloads packages).
 
-**Note**: After this step, Ansible will use the `ansible` user for all future runs (no need to specify `ansible_user` in inventory).
+**Note**: The script automatically uses the production inventory (`hosts.yml`) which uses the `ansible` user. Make sure your host is configured in `hosts.yml` with `ansible_user: ansible` after bootstrap completes.
 
 ### Step 9: Verify Everything Works
 
@@ -346,7 +368,8 @@ exit
 - **Check**: You can SSH into the Pi manually with your existing user
 - **Check**: Your existing user has sudo access: `ssh armand@192.168.1.40 "sudo whoami"`
 - **Check**: The bootstrap playbook ran successfully first
-- **Check**: `ansible_user` in `hosts.yml` matches your existing username (before bootstrap)
+- **Check**: `ansible_user` in `hosts-bootstrap.yml` matches your existing username (for bootstrap)
+- **Check**: `ansible_user` in `hosts.yml` is set to `ansible` (for regular operations)
 - **Try**: Run bootstrap again: `./scripts/run-ansible.sh prod rigel-bootstrap`
 
 ### Password authentication still works after bootstrap
@@ -410,7 +433,8 @@ ssh <your-username>@<pi-ip-address>
 ### File Locations
 
 - **Secrets**: `ansible/inventories/prod/group_vars/all_secrets.yml` (SSH keys, Tailscale key)
-- **Ansible inventory**: `ansible/inventories/prod/hosts.yml` (IP addresses, initial user)
+- **Bootstrap inventory**: `ansible/inventories/prod/hosts-bootstrap.yml` (for initial setup, uses initial user)
+- **Production inventory**: `ansible/inventories/prod/hosts.yml` (for regular operations, uses ansible user)
 - **General config**: `ansible/inventories/prod/group_vars/all.yml` (global settings)
 - **Host-specific config**: `ansible/inventories/prod/host_vars/<hostname>.yml` (per-host overrides)
 
@@ -438,9 +462,10 @@ Once your first Pi is set up:
 1. **Add more Pis**: 
    - Install standard Raspberry Pi image on each new Pi
    - Ensure you can SSH in with your existing user
-   - Add the new Pi to `ansible/inventories/prod/hosts.yml`
-   - Run bootstrap: `./scripts/run-ansible.sh prod <new-hostname>-bootstrap`
-   - Run main playbook: `./scripts/run-ansible.sh prod <new-hostname>`
+   - Add the new Pi to `ansible/inventories/prod/hosts-bootstrap.yml` (with initial user)
+   - Add the new Pi to `ansible/inventories/prod/hosts.yml` (with `ansible_user: ansible`)
+   - Run bootstrap: `./scripts/run-ansible.sh prod <new-hostname>-bootstrap` (uses bootstrap inventory)
+   - Run main playbook: `./scripts/run-ansible.sh prod <new-hostname>` (uses production inventory)
 
 2. **Customize**: Edit `ansible/inventories/prod/group_vars/all.yml` for global settings
 

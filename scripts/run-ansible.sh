@@ -23,6 +23,10 @@ if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
   SSH_AUTH_SOCK_MOUNT="-v ${SSH_AUTH_SOCK}:/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent"
 fi
 
+# Note: We don't mount known_hosts as a file because it causes file locking issues
+# The playbooks will manage known_hosts inside the container using the known_hosts module
+# Host keys are fetched and added securely on each run
+
 # Run the playbook and capture exit code
 docker run --rm -i \
   -v "${ROOT_DIR}:/repo" \

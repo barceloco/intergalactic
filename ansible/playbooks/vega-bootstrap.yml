@@ -6,6 +6,14 @@
   vars_files:
     - "../inventories/prod/group_vars/all_secrets.yml"
   pre_tasks:
+    - name: Ensure .ssh directory exists for known_hosts
+      file:
+        path: "/root/.ssh"
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      run_once: true
+
     - name: Fetch host key using ssh-keyscan (secure host key verification)
       command: >
         ssh-keyscan
@@ -42,13 +50,13 @@
           ============================================================================
         success_msg: "✓ Host key fetched successfully - secure connection verified"
 
-    - name: Add fetched host keys to known_hosts (one key per line)
+    - name: Add fetched host keys to known_hosts (one key per line, skip comments)
       lineinfile:
         path: "{{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
         line: "{{ item }}"
         create: true
         mode: '0600'
-        regexp: "^{{ ansible_host | default(inventory_hostname) }} "
+        regexp: "^{{ item.split()[0] if item.split() | length > 0 else '' }} "
         state: present
       delegate_to: localhost
       run_once: true
@@ -56,8 +64,26 @@
       when:
         - item is defined
         - item | length > 0
-      # Add each key line from ssh-keyscan to known_hosts
+        - not item.startswith('#')
+        - item.split() | length >= 3
+      # Filter out comment lines, add each valid key line to known_hosts
       # regexp ensures we update existing entries instead of duplicating
-      # Note: We already verified ssh-keyscan succeeded in the previous task
   roles:
     - common_bootstrap
+
+  post_tasks:
+    - name: Display bootstrap completion status
+      debug:
+        msg: |
+          ============================================================================
+          ✓ Bootstrap completed successfully!
+          ============================================================================
+          The automation user '{{ automation_user }}' has been created and configured.
+          
+          Next steps:
+          1. The bootstrap inventory (hosts-bootstrap.yml) uses the initial user '{{ ansible_user }}'
+          2. The production inventory (hosts.yml) uses the automation user '{{ automation_user }}'
+          3. For future runs, use the production inventory: ./scripts/run-ansible.sh prod vega
+          ============================================================================
+      delegate_to: localhost
+      run_once: true

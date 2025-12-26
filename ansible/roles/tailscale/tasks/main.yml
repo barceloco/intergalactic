@@ -81,8 +81,7 @@
     - name: Bring up tailscale
       when: tailscale_status_check.rc != 0
       command:
-        cmd: tailscale
-        argv: "{{ tailscale_args }}"
+        argv: "{{ ['tailscale'] + tailscale_args }}"
       register: tailscale_up_result
       changed_when: tailscale_up_result.rc == 0
       failed_when: tailscale_up_result.rc != 0

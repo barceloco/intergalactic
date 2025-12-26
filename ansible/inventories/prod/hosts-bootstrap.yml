@@ -1,7 +1,7 @@
 ---
-# Production inventory - used for regular operations after bootstrap
-# All hosts should use the 'ansible' automation user after initial bootstrap
-# For new hosts that haven't been bootstrapped yet, use hosts-bootstrap.yml instead
+# Bootstrap inventory - used for initial setup of new hosts
+# This inventory uses the initial user (e.g., 'armand') that exists on fresh Raspberry Pi images
+# After bootstrap completes, switch to using hosts.yml which uses the 'ansible' automation user
 all:
   children:
     home_milkyway:
@@ -10,28 +10,28 @@ all:
           hosts:
             vega:
               ansible_host: 192.168.1.230
-              ansible_user: ansible
+              ansible_user: armand
         rpi4:
           hosts:
             rigel:
               ansible_host: 192.168.1.231
-              ansible_user: ansible
+              ansible_user: armand
         rpi1:
           hosts:
             saiph:
               ansible_host: 192.168.1.60
-              ansible_user: ansible
+              ansible_user: armand
     andromeda_m31:
       children:
         rpi1:
           hosts:
             g1:
               ansible_host: 10.10.10.11
-              ansible_user: ansible
+              ansible_user: armand
     triangulum_m33:
       children:
         rpi1:
           hosts:
             ngc604:
               ansible_host: 10.10.20.11
-              ansible_user: ansible
+              ansible_user: armand

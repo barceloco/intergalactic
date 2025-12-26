@@ -10,7 +10,8 @@ table inet filter {
     iif lo accept
     {% if enable_tailscale | default(false) %}
     # Accept all traffic on Tailscale interface (more secure than opening UDP port globally)
-    iif "tailscale0" accept
+    # Note: This rule will be ignored if tailscale0 doesn't exist yet (e.g., before Tailscale is started)
+    iifname "tailscale0" accept
     {% endif %}
     ct state established,related accept
 
