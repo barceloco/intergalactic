@@ -284,7 +284,7 @@ This applies the full configuration: firewall, SSH hardening, Tailscale, Docker,
 **What this does:**
 - Applies complete SSH hardening configuration
 - Sets up firewall (nftables) with default-deny policy
-- Configures fail2ban (bans IPs after failed login attempts)
+- Configures fail2ban (optional, enabled by default - provides security intelligence and bans after failed authentication attempts)
 - Installs and configures Tailscale (if enabled)
 - Installs Docker (if enabled)
 - Sets up automatic security updates
@@ -450,8 +450,35 @@ ssh <your-username>@<pi-ip-address>
 - No password-based login ever (SSH keys only)
 - Tight SSH allowlist
 - Default-deny firewall; only explicitly allowed ports
-- Fail2ban: treat password attempts as hostile; long/"forever" bans + IP log
+- Fail2ban: optional but recommended - detects invalid user attempts and reconnaissance even with key-only auth; long/"forever" bans + IP log (configurable via `enable_fail2ban`)
 - Minimal packages; no X/desktop on headless nodes (desktop only on Gen5 workstation)
+
+### Fail2ban Configuration
+
+Fail2ban is **enabled by default** and provides valuable security intelligence even with password authentication disabled. It detects:
+
+- Invalid user attempts (e.g., trying `root`, `admin`, non-existent users)
+- Wrong SSH key attempts (valid user, wrong key)
+- Reconnaissance and scanning activity
+- Logs all offenders to `/var/log/intergalactic/fail2ban-offenders.log`
+
+**Configuration options** (in `ansible/inventories/prod/group_vars/all.yml`):
+
+```yaml
+enable_fail2ban: true  # Set to false to disable fail2ban entirely
+fail2ban_maxretry: 5   # Failed attempts before ban (default: 5, was 2)
+fail2ban_bantime_seconds: 315360000  # Ban duration (~10 years, effectively permanent)
+```
+
+**Why keep fail2ban with key-only auth?**
+- **Defense in depth**: Additional security layer
+- **Security intelligence**: See who's probing your systems
+- **Misconfiguration protection**: Detects if password auth is accidentally re-enabled
+- **Low overhead**: Minimal resource usage
+- **Industry standard**: Common in hardened production environments
+
+**To disable fail2ban:**
+Set `enable_fail2ban: false` in `ansible/inventories/prod/group_vars/all.yml` or in host-specific vars.
 
 ---
 

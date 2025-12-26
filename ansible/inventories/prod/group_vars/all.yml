@@ -21,9 +21,14 @@ firewall_allow_udp_ports: "{{ [41641] if enable_tailscale | default(false) else 
 # Rate limit for dropped packets (packets/second)
 firewall_rate_limit: 10
 
-fail2ban_maxretry: 2
+enable_fail2ban: true
+# Fail2ban provides security intelligence and defense-in-depth
+# Even with password auth disabled, it detects invalid user attempts and reconnaissance
+# Set to false to disable fail2ban entirely
+fail2ban_maxretry: 5
+# Less aggressive than default (2) to reduce false positives from legitimate key issues
 # Ban time: 315360000 seconds = ~10 years (effectively permanent)
-# Rationale: Password attempts are treated as hostile; long bans deter attackers
+# Rationale: Authentication failures are treated as hostile; long bans deter attackers
 # To manually unban an IP: fail2ban-client set sshd unbanip <IP>
 fail2ban_bantime_seconds: 315360000
 
