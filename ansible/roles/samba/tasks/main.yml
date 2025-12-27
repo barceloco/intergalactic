@@ -1,17 +1,4 @@
 ---
-- name: Validate Samba password is configured
-  when: enable_samba | default(false)
-  assert:
-    that:
-      - samba_armand_password is defined
-      - samba_armand_password | length > 0
-      - samba_armand_password != "CHANGE_ME"
-    fail_msg: |
-      Samba is enabled but samba_armand_password is not set or is a placeholder.
-      Please set samba_armand_password in all_secrets.yml
-      See all_secrets.yml.example for template.
-    success_msg: "Samba password is configured"
-
 - name: Install Samba
   apt:
     name: samba
@@ -53,31 +40,16 @@
   changed_when: false
   failed_when: false
 
-- name: Set Samba password for armand user (new user)
+- name: Add armand user to Samba (no password - uses system password via PAM)
   when: 
     - enable_samba | default(false)
-    - samba_armand_password is defined
     - "armand" not in samba_users.stdout
-  command: >
-    echo -e "{{ samba_armand_password }}\n{{ samba_armand_password }}" |
-    smbpasswd -a -s armand
-  no_log: true
+  command: smbpasswd -a -n armand
+  # -n flag creates user without password, Samba will use system password via PAM
   changed_when: true
   failed_when: false
 
-- name: Update Samba password for armand user (existing user)
-  when: 
-    - enable_samba | default(false)
-    - samba_armand_password is defined
-    - "armand" in samba_users.stdout
-  command: >
-    echo -e "{{ samba_armand_password }}\n{{ samba_armand_password }}" |
-    smbpasswd -s armand
-  no_log: true
-  changed_when: true
-  failed_when: false
-
-- name: Enable Samba user armand
+- name: Enable armand user in Samba
   when: enable_samba | default(false)
   command: smbpasswd -e armand
   changed_when: true

@@ -3,6 +3,9 @@
    server string = {{ hostname | default(inventory_hostname) }} Samba Server
    server role = standalone server
    security = user
+   passdb backend = tdbsam
+   unix password sync = yes
+   pam password change = yes
    map to guest = Bad User
    dns proxy = no
    log file = /var/log/samba/log.%m
