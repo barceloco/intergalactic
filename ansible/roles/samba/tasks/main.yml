@@ -1,4 +1,17 @@
 ---
+- name: Validate Samba password is configured
+  when: enable_samba | default(false)
+  assert:
+    that:
+      - samba_armand_password is defined
+      - samba_armand_password | length > 0
+      - samba_armand_password != "CHANGE_ME"
+    fail_msg: |
+      Samba is enabled but samba_armand_password is not set or is a placeholder.
+      Please set samba_armand_password in all_secrets.yml
+      See all_secrets.yml.example for template.
+    success_msg: "Samba password is configured"
+
 - name: Install Samba
   apt:
     name: samba
