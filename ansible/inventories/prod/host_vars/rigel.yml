@@ -14,5 +14,5 @@ luks_keyfile: ""
 
 # Samba configuration
 enable_samba: true
-# Samba password for armand user - MUST be set in all_secrets.yml
-# See all_secrets.yml.example for template
+# Samba uses system passwords via PAM - no separate password needed
+# The armand user's Linux password will be used for SMB/CIFS authentication
