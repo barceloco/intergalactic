@@ -56,13 +56,21 @@ else
   echo "Using production inventory: ${INVENTORY_FILE}"
 fi
 
+# Configure SSH to use the correct key
+# For bootstrap: use id_ed25519 (armand's key)
+# For production: use intergalactic_ansible (project key)
+SSH_ARGS_ENV=""
+if [[ -n "${SSH_KEY_NAME:-}" ]]; then
+  SSH_ARGS_ENV="-e ANSIBLE_SSH_ARGS='-o IdentitiesOnly=yes -i /root/.ssh/${SSH_KEY_NAME}'"
+fi
+
 # Run the playbook and capture exit code
-# Note: Ansible will use the key specified in ansible.cfg (private_key_file)
-# The script mounts the key to /root/.ssh/ in the container
+# The script mounts the appropriate key and tells Ansible to use it via SSH_ARGS
 docker run --rm -i \
   -v "${ROOT_DIR}:/repo" \
   ${SSH_KEY_MOUNT} \
   ${SSH_AUTH_SOCK_MOUNT} \
+  ${SSH_ARGS_ENV} \
   "${IMAGE}" \
   ansible-playbook -i "${INVENTORY_FILE}" "playbooks/${PLAY}.yml"
 EXIT_CODE=$?
