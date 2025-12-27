@@ -4,8 +4,10 @@
    server role = standalone server
    security = user
    passdb backend = tdbsam
+   # Use system passwords via PAM - no separate Samba password needed
    unix password sync = yes
    pam password change = yes
+   obey pam restrictions = yes
    map to guest = Bad User
    dns proxy = no
    log file = /var/log/samba/log.%m
