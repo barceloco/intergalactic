@@ -59,9 +59,9 @@ fi
 # Configure SSH to use the correct key
 # For bootstrap: use id_ed25519 (armand's key)
 # For production: use intergalactic_ansible (project key)
-SSH_ARGS_ENV=""
+# We pass the key via ANSIBLE_SSH_ARGS environment variable
 if [[ -n "${SSH_KEY_NAME:-}" ]]; then
-  SSH_ARGS_ENV="-e ANSIBLE_SSH_ARGS='-o IdentitiesOnly=yes -i /root/.ssh/${SSH_KEY_NAME}'"
+  export ANSIBLE_SSH_ARGS="-o IdentitiesOnly=yes -i /root/.ssh/${SSH_KEY_NAME}"
 fi
 
 # Run the playbook and capture exit code
@@ -70,7 +70,7 @@ docker run --rm -i \
   -v "${ROOT_DIR}:/repo" \
   ${SSH_KEY_MOUNT} \
   ${SSH_AUTH_SOCK_MOUNT} \
-  ${SSH_ARGS_ENV} \
+  -e ANSIBLE_SSH_ARGS="${ANSIBLE_SSH_ARGS:-}" \
   "${IMAGE}" \
   ansible-playbook -i "${INVENTORY_FILE}" "playbooks/${PLAY}.yml"
 EXIT_CODE=$?
