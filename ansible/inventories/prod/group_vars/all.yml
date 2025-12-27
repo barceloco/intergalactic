@@ -47,4 +47,12 @@ enable_docker: true
 docker_add_automation_user: true
 enable_desktop: false
 
+# LUKS disk encryption (for devices that need encrypted storage)
+enable_luks: false
+# LUKS device to encrypt (e.g., /dev/sda1, /dev/mmcblk0p2)
+# Leave empty for manual setup
+luks_device: ""
+# LUKS keyfile for automatic unlocking (optional)
+luks_keyfile: ""
+
 disable_default_pi_user: true

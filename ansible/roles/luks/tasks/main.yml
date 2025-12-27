@@ -1,0 +1,127 @@
+---
+- name: Install cryptsetup for LUKS disk encryption
+  apt:
+    name: cryptsetup
+    state: present
+    update_cache: true
+  when: enable_luks | default(false)
+
+- name: Verify cryptsetup is installed
+  command: cryptsetup --version
+  register: cryptsetup_version
+  changed_when: false
+  failed_when: false
+  when: enable_luks | default(false)
+
+- name: Display cryptsetup version
+  debug:
+    msg: "cryptsetup version: {{ cryptsetup_version.stdout | default('not installed') }}"
+  when: 
+    - enable_luks | default(false)
+    - cryptsetup_version.rc == 0
+
+- name: Display LUKS configuration notice if no device specified
+  debug:
+    msg: |
+      ============================================================================
+      LUKS Configuration Notice
+      ============================================================================
+      LUKS is enabled but no device is specified for encryption.
+      
+      To encrypt a device, set luks_device in host_vars/alpheratz.yml:
+        luks_device: "/dev/sda1"  # or /dev/mmcblk0p2, etc.
+      
+      WARNING: Encrypting a device will DESTROY all data on it!
+      This should only be done on new systems or after backing up data.
+      
+      For now, cryptsetup is installed and ready for manual LUKS setup.
+      ============================================================================
+  when: 
+    - enable_luks | default(false)
+    - luks_device is not defined or luks_device | length == 0
+
+- name: Check if specified LUKS device exists
+  stat:
+    path: "{{ luks_device }}"
+  register: luks_device_stat
+  when: 
+    - enable_luks | default(false)
+    - luks_device is defined
+    - luks_device | length > 0
+
+- name: Fail if LUKS device does not exist
+  assert:
+    that:
+      - luks_device_stat.stat.exists
+    fail_msg: |
+      ============================================================================
+      ERROR: LUKS device does not exist!
+      ============================================================================
+      The specified LUKS device '{{ luks_device }}' does not exist on the system.
+      
+      Please check:
+      1. The device path is correct (e.g., /dev/sda1, /dev/mmcblk0p2)
+      2. The device is connected and recognized by the system
+      3. Use 'lsblk' or 'fdisk -l' to list available devices
+      ============================================================================
+  when: 
+    - enable_luks | default(false)
+    - luks_device is defined
+    - luks_device | length > 0
+
+- name: Check if device is already encrypted with LUKS
+  command: cryptsetup isLuks "{{ luks_device }}"
+  register: luks_check
+  changed_when: false
+  failed_when: false
+  when: 
+    - enable_luks | default(false)
+    - luks_device is defined
+    - luks_device | length > 0
+    - luks_device_stat.stat.exists
+
+- name: Display LUKS status
+  debug:
+    msg: |
+      ============================================================================
+      LUKS Status for {{ luks_device }}
+      ============================================================================
+      {% if luks_check.rc == 0 %}
+      Device is already encrypted with LUKS.
+      {% else %}
+      Device is not encrypted. Manual encryption required.
+      
+      WARNING: Encrypting this device will DESTROY all existing data!
+      
+      To manually encrypt:
+      1. Backup all data from {{ luks_device }}
+      2. Run: sudo cryptsetup luksFormat {{ luks_device }}
+      3. Run: sudo cryptsetup open {{ luks_device }} <name>
+      4. Format: sudo mkfs.ext4 /dev/mapper/<name>
+      5. Mount and restore data
+      {% endif %}
+      ============================================================================
+  when: 
+    - enable_luks | default(false)
+    - luks_device is defined
+    - luks_device | length > 0
+    - luks_device_stat.stat.exists
+
+- name: Display LUKS setup summary
+  debug:
+    msg: |
+      ============================================================================
+      LUKS Configuration Complete
+      ============================================================================
+      cryptsetup is installed and ready for use.
+      
+      For manual LUKS setup:
+      - List devices: lsblk
+      - Check if encrypted: cryptsetup isLuks <device>
+      - Format LUKS: cryptsetup luksFormat <device>
+      - Open LUKS: cryptsetup open <device> <name>
+      - Format filesystem: mkfs.ext4 /dev/mapper/<name>
+      
+      For automatic unlocking, configure luks_keyfile in host_vars.
+      ============================================================================
+  when: enable_luks | default(false)
