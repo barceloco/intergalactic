@@ -27,13 +27,22 @@ fi
 # The playbooks will manage known_hosts inside the container using the known_hosts module
 # Host keys are fetched and added securely on each run
 
+# Determine which inventory to use
+INVENTORY_FILE="inventories/${ENV_NAME}/hosts.yml"
+if [[ "${PLAY}" == *"-bootstrap"* ]]; then
+  INVENTORY_FILE="inventories/${ENV_NAME}/hosts-bootstrap.yml"
+  echo "Using bootstrap inventory: ${INVENTORY_FILE}"
+else
+  echo "Using production inventory: ${INVENTORY_FILE}"
+fi
+
 # Run the playbook and capture exit code
 docker run --rm -i \
   -v "${ROOT_DIR}:/repo" \
   ${SSH_KEY_MOUNT} \
   ${SSH_AUTH_SOCK_MOUNT} \
   "${IMAGE}" \
-  ansible-playbook -i "inventories/${ENV_NAME}/hosts.yml" "playbooks/${PLAY}.yml"
+  ansible-playbook -i "${INVENTORY_FILE}" "playbooks/${PLAY}.yml"
 EXIT_CODE=$?
 
 # For bootstrap playbooks, check if user creation was successful
