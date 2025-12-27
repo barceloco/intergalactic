@@ -14,10 +14,10 @@
     create_home: true
     state: present
 
-- name: Create Samba share directory for armand
+- name: Create Samba share directory (crypt)
   when: enable_samba | default(false)
   file:
-    path: /home/armand/samba
+    path: /crypt
     state: directory
     owner: armand
     group: armand
@@ -40,20 +40,16 @@
   changed_when: false
   failed_when: false
 
-- name: Add armand user to Samba (no password - uses system password via PAM)
-  when: 
+- name: Remove armand from Samba database (let PAM handle authentication)
+  when:
     - enable_samba | default(false)
-    - "armand" not in samba_users.stdout
-  command: smbpasswd -a -n armand
-  # -n flag creates user without password, Samba will use system password via PAM
-  changed_when: true
+    - samba_users.stdout is defined
+    - (samba_users.stdout | default('')) is search('armand')
+  command: pdbedit -x armand
+  register: remove_samba_user
+  changed_when: remove_samba_user.rc == 0
   failed_when: false
-
-- name: Enable armand user in Samba
-  when: enable_samba | default(false)
-  command: smbpasswd -e armand
-  changed_when: true
-  failed_when: false
+  no_log: true
 
 - name: Ensure Samba services are enabled and running
   when: enable_samba | default(false)

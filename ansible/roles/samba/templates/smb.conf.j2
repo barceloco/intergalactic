@@ -3,12 +3,14 @@
    server string = {{ hostname | default(inventory_hostname) }} Samba Server
    server role = standalone server
    security = user
-   passdb backend = tdbsam
+   passdb backend = smbpasswd
    # Use system passwords via PAM - no separate Samba password needed
+   # Users are NOT added to Samba database - PAM handles authentication
    unix password sync = yes
    pam password change = yes
    obey pam restrictions = yes
-   map to guest = Bad User
+   map to guest = Bad Password
+   guest account = nobody
    dns proxy = no
    log file = /var/log/samba/log.%m
    max log size = 1000
@@ -16,9 +18,11 @@
    panic action = /usr/share/samba/panic-action %d
 
 [armand]
-   comment = Armand's Home Share
-   path = /home/armand/samba
-   valid users = armand
+   comment = Armand's Share (crypt directory)
+   path = /crypt
+   # valid users = armand  # Temporarily commented for guest access
+   # Allow guest access
+   guest ok = yes
    read only = no
    create mask = 0644
    directory mask = 0755
