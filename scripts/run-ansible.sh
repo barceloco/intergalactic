@@ -10,11 +10,18 @@ IMAGE="intergalactic-ansible-runner:latest"
 docker build -t "${IMAGE}" "${ROOT_DIR}/docker/ansible-runner"
 
 # Mount SSH keys for authentication
+# Priority: intergalactic_ansible (project-specific) > id_ed25519 > id_rsa
 SSH_KEY_MOUNT=""
-if [[ -f "${HOME}/.ssh/id_ed25519" ]]; then
+SSH_KEY_NAME=""
+if [[ -f "${HOME}/.ssh/intergalactic_ansible" ]]; then
+  SSH_KEY_MOUNT="-v ${HOME}/.ssh/intergalactic_ansible:/root/.ssh/intergalactic_ansible:ro"
+  SSH_KEY_NAME="intergalactic_ansible"
+elif [[ -f "${HOME}/.ssh/id_ed25519" ]]; then
   SSH_KEY_MOUNT="-v ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro"
+  SSH_KEY_NAME="id_ed25519"
 elif [[ -f "${HOME}/.ssh/id_rsa" ]]; then
   SSH_KEY_MOUNT="-v ${HOME}/.ssh/id_rsa:/root/.ssh/id_rsa:ro"
+  SSH_KEY_NAME="id_rsa"
 fi
 
 # Also try SSH agent forwarding if available
@@ -37,10 +44,13 @@ else
 fi
 
 # Run the playbook and capture exit code
+# Note: Ansible will use the key specified in ansible.cfg (private_key_file)
+# The script mounts the key to /root/.ssh/ in the container
 docker run --rm -i \
   -v "${ROOT_DIR}:/repo" \
   ${SSH_KEY_MOUNT} \
   ${SSH_AUTH_SOCK_MOUNT} \
+  ${ANSIBLE_PRIVATE_KEY_ENV} \
   "${IMAGE}" \
   ansible-playbook -i "${INVENTORY_FILE}" "playbooks/${PLAY}.yml"
 EXIT_CODE=$?
