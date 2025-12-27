@@ -1,6 +1,6 @@
 ---
 hostname: "alpheratz"
-# Minimal configuration for Raspberry Pi 2
+# Minimal configuration for Raspberry Pi 3B+
 # Only includes: SSH, Tailscale, rsync, LUKS
 
 # Disable features not needed for minimal install
