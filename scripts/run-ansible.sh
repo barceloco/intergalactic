@@ -10,18 +10,31 @@ IMAGE="intergalactic-ansible-runner:latest"
 docker build -t "${IMAGE}" "${ROOT_DIR}/docker/ansible-runner"
 
 # Mount SSH keys for authentication
-# Priority: intergalactic_ansible (project-specific) > id_ed25519 > id_rsa
+# Bootstrap playbooks: use armand's personal key (id_ed25519) since we connect as armand user
+# Regular playbooks: use intergalactic_ansible key since we connect as ansible user
 SSH_KEY_MOUNT=""
 SSH_KEY_NAME=""
-if [[ -f "${HOME}/.ssh/intergalactic_ansible" ]]; then
-  SSH_KEY_MOUNT="-v ${HOME}/.ssh/intergalactic_ansible:/root/.ssh/intergalactic_ansible:ro"
-  SSH_KEY_NAME="intergalactic_ansible"
-elif [[ -f "${HOME}/.ssh/id_ed25519" ]]; then
-  SSH_KEY_MOUNT="-v ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro"
-  SSH_KEY_NAME="id_ed25519"
-elif [[ -f "${HOME}/.ssh/id_rsa" ]]; then
-  SSH_KEY_MOUNT="-v ${HOME}/.ssh/id_rsa:/root/.ssh/id_rsa:ro"
-  SSH_KEY_NAME="id_rsa"
+if [[ "${PLAY}" == *"-bootstrap"* ]]; then
+  # Bootstrap: use armand's personal key (for connecting as armand user)
+  if [[ -f "${HOME}/.ssh/id_ed25519" ]]; then
+    SSH_KEY_MOUNT="-v ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro"
+    SSH_KEY_NAME="id_ed25519"
+  elif [[ -f "${HOME}/.ssh/id_rsa" ]]; then
+    SSH_KEY_MOUNT="-v ${HOME}/.ssh/id_rsa:/root/.ssh/id_rsa:ro"
+    SSH_KEY_NAME="id_rsa"
+  fi
+else
+  # Production: use intergalactic_ansible key (for connecting as ansible user)
+  if [[ -f "${HOME}/.ssh/intergalactic_ansible" ]]; then
+    SSH_KEY_MOUNT="-v ${HOME}/.ssh/intergalactic_ansible:/root/.ssh/intergalactic_ansible:ro"
+    SSH_KEY_NAME="intergalactic_ansible"
+  elif [[ -f "${HOME}/.ssh/id_ed25519" ]]; then
+    SSH_KEY_MOUNT="-v ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro"
+    SSH_KEY_NAME="id_ed25519"
+  elif [[ -f "${HOME}/.ssh/id_rsa" ]]; then
+    SSH_KEY_MOUNT="-v ${HOME}/.ssh/id_rsa:/root/.ssh/id_rsa:ro"
+    SSH_KEY_NAME="id_rsa"
+  fi
 fi
 
 # Also try SSH agent forwarding if available
