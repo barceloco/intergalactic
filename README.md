@@ -278,7 +278,7 @@ This applies the full configuration: firewall, SSH hardening, Tailscale, Docker,
 ./scripts/run-ansible.sh prod rigel
 
 # For a workstation Pi with desktop (like vega):
-./scripts/run-ansible.sh prod vega-desktop
+./scripts/run-ansible.sh prod vega
 ```
 
 **What this does:**
