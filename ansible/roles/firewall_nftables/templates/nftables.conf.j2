@@ -22,6 +22,14 @@ table inet filter {
     tcp dport {{ p }} accept
     {% endfor %}
 
+    {% if enable_samba | default(false) %}
+    # Samba (SMB/CIFS) ports
+    tcp dport 445 accept
+    tcp dport 139 accept
+    udp dport 137 accept
+    udp dport 138 accept
+    {% endif %}
+
     {% for p in firewall_allow_udp_ports %}
     udp dport {{ p }} accept
     {% endfor %}

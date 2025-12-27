@@ -11,3 +11,8 @@ enable_luks: true
 luks_device: ""
 # LUKS keyfile location (optional, for automatic unlocking)
 luks_keyfile: ""
+
+# Samba configuration
+enable_samba: true
+# Samba password for armand user - MUST be set in all_secrets.yml
+# See all_secrets.yml.example for template

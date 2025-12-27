@@ -1,0 +1,81 @@
+---
+- name: Install Samba
+  apt:
+    name: samba
+    state: present
+    update_cache: true
+  when: enable_samba | default(false)
+
+- name: Ensure armand user exists
+  when: enable_samba | default(false)
+  user:
+    name: armand
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+- name: Create Samba share directory for armand
+  when: enable_samba | default(false)
+  file:
+    path: /home/armand/samba
+    state: directory
+    owner: armand
+    group: armand
+    mode: '0755'
+
+- name: Deploy Samba configuration
+  when: enable_samba | default(false)
+  template:
+    src: smb.conf.j2
+    dest: /etc/samba/smb.conf
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Restart smbd
+
+- name: Check if armand user exists in Samba
+  when: enable_samba | default(false)
+  command: pdbedit -L
+  register: samba_users
+  changed_when: false
+  failed_when: false
+
+- name: Set Samba password for armand user (new user)
+  when: 
+    - enable_samba | default(false)
+    - samba_armand_password is defined
+    - "armand" not in samba_users.stdout
+  command: >
+    echo -e "{{ samba_armand_password }}\n{{ samba_armand_password }}" |
+    smbpasswd -a -s armand
+  no_log: true
+  changed_when: true
+  failed_when: false
+
+- name: Update Samba password for armand user (existing user)
+  when: 
+    - enable_samba | default(false)
+    - samba_armand_password is defined
+    - "armand" in samba_users.stdout
+  command: >
+    echo -e "{{ samba_armand_password }}\n{{ samba_armand_password }}" |
+    smbpasswd -s armand
+  no_log: true
+  changed_when: true
+  failed_when: false
+
+- name: Enable Samba user armand
+  when: enable_samba | default(false)
+  command: smbpasswd -e armand
+  changed_when: true
+  failed_when: false
+
+- name: Ensure Samba services are enabled and running
+  when: enable_samba | default(false)
+  service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - smbd
+    - nmbd
