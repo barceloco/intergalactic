@@ -1,5 +1,5 @@
 ---
-- name: Alpheratz (RPi2 minimal: SSH, Tailscale, rsync, LUKS)
+- name: "Alpheratz (RPi2 minimal: SSH, Tailscale, rsync, LUKS)"
   hosts: alpheratz
   become: true
   gather_facts: false
