@@ -28,7 +28,7 @@
       ============================================================================
       LUKS is enabled but no device is specified for encryption.
       
-      To encrypt a device, set luks_device in host_vars/alpheratz.yml:
+      To encrypt a device, set luks_device in host_vars/{{ inventory_hostname }}.yml:
         luks_device: "/dev/sda1"  # or /dev/mmcblk0p2, etc.
       
       WARNING: Encrypting a device will DESTROY all data on it!
