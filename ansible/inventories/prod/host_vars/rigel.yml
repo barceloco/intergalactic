@@ -14,5 +14,7 @@ luks_keyfile: ""
 
 # Samba configuration
 enable_samba: true
-# Samba uses system passwords via PAM - no separate password needed
-# The armand user's Linux password will be used for SMB/CIFS authentication
+# Samba uses its own password database (smbpasswd)
+# Password is set from samba_armand_passwords[inventory_hostname] in all_secrets.yml
+# Set it to match the system password if you want to use the same password
+# Future system password changes will sync to Samba automatically

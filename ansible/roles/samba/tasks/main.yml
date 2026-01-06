@@ -23,6 +23,27 @@
     group: armand
     mode: '0755'
 
+- name: Set per-host Samba password variable
+  when: enable_samba | default(false)
+  set_fact:
+    samba_armand_password: "{{ samba_armand_passwords[inventory_hostname] | default(samba_armand_passwords[hostname] | default('')) }}"
+
+- name: Validate Samba password is configured
+  when: enable_samba | default(false)
+  assert:
+    that:
+      - samba_armand_passwords is defined
+      - samba_armand_passwords[inventory_hostname] is defined or samba_armand_passwords[hostname] is defined
+      - samba_armand_password is defined
+      - samba_armand_password | length > 0
+      - samba_armand_password != "CHANGE_ME"
+      - samba_armand_password != "CHANGE_me."
+    fail_msg: |
+      Samba password for armand user is not configured for host {{ inventory_hostname }}!
+      Set samba_armand_passwords['{{ inventory_hostname }}'] in ansible/inventories/prod/group_vars/all_secrets.yml
+      Or use hostname '{{ hostname }}' if different from inventory_hostname.
+      This password should match the system password for user 'armand' if you want to use the same password.
+
 - name: Deploy Samba configuration
   when: enable_samba | default(false)
   template:
@@ -33,21 +54,47 @@
     group: root
   notify: Restart smbd
 
-- name: Check if armand user exists in Samba
+- name: Check if armand user exists in Samba database
   when: enable_samba | default(false)
   command: pdbedit -L
   register: samba_users
   changed_when: false
   failed_when: false
 
-- name: Remove armand from Samba database (let PAM handle authentication)
+- name: Add armand user to Samba database
+  when:
+    - enable_samba | default(false)
+    - samba_users.stdout is defined
+    - (samba_users.stdout | default('')) is not search('armand')
+  command: smbpasswd -a -s armand
+  args:
+    stdin: "{{ samba_armand_password }}\n{{ samba_armand_password }}"
+  register: add_samba_user
+  changed_when: add_samba_user.rc == 0
+  failed_when: add_samba_user.rc != 0
+  no_log: true
+
+- name: Set Samba password for armand user (update existing)
   when:
     - enable_samba | default(false)
     - samba_users.stdout is defined
     - (samba_users.stdout | default('')) is search('armand')
-  command: pdbedit -x armand
-  register: remove_samba_user
-  changed_when: remove_samba_user.rc == 0
+  command: smbpasswd -s armand
+  args:
+    stdin: "{{ samba_armand_password }}\n{{ samba_armand_password }}"
+  register: update_samba_password
+  changed_when: true
+  failed_when: update_samba_password.rc != 0
+  no_log: true
+
+- name: Enable armand user in Samba (if exists but disabled)
+  when:
+    - enable_samba | default(false)
+    - samba_users.stdout is defined
+    - (samba_users.stdout | default('')) is search('armand')
+  command: smbpasswd -e armand
+  register: enable_samba_user
+  changed_when: enable_samba_user.rc == 0
   failed_when: false
   no_log: true
 

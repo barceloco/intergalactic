@@ -7,6 +7,14 @@
     state: present
     update_cache: true
 
+- name: Ensure system SSH authorized_keys directory exists
+  file:
+    path: /etc/ssh/authorized_keys.d
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
 - name: Immediately disable password authentication (CRITICAL SECURITY STEP)
   copy:
     dest: /etc/ssh/sshd_config.d/10-intergalactic-bootstrap.conf
@@ -15,6 +23,9 @@
     group: root
     content: |
       # Emergency SSH hardening - disable password auth immediately
+      # SSH keys stored in system location for encrypted home directory support
+      AuthorizedKeysFile /etc/ssh/authorized_keys.d/%u
+      
       PasswordAuthentication no
       KbdInteractiveAuthentication no
       ChallengeResponseAuthentication no
@@ -77,30 +88,23 @@
       ============================================================================
     success_msg: "✓ Automation user '{{ automation_user }}' successfully created and verified"
 
-- name: Ensure .ssh directory exists for automation user
-  file:
-    path: "/home/{{ automation_user }}/.ssh"
-    state: directory
-    owner: "{{ automation_user }}"
-    group: "{{ automation_user }}"
-    mode: "0700"
-
-- name: Ensure automation authorized_keys are present
+- name: Ensure automation authorized_keys in system location
   when: automation_authorized_keys is defined and automation_authorized_keys | length > 0
-  authorized_key:
-    user: "{{ automation_user }}"
-    key: "{{ item }}"
-    state: present
-    path: "/home/{{ automation_user }}/.ssh/authorized_keys"
-  loop: "{{ automation_authorized_keys }}"
-  register: authorized_keys_result
+  copy:
+    dest: /etc/ssh/authorized_keys.d/{{ automation_user }}
+    content: "{{ automation_authorized_keys | join('\n') }}\n"
+    mode: '0644'
+    owner: root
+    group: root
+  register: automation_keys_result
 
-- name: Verify authorized_keys file exists
+- name: Verify automation keys file exists
   stat:
-    path: "/home/{{ automation_user }}/.ssh/authorized_keys"
-  register: authorized_keys_file
+    path: /etc/ssh/authorized_keys.d/{{ automation_user }}
+  register: automation_keys_file
+  when: automation_authorized_keys is defined and automation_authorized_keys | length > 0
 
-- name: Fail if no keys configured but keys are required
+- name: Fail if automation keys not configured
   when: automation_authorized_keys is not defined or automation_authorized_keys | default([]) | length == 0
   assert:
     that: false
@@ -120,33 +124,36 @@
       Without SSH keys, you will not be able to login as the ansible user!
       ============================================================================
 
-- name: Fail if authorized_keys file does not exist when keys are configured
-  when: automation_authorized_keys is defined and automation_authorized_keys | length > 0
+- name: Fail if automation keys file missing
+  when: 
+    - automation_authorized_keys is defined
+    - automation_authorized_keys | length > 0
   assert:
     that:
-      - authorized_keys_file.stat.exists
-      - authorized_keys_file.stat.size > 0
+      - automation_keys_file.stat.exists
+      - automation_keys_file.stat.size > 0
     fail_msg: |
       ============================================================================
-      CRITICAL ERROR: authorized_keys file was NOT created for {{ automation_user }}!
+      CRITICAL ERROR: Automation keys file was NOT created!
       ============================================================================
       The bootstrap playbook failed to add SSH keys to the automation user.
       
       Expected keys: {{ automation_authorized_keys | length }} key(s)
       Keys provided: {{ automation_authorized_keys }}
-      Keys task result: {{ authorized_keys_result | default('unknown') }}
-      File exists: {{ authorized_keys_file.stat.exists | default('unknown') }}
-      File size: {{ authorized_keys_file.stat.size | default('unknown') }} bytes
+      Keys task result: {{ automation_keys_result | default('unknown') }}
+      File exists: {{ automation_keys_file.stat.exists | default('unknown') }}
+      File size: {{ automation_keys_file.stat.size | default('unknown') }} bytes
+      
+      Expected location: /etc/ssh/authorized_keys.d/{{ automation_user }}
       
       Please check:
       1. automation_authorized_keys is set in all_secrets.yml
       2. The keys are valid SSH public keys (should start with ssh-)
-      3. The .ssh directory has correct permissions (0700)
-      4. The authorized_key module has permission to write to the file
+      3. The /etc/ssh/authorized_keys.d directory exists and is writable
       
       You may need to manually add the keys or fix the underlying issue.
       ============================================================================
-    success_msg: "✓ SSH authorized_keys successfully added for {{ automation_user }} ({{ authorized_keys_file.stat.size }} bytes)"
+    success_msg: "✓ SSH authorized_keys successfully added for {{ automation_user }} ({{ automation_keys_file.stat.size }} bytes)"
 
 - name: Passwordless sudo for automation user (no-password policy, no TTY required)
   copy:
@@ -217,12 +224,16 @@
     state: present
   loop: "{{ human_users | default([]) }}"
 
-- name: Ensure human users authorized_keys
-  authorized_key:
-    user: "{{ item.0.name }}"
-    key: "{{ item.1 }}"
-    state: present
+- name: Ensure human users authorized_keys in system location
+  copy:
+    dest: /etc/ssh/authorized_keys.d/{{ item.0.name }}
+    content: "{{ item.1 }}\n"
+    mode: '0644'
+    owner: root
+    group: root
   loop: "{{ (human_users | default([])) | subelements('authorized_keys') }}"
+  loop_control:
+    label: "{{ item.0.name }}"
 
 - name: Set hostname (if provided)
   when: hostname is defined

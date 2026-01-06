@@ -35,9 +35,9 @@ fail2ban_bantime_seconds: 315360000
 enable_unattended_upgrades: true
 
 enable_tailscale: true
-# Tailscale authentication key - set in all_secrets.yml
+# Tailscale authentication key - MUST be set in all_secrets.yml (not here)
 # See all_secrets.yml.example for template
-tailscale_authkey: ""
+# The value from all_secrets.yml (loaded via vars_files) will be used automatically
 tailscale_advertise_exit_node: false
 tailscale_advertise_routes: []
 

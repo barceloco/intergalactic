@@ -50,6 +50,13 @@
         enabled: true
         state: started
 
+    - name: Enable Tailscale auto-updates
+      command: tailscale set --auto-update
+      register: tailscale_auto_update
+      changed_when: "'auto-update: on' not in tailscale_auto_update.stdout | default('')"
+      failed_when: tailscale_auto_update.rc != 0
+      when: enable_tailscale | default(false)
+
     - name: Check if Tailscale is already connected
       command: tailscale status
       register: tailscale_status_check

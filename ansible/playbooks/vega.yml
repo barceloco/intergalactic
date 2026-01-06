@@ -1,5 +1,5 @@
 ---
-- name: Vega (RPi5 workstation: hardened + desktop)
+- name: "Vega (RPi5 workstation: hardened + desktop)"
   hosts: vega
   become: true
   gather_facts: false

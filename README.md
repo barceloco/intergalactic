@@ -482,6 +482,152 @@ Set `enable_fail2ban: false` in `ansible/inventories/prod/group_vars/all.yml` or
 
 ---
 
+### Encrypted Home Directories
+
+For systems requiring encrypted user data, this setup supports encrypted home directories with automatic boot capability.
+
+#### Architecture
+
+**Partition Layout:**
+- `/dev/nvme0n1p1` → `/boot` (512MB, FAT32, unencrypted)
+- `/dev/nvme0n1p2` → `/` (32GB recommended, ext4, unencrypted)
+  - Contains `/etc/ssh/authorized_keys.d/` (SSH keys - unencrypted, accessible at boot)
+- `/dev/nvme0n1p3` → `/home` (Remaining space, LUKS encrypted, mounted after boot)
+
+**Boot Sequence:**
+1. Root filesystem mounts (unencrypted) → SSH keys available immediately
+2. SSH daemon starts → Authentication works (keys on unencrypted root)
+3. Tailscale connects → System fully operational
+4. User SSHs in remotely → Unlocks encrypted `/home` partition
+5. `/home` mounts → User directories available
+
+#### Configuration
+
+**1. Enable encrypted home in host_vars:**
+
+Edit `ansible/inventories/prod/host_vars/<hostname>.yml`:
+```yaml
+enable_luks: true
+luks_encrypt_home: true
+luks_home_device: "/dev/nvme0n1p3"  # Set after identifying partition
+```
+
+**2. Add passphrase to secrets:**
+
+Edit `ansible/inventories/prod/group_vars/all_secrets.yml`:
+```yaml
+# Generate base64-encoded passphrase:
+# Generate 64-character base64 string (48 bytes entropy):
+# openssl rand -base64 48 | head -c 64
+# Or: echo -n "your-long-passphrase" | base64 (ensure 64+ chars)
+luks_home_passphrase: "dGhpcyBpcyBhIHNhbXBsZSBwYXNzcGhyYXNlIGluIGJhc2U2NA=="
+```
+
+**3. Bootstrap and setup:**
+
+```bash
+# Bootstrap (creates ansible user, sets up SSH keys in system location)
+./scripts/run-ansible.sh prod <hostname>-bootstrap
+
+# Normal setup (installs cryptsetup, shows encryption instructions)
+./scripts/run-ansible.sh prod <hostname>
+```
+
+**4. Encrypt home partition:**
+
+After identifying the partition with `lsblk` or `fdisk -l`:
+
+```bash
+# Option A: Use helper script
+./scripts/encrypt-home-partition.sh /dev/nvme0n1p3 "<base64-passphrase>"
+
+# Option B: Manual encryption
+echo -n "<base64-passphrase>" | base64 -d | sudo cryptsetup luksFormat /dev/nvme0n1p3 -
+sudo cryptsetup open /dev/nvme0n1p3 home-crypt
+sudo mkfs.ext4 /dev/mapper/home-crypt
+sudo cryptsetup close home-crypt
+```
+
+**5. Configure mounting:**
+
+Run the playbook again - it will automatically configure `/etc/crypttab` and `/etc/fstab`:
+```bash
+./scripts/run-ansible.sh prod <hostname>
+```
+
+**6. Test unlock:**
+
+After reboot, SSH in and unlock:
+```bash
+ssh ansible@<host-ip>
+sudo cryptsetup open /dev/nvme0n1p3 home-crypt
+# Enter passphrase when prompted
+sudo mount /home
+ls -la /home  # Should show user directories
+```
+
+#### Security Considerations
+
+- **SSH Keys**: Stored in `/etc/ssh/authorized_keys.d/` on unencrypted root (required for boot-time authentication)
+- **Home Data**: Fully encrypted with LUKS, unlocked remotely after boot
+- **Passphrase**: Base64-encoded in `all_secrets.yml` (gitignored), decoded only during encryption
+- **Trade-off**: Root filesystem unencrypted (required for automatic boot), but user data is protected
+
+#### Partition Sizing Recommendations
+
+For a **250GB NVMe drive**:
+- **Boot (512MB)**: Standard for Raspberry Pi, holds kernel/initramfs
+- **Root (64GB)**: Recommended for desktop + Docker systems. Provides headroom for:
+  - Debian base + desktop (~8-10GB)
+  - Docker images/containers (10-20GB+)
+  - System packages and updates (~10-15GB)
+  - Logs, temp files, and buffer (~10GB)
+- **Home (~185GB)**: All user data encrypted, typically largest partition
+
+For smaller drives or minimal systems, 32-48GB root may suffice, but 64GB is recommended for desktop + Docker workloads.
+
+---
+
+## Verification and Testing
+
+### Verify Encrypted Home Setup
+
+Before deploying encrypted home directories, verify the implementation:
+
+```bash
+./scripts/verify-encrypted-home-setup.sh
+```
+
+This script checks:
+- SSH configuration has `AuthorizedKeysFile` directive
+- System SSH keys directory is created
+- Keys are written to system location (not home directories)
+- LUKS role has encrypted home support
+- Configuration files are properly set up
+- Helper script exists and is executable
+- Documentation is complete
+- YAML syntax is valid
+
+**Expected output:**
+```
+✓ VERIFICATION PASSED: All checks passed
+```
+
+### Verify Inventory Users
+
+Ensure all hosts use correct users in inventory files:
+
+```bash
+./scripts/verify-inventory-users.sh
+```
+
+This verifies:
+- Bootstrap inventory: All hosts use `ansible_user: armand`
+- Production inventory: All hosts use `ansible_user: ansible`
+- All hosts are present in both inventories
+
+---
+
 ## Next Steps
 
 Once your first Pi is set up:

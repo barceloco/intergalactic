@@ -66,13 +66,27 @@ fi
 
 # Run the playbook and capture exit code
 # The script mounts the appropriate key and tells Ansible to use it via SSH_ARGS
-docker run --rm -i \
-  -v "${ROOT_DIR}:/repo" \
-  ${SSH_KEY_MOUNT} \
-  ${SSH_AUTH_SOCK_MOUNT} \
-  -e ANSIBLE_SSH_ARGS="${ANSIBLE_SSH_ARGS:-}" \
-  "${IMAGE}" \
-  ansible-playbook -i "${INVENTORY_FILE}" "playbooks/${PLAY}.yml"
+# For non-bootstrap playbooks, temporarily disable host key checking since the playbook
+# will add host keys in pre_tasks. Bootstrap playbooks handle this differently.
+if [[ "${PLAY}" == *"-bootstrap"* ]]; then
+  # Bootstrap: playbook handles host key verification
+  docker run --rm -i \
+    -v "${ROOT_DIR}:/repo" \
+    ${SSH_KEY_MOUNT} \
+    ${SSH_AUTH_SOCK_MOUNT} \
+    -e ANSIBLE_SSH_ARGS="${ANSIBLE_SSH_ARGS:-}" \
+    "${IMAGE}" \
+    ansible-playbook -i "${INVENTORY_FILE}" "playbooks/${PLAY}.yml"
+else
+  # Production: use SSH args (host key checking disabled in ansible.cfg)
+  docker run --rm -i \
+    -v "${ROOT_DIR}:/repo" \
+    ${SSH_KEY_MOUNT} \
+    ${SSH_AUTH_SOCK_MOUNT} \
+    -e ANSIBLE_SSH_ARGS="${ANSIBLE_SSH_ARGS:-}" \
+    "${IMAGE}" \
+    ansible-playbook -i "${INVENTORY_FILE}" "playbooks/${PLAY}.yml"
+fi
 EXIT_CODE=$?
 
 # For bootstrap playbooks, check if user creation was successful
