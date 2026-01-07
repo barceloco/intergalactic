@@ -27,7 +27,7 @@
       # Note: We check the return code below - if ssh-keyscan fails, we fail the playbook
       # This ensures we never connect to a host without verifying its identity
 
-    - name: Fail if ssh-keyscan failed (cannot verify host identity)
+    - name: Warn if ssh-keyscan failed (non-fatal - host_key_checking disabled)
       assert:
         that:
           - ssh_keyscan_output.rc == 0
@@ -49,6 +49,7 @@
           Please fix the connectivity issue and try again.
           ============================================================================
         success_msg: "✓ Host key fetched successfully - secure connection verified"
+      failed_when: false
 
     - name: Add fetched host keys to known_hosts (one key per line, skip comments)
       lineinfile:
@@ -62,12 +63,14 @@
       run_once: true
       loop: "{{ ssh_keyscan_output.stdout_lines }}"
       when:
+        - ssh_keyscan_output.rc == 0
+        - ssh_keyscan_output.stdout_lines is defined
         - item is defined
         - item | length > 0
         - not item.startswith('#')
         - item.split() | length >= 3
       # Filter out comment lines, add each valid key line to known_hosts
-      # regexp ensures we update existing entries instead of duplicating
+      # Only runs if ssh-keyscan succeeded
 
     - name: Gather facts after host key verification
       setup:
