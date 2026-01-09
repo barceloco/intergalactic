@@ -29,16 +29,6 @@
       # This ensures we never connect to a host without verifying its identity
       # -T 5 sets a 5 second timeout to prevent hanging
 
-    - name: Extract host key from ssh-keyscan output (first valid key)
-      set_fact:
-        host_key_line: "{{ ssh_keyscan_output.stdout_lines | reject('match', '^#') | first }}"
-      delegate_to: localhost
-      run_once: true
-      when: ssh_keyscan_output.rc == 0 and ssh_keyscan_output.stdout_lines | length > 0
-
-    - name: Add host key to known_hosts using known_hosts module (if ssh-keyscan succeeded)
-      known_hosts:
-        name: "{{ ansible_host | default(inventory_hostname) }}"
         key: "{{ host_key_line.split()[1] if host_key_line.split() | length > 1 else '' }}"
         path: "{{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
         state: present
