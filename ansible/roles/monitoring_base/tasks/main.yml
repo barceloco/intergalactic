@@ -1,8 +1,13 @@
 ---
-- name: Fail if not Debian-family OS
+- name: Fail if not Debian distribution
   fail:
-    msg: "monitoring_base role only supports Debian-family distributions (Debian, Ubuntu, Raspberry Pi OS). Detected OS family: {{ ansible_facts['os_family'] }}"
-  when: ansible_facts['os_family'] != 'Debian'
+    msg: "monitoring_base role only supports Debian distribution. Detected distribution: {{ ansible_facts['distribution'] }}"
+  when: ansible_facts['distribution'] != 'Debian'
+
+- name: Warn if not Debian trixie
+  debug:
+    msg: "Warning: This role is tested on Debian trixie (testing). Detected release: {{ ansible_facts['distribution_release'] }}. Proceeding with caution."
+  when: ansible_facts['distribution_release'] != 'trixie'
 
 - name: Update apt cache
   apt:
@@ -28,12 +33,6 @@
   become: true
   when: monitoring_base_install_tmux | default(true)
 
-- name: Check if /etc/default/sysstat exists
-  stat:
-    path: /etc/default/sysstat
-  register: sysstat_default_file
-  become: true
-
 - name: Enable sysstat collection in /etc/default/sysstat
   lineinfile:
     path: /etc/default/sysstat
@@ -44,9 +43,7 @@
   become: true
   notify:
     - Restart sysstat
-  when:
-    - monitoring_base_enable_sysstat | default(true)
-    - sysstat_default_file.stat.exists | default(false)
+  when: monitoring_base_enable_sysstat | default(true)
 
 - name: Disable sysstat collection in /etc/default/sysstat
   lineinfile:
@@ -58,9 +55,7 @@
   become: true
   notify:
     - Restart sysstat
-  when:
-    - not (monitoring_base_enable_sysstat | default(true))
-    - sysstat_default_file.stat.exists | default(false)
+  when: not (monitoring_base_enable_sysstat | default(true))
 
 - name: Gather systemd service facts
   service_facts:

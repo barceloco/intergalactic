@@ -13,7 +13,7 @@ Installs essential command-line monitoring tools and provides convenient aliases
 
 ## Requirements
 
-- Debian-family OS (Debian, Ubuntu, Raspberry Pi OS)
+- Debian distribution (tested on Debian trixie/testing)
 - Ansible 2.9+
 - Root/sudo access (role uses `become: true`)
 
@@ -115,9 +115,11 @@ Lower values are better. Values above 10% indicate resource pressure.
 ## Notes
 
 - Aliases are available after logging in (they're sourced from `/etc/profile.d/`)
+- sysstat collection is controlled via `/etc/default/sysstat` (ENABLED="true"/"false")
 - sysstat collection is lightweight and safe for SD-card based systems (default retention is typically 7-28 days)
-- PSI files require Linux kernel 4.20+ (available on Raspberry Pi OS Bookworm and Ubuntu 22.04+)
+- PSI files require Linux kernel 4.20+ (available on Debian trixie and later)
 - The role is idempotent: running it multiple times produces no changes (unless packages are updated)
+- sysstat systemd units (timers/services) are only managed if they exist on the system
 
 ## Dependencies
 

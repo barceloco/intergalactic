@@ -11,8 +11,8 @@ monitoring_docker_ctop_version: "latest"
 monitoring_docker_ctop_arch_map:
   x86_64: "amd64"
   aarch64: "arm64"
-  armv7l: "arm"
-  armv6l: "arm"
+  armv7l: "armv7"
+  armv6l: "armv6"
 
 # Create /etc/profile.d/docker-monitoring-aliases.sh with Docker aliases
 monitoring_docker_aliases_enabled: true

@@ -1,8 +1,13 @@
 ---
-- name: Fail if not Debian-family OS
+- name: Fail if not Debian distribution
   fail:
-    msg: "monitoring_docker role only supports Debian-family distributions (Debian, Ubuntu, Raspberry Pi OS). Detected OS family: {{ ansible_facts['os_family'] }}"
-  when: ansible_facts['os_family'] != 'Debian'
+    msg: "monitoring_docker role only supports Debian distribution. Detected distribution: {{ ansible_facts['distribution'] }}"
+  when: ansible_facts['distribution'] != 'Debian'
+
+- name: Warn if not Debian trixie
+  debug:
+    msg: "Warning: This role is tested on Debian trixie (testing). Detected release: {{ ansible_facts['distribution_release'] }}. Proceeding with caution."
+  when: ansible_facts['distribution_release'] != 'trixie'
 
 - name: Set ctop architecture
   set_fact:

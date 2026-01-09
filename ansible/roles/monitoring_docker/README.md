@@ -11,7 +11,7 @@ Installs **ctop** (Container Top) and provides convenient aliases for Docker con
 
 ## Requirements
 
-- Debian-family OS (Debian, Ubuntu, Raspberry Pi OS)
+- Debian distribution (tested on Debian trixie/testing)
 - Ansible 2.9+
 - Root/sudo access (role uses `become: true`)
 - **Docker must be installed separately** (this role does not install Docker)
@@ -32,8 +32,8 @@ The role automatically maps Ansible architecture to ctop binary architecture:
 
 - `x86_64` → `amd64`
 - `aarch64` → `arm64`
-- `armv7l` → `arm`
-- `armv6l` → `arm`
+- `armv7l` → `armv7`
+- `armv6l` → `armv6`
 
 ## Installation Methods
 
@@ -160,9 +160,10 @@ dlogstail <container>  # Tail container logs
 
 - **Docker must be installed separately** - this role only installs monitoring tools
 - `docker stats` is part of Docker CLI and does not need separate installation
+- On Debian trixie/testing, ctop is typically installed via binary (apt package may not be available)
 - Aliases are available after logging in (they're sourced from `/etc/profile.d/`)
 - The role is idempotent: running it multiple times produces no changes (unless packages are updated)
-- For production, pin `monitoring_docker_ctop_version` to avoid GitHub API dependency
+- For production, pin `monitoring_docker_ctop_version` to avoid GitHub API dependency and ensure reproducibility
 - Binary installation requires network access to GitHub releases
 - Users added to docker group must logout/login for changes to take effect
 
