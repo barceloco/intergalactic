@@ -51,6 +51,8 @@ Thumbs.db
 *.tmp
 .vscode/
 .idea/
+.cursor/
+crypthome/
 
 # -------------------------
 # Python
