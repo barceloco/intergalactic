@@ -5,6 +5,11 @@
     state: present
     update_cache: true
 
+- name: Merge docker_deploy_tcp_ports into firewall_allow_tcp_ports
+  when: docker_deploy_tcp_ports is defined
+  set_fact:
+    firewall_allow_tcp_ports: "{{ firewall_allow_tcp_ports | default([]) + (docker_deploy_tcp_ports | default([])) | unique }}"
+
 - name: Deploy nftables rules
   template:
     src: nftables.conf.j2
@@ -13,6 +18,30 @@
     group: root
     mode: "0644"
   notify: Reload nftables
+
+- name: Validate nftables configuration syntax
+  command: nft -c -f /etc/nftables.conf
+  changed_when: false
+  failed_when: false
+  register: nftables_syntax_check
+
+- name: Fail if nftables configuration is invalid
+  assert:
+    that:
+      - nftables_syntax_check.rc == 0
+    fail_msg: |
+      ============================================================================
+      ERROR: nftables configuration syntax is invalid!
+      ============================================================================
+      The nftables rules file has syntax errors. Please check:
+      1. The generated /etc/nftables.conf file
+      2. The template: ansible/roles/firewall_nftables/templates/nftables.conf.j2
+      3. Variable values in your inventory
+      
+      Syntax check output:
+      {{ nftables_syntax_check.stderr | default('No error output') }}
+      ============================================================================
+    success_msg: "✓ nftables configuration syntax is valid"
 
 - name: Enable and start nftables
   service:

@@ -1,0 +1,51 @@
+---
+# Bootstrap inventory - used for initial setup of new hosts
+# 
+# CRITICAL: ALL hosts in this file MUST use ansible_user: armand
+# This is the initial user that exists on fresh Raspberry Pi images
+# 
+# After bootstrap completes, switch to using hosts.yml which uses the 'ansible' automation user
+# 
+# RULE: When adding a new host, it MUST use ansible_user: armand in this file
+#       and ansible_user: ansible in hosts.yml
+all:
+  children:
+    home_milkyway:
+      children:
+        rpi5:
+          hosts:
+            vega:
+              ansible_host: 192.168.1.243
+              ansible_user: armand
+        rpi4:
+          hosts:
+            rigel:
+              ansible_host: 192.168.1.231
+              ansible_user: armand
+        rpi3:
+          hosts:
+            alpheratz:
+              ansible_host: 192.168.1.232
+              ansible_user: armand
+        rpi1:
+          hosts:
+            saiph:
+              ansible_host: 192.168.1.60
+              ansible_user: armand
+            deneb:
+              ansible_host: 192.168.1.234
+              ansible_user: armand
+    andromeda_m31:
+      children:
+        rpi1:
+          hosts:
+            g1:
+              ansible_host: 10.10.10.11
+              ansible_user: armand
+    triangulum_m33:
+      children:
+        rpi1:
+          hosts:
+            ngc604:
+              ansible_host: 10.10.20.11
+              ansible_user: armand

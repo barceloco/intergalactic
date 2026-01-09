@@ -1,6 +1,6 @@
 ---
-- name: Bootstrap Vega (create ansible user, disable password auth, set up keys)
-  hosts: vega
+- name: "Deneb (RPi1 minimal: SSH, Tailscale, rsync, LUKS)"
+  hosts: deneb
   become: true
   gather_facts: false
   vars_files:
@@ -68,22 +68,11 @@
         - item.split() | length >= 3
       # Filter out comment lines, add each valid key line to known_hosts
       # regexp ensures we update existing entries instead of duplicating
-  roles:
-    - common_bootstrap
 
-  post_tasks:
-    - name: Display bootstrap completion status
-      debug:
-        msg: |
-          ============================================================================
-          ✓ Bootstrap completed successfully!
-          ============================================================================
-          The automation user '{{ automation_user }}' has been created and configured.
-          
-          Next steps:
-          1. The bootstrap inventory (hosts-bootstrap.yml) uses the initial user '{{ ansible_user }}'
-          2. The production inventory (hosts.yml) uses the automation user '{{ automation_user }}'
-          3. For future runs, use the production inventory: ./scripts/run-ansible.sh prod vega
-          ============================================================================
-      delegate_to: localhost
-      run_once: true
+    - name: Gather facts after host key verification
+      setup:
+  roles:
+    - common
+    - ssh_hardening
+    - tailscale
+    - luks

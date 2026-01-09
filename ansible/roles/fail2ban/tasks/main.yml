@@ -4,8 +4,10 @@
     name: fail2ban
     state: present
     update_cache: true
+  when: enable_fail2ban | default(true)
 
 - name: Configure fail2ban jail.local for sshd (nftables)
+  when: enable_fail2ban | default(true)
   copy:
     dest: /etc/fail2ban/jail.local
     mode: "0644"
@@ -28,8 +30,10 @@
     mode: "0750"
     owner: root
     group: root
+  when: enable_fail2ban | default(true)
 
 - name: Add fail2ban action to log offender IPs
+  when: enable_fail2ban | default(true)
   copy:
     dest: /etc/fail2ban/action.d/intergalactic-log.conf
     mode: "0644"
@@ -46,9 +50,35 @@
       action = %(action_)s
                intergalactic-log[name=sshd]
   notify: Restart fail2ban
+  when: enable_fail2ban | default(true)
 
 - name: Ensure fail2ban enabled and running
   service:
     name: fail2ban
-    enabled: true
-    state: started
+    enabled: "{{ enable_fail2ban | default(true) }}"
+    state: "{{ 'started' if (enable_fail2ban | default(true)) else 'stopped' }}"
+  when: enable_fail2ban | default(true)
+
+- name: Ensure fail2ban is stopped and disabled when disabled
+  service:
+    name: fail2ban
+    enabled: false
+    state: stopped
+  when: not (enable_fail2ban | default(true))
+
+- name: Display fail2ban status
+  debug:
+    msg: |
+      ============================================================================
+      Fail2ban Status: {{ 'ENABLED' if (enable_fail2ban | default(true)) else 'DISABLED' }}
+      ============================================================================
+      {% if enable_fail2ban | default(true) %}
+      Fail2ban is configured and running.
+      - Max retries before ban: {{ fail2ban_maxretry }}
+      - Ban duration: {{ (fail2ban_bantime_seconds / 86400) | int }} days (effectively permanent)
+      - Offender log: /var/log/intergalactic/fail2ban-offenders.log
+      {% else %}
+      Fail2ban is disabled. Authentication failures will not trigger bans.
+      {% endif %}
+      ============================================================================
+  when: enable_fail2ban is defined

@@ -1,0 +1,193 @@
+---
+- name: Verify SSH Configuration and Deploy User Setup
+  hosts: rigel
+  become: true
+  gather_facts: false
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
+  
+  pre_tasks:
+    - name: Ensure .ssh directory exists for known_hosts
+      file:
+        path: "/root/.ssh"
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      run_once: true
+
+    - name: Fetch host key using ssh-keyscan (secure host key verification)
+      command: >
+        ssh-keyscan
+        -T 5
+        -t ecdsa,ed25519,rsa
+        {{ ansible_host | default(inventory_hostname) }}
+      register: ssh_keyscan_output
+      delegate_to: localhost
+      run_once: true
+      changed_when: false
+      failed_when: false
+
+    - name: Set SSH args to accept host key automatically if ssh-keyscan failed
+      set_fact:
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
+      when: ssh_keyscan_output.rc != 0 or ssh_keyscan_output.stdout_lines | length == 0
+      run_once: true
+
+    - name: Extract host key from ssh-keyscan output (first valid key)
+      set_fact:
+        host_key_line: "{{ ssh_keyscan_output.stdout_lines | reject('match', '^#') | first }}"
+      delegate_to: localhost
+      run_once: true
+      when: ssh_keyscan_output.rc == 0 and ssh_keyscan_output.stdout_lines | length > 0
+
+    - name: Add host key to known_hosts using known_hosts module (if ssh-keyscan succeeded)
+      known_hosts:
+        name: "{{ ansible_host | default(inventory_hostname) }}"
+        key: "{{ host_key_line.split()[1] if host_key_line.split() | length > 1 else '' }}"
+        path: "{{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
+        state: present
+      delegate_to: localhost
+      run_once: true
+      when:
+        - ssh_keyscan_output.rc == 0
+        - ssh_keyscan_output.stdout_lines | length > 0
+        - host_key_line is defined
+        - host_key_line.split() | length >= 3
+
+    - name: Gather facts after host key verification
+      setup:
+
+  tasks:
+    - name: Check SSH daemon configuration (AuthorizedKeysFile setting)
+      command: sshd -T | grep -i authorizedkeysfile
+      register: sshd_authorizedkeysfile
+      changed_when: false
+      failed_when: false
+
+    - name: Log SSH daemon AuthorizedKeysFile configuration (Hypothesis B)
+      debug:
+        msg: |
+          ============================================================================
+          HYPOTHESIS B CHECK: SSH daemon AuthorizedKeysFile configuration
+          ============================================================================
+          Output: {{ sshd_authorizedkeysfile.stdout | default('NOT FOUND') }}
+          Return code: {{ sshd_authorizedkeysfile.rc }}
+          ============================================================================
+
+    - name: Check SSH daemon process start time (to verify restart)
+      command: systemctl show ssh --property=ActiveEnterTimestamp
+      register: ssh_start_time
+      changed_when: false
+      failed_when: false
+
+    - name: Log SSH daemon restart verification (Hypothesis A/C)
+      debug:
+        msg: |
+          ============================================================================
+          HYPOTHESIS A/C CHECK: SSH daemon restart verification
+          ============================================================================
+          SSH service start time: {{ ssh_start_time.stdout | default('UNKNOWN') }}
+          ============================================================================
+
+    - name: Check if deploy user keys file exists
+      stat:
+        path: /etc/ssh/authorized_keys.d/deploy
+      register: deploy_keys_file
+
+    - name: Log deploy user keys file existence (Hypothesis D)
+      debug:
+        msg: |
+          ============================================================================
+          HYPOTHESIS D CHECK: Deploy user keys file existence
+          ============================================================================
+          File exists: {{ deploy_keys_file.stat.exists | default(false) }}
+          File mode: {{ deploy_keys_file.stat.mode | default('N/A') }}
+          File owner: {{ deploy_keys_file.stat.pw_name | default('N/A') }}
+          File group: {{ deploy_keys_file.stat.gr_name | default('N/A') }}
+          File size: {{ deploy_keys_file.stat.size | default(0) }} bytes
+          ============================================================================
+
+    - name: Read deploy user keys file content (first line only for security)
+      slurp:
+        src: /etc/ssh/authorized_keys.d/deploy
+      register: deploy_keys_content
+      when: deploy_keys_file.stat.exists
+
+    - name: Log deploy user keys file content (Hypothesis D)
+      debug:
+        msg: |
+          ============================================================================
+          HYPOTHESIS D CHECK: Deploy user keys file content
+          ============================================================================
+          File content length: {{ deploy_keys_content.content | b64decode | length | default(0) }} bytes
+          First 50 chars: {{ deploy_keys_content.content | b64decode | truncate(50) }}
+          ============================================================================
+      when: deploy_keys_file.stat.exists
+
+    - name: Check SSH daemon AllowUsers configuration
+      command: sshd -T | grep -i allowusers
+      register: sshd_allowusers
+      changed_when: false
+      failed_when: false
+
+    - name: Log SSH daemon AllowUsers configuration (Hypothesis E)
+      debug:
+        msg: |
+          ============================================================================
+          HYPOTHESIS E CHECK: SSH daemon AllowUsers configuration
+          ============================================================================
+          AllowUsers setting: {{ sshd_allowusers.stdout | default('NOT SET (all users allowed)') }}
+          Return code: {{ sshd_allowusers.rc }}
+          Contains 'deploy': {{ 'deploy' in (sshd_allowusers.stdout | default('')) }}
+          ============================================================================
+
+    - name: Check SSH daemon configuration file contents
+      slurp:
+        src: /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: sshd_config_content
+
+    - name: Log SSH daemon config file content (Hypothesis B)
+      debug:
+        msg: |
+          ============================================================================
+          HYPOTHESIS B CHECK: SSH daemon config file content
+          ============================================================================
+          Config file content:
+          {{ sshd_config_content.content | b64decode }}
+          ============================================================================
+
+    - name: Check when deploy keys file was last modified
+      command: stat -c '%y' /etc/ssh/authorized_keys.d/deploy
+      register: deploy_keys_mtime
+      changed_when: false
+      failed_when: false
+      when: deploy_keys_file.stat.exists
+
+    - name: Log deploy keys file modification time vs SSH restart (Hypothesis C)
+      debug:
+        msg: |
+          ============================================================================
+          HYPOTHESIS C CHECK: Deploy keys file modification time vs SSH restart
+          ============================================================================
+          Deploy keys file modified: {{ deploy_keys_mtime.stdout | default('UNKNOWN') }}
+          SSH daemon started: {{ ssh_start_time.stdout | default('UNKNOWN') }}
+          ============================================================================
+      when: deploy_keys_file.stat.exists
+
+    - name: Test SSH connection as deploy user (from localhost)
+      command: ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 deploy@localhost "echo 'SSH connection successful'"
+      register: ssh_test_deploy
+      changed_when: false
+      failed_when: false
+      delegate_to: localhost
+
+    - name: Log SSH connection test result
+      debug:
+        msg: |
+          ============================================================================
+          FINAL VERIFICATION: SSH connection test as deploy user
+          ============================================================================
+          SSH test result: {{ ssh_test_deploy.stdout | default('FAILED') }}
+          Return code: {{ ssh_test_deploy.rc }}
+          Error (if any): {{ ssh_test_deploy.stderr | default('') }}
+          ============================================================================

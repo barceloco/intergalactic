@@ -1,0 +1,267 @@
+---
+- name: Install cryptsetup for LUKS disk encryption
+  apt:
+    name: cryptsetup
+    state: present
+    update_cache: true
+  when: enable_luks | default(false)
+
+- name: Verify cryptsetup is installed
+  command: cryptsetup --version
+  register: cryptsetup_version
+  changed_when: false
+  failed_when: false
+  when: enable_luks | default(false)
+
+- name: Display cryptsetup version
+  debug:
+    msg: "cryptsetup version: {{ cryptsetup_version.stdout | default('not installed') }}"
+  when: 
+    - enable_luks | default(false)
+    - cryptsetup_version.rc == 0
+
+- name: Display LUKS configuration notice if no device specified
+  debug:
+    msg: |
+      ============================================================================
+      LUKS Configuration Notice
+      ============================================================================
+      LUKS is enabled but no device is specified for encryption.
+      
+      To encrypt a device, set luks_device in host_vars/{{ inventory_hostname }}.yml:
+        luks_device: "/dev/sda1"  # or /dev/mmcblk0p2, etc.
+      
+      WARNING: Encrypting a device will DESTROY all data on it!
+      This should only be done on new systems or after backing up data.
+      
+      For now, cryptsetup is installed and ready for manual LUKS setup.
+      ============================================================================
+  when: 
+    - enable_luks | default(false)
+    - luks_device is not defined or luks_device | length == 0
+
+- name: Check if specified LUKS device exists
+  stat:
+    path: "{{ luks_device }}"
+  register: luks_device_stat
+  when: 
+    - enable_luks | default(false)
+    - luks_device is defined
+    - luks_device | length > 0
+
+- name: Fail if LUKS device does not exist
+  assert:
+    that:
+      - luks_device_stat.stat.exists
+    fail_msg: |
+      ============================================================================
+      ERROR: LUKS device does not exist!
+      ============================================================================
+      The specified LUKS device '{{ luks_device }}' does not exist on the system.
+      
+      Please check:
+      1. The device path is correct (e.g., /dev/sda1, /dev/mmcblk0p2)
+      2. The device is connected and recognized by the system
+      3. Use 'lsblk' or 'fdisk -l' to list available devices
+      ============================================================================
+  when: 
+    - enable_luks | default(false)
+    - luks_device is defined
+    - luks_device | length > 0
+
+- name: Check if device is already encrypted with LUKS
+  command: cryptsetup isLuks "{{ luks_device }}"
+  register: luks_check
+  changed_when: false
+  failed_when: false
+  when: 
+    - enable_luks | default(false)
+    - luks_device is defined
+    - luks_device | length > 0
+    - luks_device_stat.stat.exists
+
+- name: Display LUKS status
+  debug:
+    msg: |
+      ============================================================================
+      LUKS Status for {{ luks_device }}
+      ============================================================================
+      {% if luks_check.rc == 0 %}
+      Device is already encrypted with LUKS.
+      {% else %}
+      Device is not encrypted. Manual encryption required.
+      
+      WARNING: Encrypting this device will DESTROY all existing data!
+      
+      To manually encrypt:
+      1. Backup all data from {{ luks_device }}
+      2. Run: sudo cryptsetup luksFormat {{ luks_device }}
+      3. Run: sudo cryptsetup open {{ luks_device }} <name>
+      4. Format: sudo mkfs.ext4 /dev/mapper/<name>
+      5. Mount and restore data
+      {% endif %}
+      ============================================================================
+  when: 
+    - enable_luks | default(false)
+    - luks_device is defined
+    - luks_device | length > 0
+    - luks_device_stat.stat.exists
+
+- name: Check if encrypted home is enabled
+  set_fact:
+    luks_encrypt_home: "{{ luks_encrypt_home | default(false) }}"
+  when: enable_luks | default(false)
+
+- name: Validate LUKS home passphrase is configured (if enabled)
+  when:
+    - enable_luks | default(false)
+    - luks_encrypt_home | default(false)
+  assert:
+    that:
+      - luks_home_passphrase is defined
+      - luks_home_passphrase | length >= 64
+    fail_msg: |
+      luks_encrypt_home is enabled but luks_home_passphrase is not properly configured in all_secrets.yml
+      Set luks_home_passphrase to a base64-encoded passphrase (minimum 64 characters, recommended)
+      A 64-character base64 string provides 48 bytes of entropy (excellent security)
+      Generate with: echo -n "your-passphrase" | base64
+      Or generate random: openssl rand -base64 48 | head -c 64
+      Note: LUKS supports up to 512 characters - longer is more secure
+
+- name: Check if LUKS home device exists
+  stat:
+    path: "{{ luks_home_device }}"
+  register: luks_home_device_stat
+  when:
+    - enable_luks | default(false)
+    - luks_encrypt_home | default(false)
+    - luks_home_device is defined
+    - luks_home_device | length > 0
+
+- name: Fail if LUKS home device does not exist
+  assert:
+    that:
+      - luks_home_device_stat.stat.exists
+    fail_msg: |
+      ============================================================================
+      ERROR: LUKS home device does not exist!
+      ============================================================================
+      The specified LUKS home device '{{ luks_home_device }}' does not exist on the system.
+      
+      To create the partition:
+      1. SSH into the system: ssh ansible@{{ ansible_host | default(inventory_hostname) }}
+      2. Check current partitions: lsblk && sudo fdisk -l {{ luks_home_device | regex_replace('p[0-9]+$', '') }}
+      3. Create partition 3:
+         sudo fdisk {{ luks_home_device | regex_replace('p[0-9]+$', '') }}
+         - Type 'n' (new partition)
+         - Type 'p' (primary partition)  
+         - Partition number: 3
+         - First sector: Press Enter (default - after partition 2)
+         - Last sector: Press Enter (use all remaining space, or specify like +185G)
+         - Type 'w' (write and exit)
+      4. Verify: lsblk
+      5. Run the playbook again
+      
+      Or check:
+      - The device path is correct (e.g., /dev/nvme0n1p3, /dev/sda1)
+      - Use 'lsblk' or 'fdisk -l' to list available devices
+      - Update luks_home_device in host_vars/{{ inventory_hostname }}.yml if needed
+      ============================================================================
+  when:
+    - enable_luks | default(false)
+    - luks_encrypt_home | default(false)
+    - luks_home_device is defined
+    - luks_home_device | length > 0
+
+- name: Check if LUKS home device is already encrypted
+  command: cryptsetup isLuks "{{ luks_home_device }}"
+  register: luks_home_check
+  changed_when: false
+  failed_when: false
+  when:
+    - enable_luks | default(false)
+    - luks_encrypt_home | default(false)
+    - luks_home_device is defined
+    - luks_home_device | length > 0
+    - luks_home_device_stat.stat.exists
+
+- name: Display encrypted home setup instructions (before encryption)
+  when:
+    - enable_luks | default(false)
+    - luks_encrypt_home | default(false)
+    - luks_home_device is defined
+    - luks_home_device | length > 0
+    - luks_home_device_stat.stat.exists
+    - luks_home_check.rc != 0  # Device not yet encrypted
+  debug:
+    msg: |
+      ============================================================================
+      Encrypted Home Directory Setup Required
+      ============================================================================
+      Device: {{ luks_home_device }}
+      Partition size: Check with 'lsblk' or 'fdisk -l'
+      
+      To encrypt the home partition:
+      1. SSH into the system
+      2. Run the encryption helper script (recommended):
+         ./scripts/encrypt-home-partition.sh {{ luks_home_device }} "<base64-passphrase-from-secrets>"
+      3. Or manually (replace <base64-passphrase> with value from all_secrets.yml):
+         echo -n "<base64-passphrase>" | base64 -d | sudo cryptsetup luksFormat {{ luks_home_device }} -
+         sudo cryptsetup open {{ luks_home_device }} home-crypt
+         sudo mkfs.ext4 /dev/mapper/home-crypt
+         sudo cryptsetup close home-crypt
+      
+      WARNING: This will DESTROY all data on {{ luks_home_device }}!
+      ============================================================================
+  no_log: false
+
+- name: Configure /etc/crypttab for encrypted home (after encryption)
+  when:
+    - enable_luks | default(false)
+    - luks_encrypt_home | default(false)
+    - luks_home_device is defined
+    - luks_home_device | length > 0
+    - luks_home_device_stat.stat.exists
+    - luks_home_check.rc == 0  # Device is already encrypted
+  lineinfile:
+    path: /etc/crypttab
+    regexp: '^home-crypt\s+'
+    line: "home-crypt {{ luks_home_device }} none luks,noauto"
+    state: present
+    create: true
+    backup: true
+
+- name: Configure /etc/fstab for encrypted home mount (after encryption)
+  when:
+    - enable_luks | default(false)
+    - luks_encrypt_home | default(false)
+    - luks_home_device is defined
+    - luks_home_device | length > 0
+    - luks_home_device_stat.stat.exists
+    - luks_home_check.rc == 0  # Device is already encrypted
+  lineinfile:
+    path: /etc/fstab
+    regexp: '^/dev/mapper/home-crypt\s+/home\s+'
+    line: "/dev/mapper/home-crypt /home ext4 defaults,noauto 0 2"
+    state: present
+    create: true
+    backup: true
+
+- name: Display LUKS setup summary
+  debug:
+    msg: |
+      ============================================================================
+      LUKS Configuration Complete
+      ============================================================================
+      cryptsetup is installed and ready for use.
+      
+      For manual LUKS setup:
+      - List devices: lsblk
+      - Check if encrypted: cryptsetup isLuks <device>
+      - Format LUKS: cryptsetup luksFormat <device>
+      - Open LUKS: cryptsetup open <device> <name>
+      - Format filesystem: mkfs.ext4 /dev/mapper/<name>
+      
+      For encrypted home directories, configure luks_encrypt_home and luks_home_device in host_vars.
+      ============================================================================
+  when: enable_luks | default(false)

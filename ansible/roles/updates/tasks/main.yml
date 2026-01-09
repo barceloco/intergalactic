@@ -16,3 +16,18 @@
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
   when: enable_unattended_upgrades | default(true)
+
+- name: Configure unattended-upgrades to include Tailscale repository
+  lineinfile:
+    path: /etc/apt/apt.conf.d/50unattended-upgrades
+    regexp: '^\s*Unattended-Upgrade::Origins-Pattern\s*\{'
+    line: 'Unattended-Upgrade::Origins-Pattern { "origin=tailscale"; };'
+    state: present
+    backup: true
+    insertafter: '^//\s*Unattended-Upgrade::Allowed-Origins'
+  when:
+    - enable_unattended_upgrades | default(true)
+    - enable_tailscale | default(false)
+  # Note: This adds Tailscale to the allowed origins pattern
+  # Origins-Pattern works alongside Allowed-Origins and is more flexible
+  # It will match any package from the tailscale origin

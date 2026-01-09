@@ -1,0 +1,24 @@
+---
+hostname: "deneb"
+# Minimal configuration for Raspberry Pi 1
+# Only includes: SSH, Tailscale, rsync, LUKS
+
+# Disable features not needed for minimal install
+enable_desktop: false
+enable_docker: false
+enable_fail2ban: false  # Minimal install - skip fail2ban
+enable_unattended_upgrades: false  # Minimal install - manual updates
+
+# Enable only what's needed
+enable_tailscale: true
+tailscale_advertise_exit_node: false
+tailscale_advertise_routes: []
+
+# LUKS configuration
+enable_luks: true
+# LUKS device to encrypt (will be set based on system)
+# Common options: /dev/sda1, /dev/mmcblk0p2, etc.
+# Leave empty to skip automatic encryption (manual setup)
+luks_device: ""
+# LUKS keyfile location (optional, for automatic unlocking)
+luks_keyfile: ""

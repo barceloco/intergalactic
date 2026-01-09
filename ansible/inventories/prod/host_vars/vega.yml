@@ -2,3 +2,28 @@
 hostname: "vega"
 enable_desktop: true
 enable_docker: true
+
+# LUKS configuration
+enable_luks: true
+
+# Encrypted home directory configuration
+# TEMPORARILY DISABLED: Partition 2 uses entire disk, need to resize first
+# To enable later:
+#   1. Boot from live USB/CD
+#   2. Shrink partition 2 to 64GB using gparted or parted
+#   3. Create partition 3 with remaining space
+#   4. Set luks_encrypt_home: true and run playbook again
+luks_encrypt_home: false
+luks_home_device: "/dev/nvme0n1p3"  # Will be set after creating partition 3
+# Partition size guidance (for ~250GB NVMe):
+# - Boot (/dev/nvme0n1p1): 512MB (FAT32, unencrypted)
+# - Root (/dev/nvme0n1p2): Currently 238GB (needs to be shrunk to 64GB)
+#   Rationale: Desktop + Docker + packages + buffer for updates (~64GB provides comfortable headroom)
+# - Home (/dev/nvme0n1p3): ~185GB remaining (LUKS encrypted, mounted after boot) - NOT YET CREATED
+
+# Samba configuration
+enable_samba: true
+# Samba uses its own password database (smbpasswd)
+# Password is set from samba_armand_passwords[inventory_hostname] in all_secrets.yml
+# Set it to match the system password if you want to use the same password
+# Future system password changes will sync to Samba automatically

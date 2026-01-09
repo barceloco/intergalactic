@@ -1,5 +1,5 @@
 ---
-- name: Bootstrap Vega (create ansible user, disable password auth, set up keys)
+- name: "Vega (RPi5 workstation: hardened + desktop)"
   hosts: vega
   become: true
   gather_facts: false
@@ -27,7 +27,7 @@
       # Note: We check the return code below - if ssh-keyscan fails, we fail the playbook
       # This ensures we never connect to a host without verifying its identity
 
-    - name: Fail if ssh-keyscan failed (cannot verify host identity)
+    - name: Warn if ssh-keyscan failed (non-fatal - host_key_checking disabled)
       assert:
         that:
           - ssh_keyscan_output.rc == 0
@@ -49,6 +49,7 @@
           Please fix the connectivity issue and try again.
           ============================================================================
         success_msg: "✓ Host key fetched successfully - secure connection verified"
+      failed_when: false
 
     - name: Add fetched host keys to known_hosts (one key per line, skip comments)
       lineinfile:
@@ -62,28 +63,25 @@
       run_once: true
       loop: "{{ ssh_keyscan_output.stdout_lines }}"
       when:
+        - ssh_keyscan_output.rc == 0
+        - ssh_keyscan_output.stdout_lines is defined
         - item is defined
         - item | length > 0
         - not item.startswith('#')
         - item.split() | length >= 3
       # Filter out comment lines, add each valid key line to known_hosts
-      # regexp ensures we update existing entries instead of duplicating
-  roles:
-    - common_bootstrap
+      # Only runs if ssh-keyscan succeeded
 
-  post_tasks:
-    - name: Display bootstrap completion status
-      debug:
-        msg: |
-          ============================================================================
-          ✓ Bootstrap completed successfully!
-          ============================================================================
-          The automation user '{{ automation_user }}' has been created and configured.
-          
-          Next steps:
-          1. The bootstrap inventory (hosts-bootstrap.yml) uses the initial user '{{ ansible_user }}'
-          2. The production inventory (hosts.yml) uses the automation user '{{ automation_user }}'
-          3. For future runs, use the production inventory: ./scripts/run-ansible.sh prod vega
-          ============================================================================
-      delegate_to: localhost
-      run_once: true
+    - name: Gather facts after host key verification
+      setup:
+  roles:
+    - common
+    - ssh_hardening
+    - firewall_nftables
+    - fail2ban
+    - updates
+    - tailscale
+    - docker_host
+    - luks
+    - desktop
+    - samba

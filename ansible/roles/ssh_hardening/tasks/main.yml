@@ -5,6 +5,14 @@
     state: present
     update_cache: true
 
+- name: Create system SSH authorized_keys directory
+  file:
+    path: /etc/ssh/authorized_keys.d
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
 - name: Configure sshd drop-in
   copy:
     dest: /etc/ssh/sshd_config.d/10-intergalactic.conf
@@ -13,7 +21,9 @@
     group: root
     content: |
       Port {{ ssh_port }}
-      Protocol 2
+
+      # SSH keys stored in system location for encrypted home directory support
+      AuthorizedKeysFile /etc/ssh/authorized_keys.d/%u
 
       PermitRootLogin no
       PasswordAuthentication no
@@ -25,7 +35,9 @@
       AuthenticationMethods publickey
 
       X11Forwarding no
-      AllowTcpForwarding no
+      # Allow local port forwarding (useful for development/debugging)
+      # but prevent remote forwarding (security risk)
+      AllowTcpForwarding local
       AllowAgentForwarding yes
       PermitTunnel no
 

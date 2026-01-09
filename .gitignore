@@ -1,6 +1,7 @@
 # -------------------------
 # Secrets / local overrides
 # -------------------------
+secrets/
 *.secrets.yml
 *.secrets.yaml
 bootstrap/hosts.secrets.yaml

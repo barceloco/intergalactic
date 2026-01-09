@@ -1,33 +1,63 @@
 ---
 automation_user: "ansible"
-automation_authorized_keys:
-  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdYrr6ERlcqtG9507wmbYogvoh4WvDgFTOhjZ74QDFK ansible@control"
+# SSH public keys for automation user - MUST be set in all_secrets.yml
+# See all_secrets.yml.example for template
+# Do not define automation_authorized_keys here - it must come from all_secrets.yml
 
-human_users:
-  - name: armand
-    authorized_keys:
-      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMW1TbIl1CIO39nFgl3wt+ru+GUXZvZ5tLDHS89uAa9u armand@mbpm1"
+# Human user accounts with SSH keys - MUST be set in all_secrets.yml
+# See all_secrets.yml.example for template
+# Do not define human_users here - it must come from all_secrets.yml
 
 ssh_port: 22
-ssh_allow_users:
-  - "{{ automation_user }}"
-  - "armand"
+# SSH allowlist is automatically generated from automation_user + human_users + deploy (if enabled)
+# If you need additional users, override ssh_allow_users in host_vars or secrets
+ssh_allow_users: "{{ [automation_user] + (human_users | default([]) | map(attribute='name') | list) + (['deploy'] if enable_docker_deploy | default(false) else []) }}"
 
 firewall_allow_tcp_ports:
   - "{{ ssh_port }}"
-firewall_allow_udp_ports: []
+# Tailscale requires UDP 41641 for initial connection
+# Traffic on tailscale0 interface is handled separately in firewall template
+firewall_allow_udp_ports: "{{ [41641] if enable_tailscale | default(false) else [] }}"
+# Rate limit for dropped packets (packets/second)
+firewall_rate_limit: 10
 
-fail2ban_maxretry: 2
+enable_fail2ban: true
+# Fail2ban provides security intelligence and defense-in-depth
+# Even with password auth disabled, it detects invalid user attempts and reconnaissance
+# Set to false to disable fail2ban entirely
+fail2ban_maxretry: 5
+# Less aggressive than default (2) to reduce false positives from legitimate key issues
+# Ban time: 315360000 seconds = ~10 years (effectively permanent)
+# Rationale: Authentication failures are treated as hostile; long bans deter attackers
+# To manually unban an IP: fail2ban-client set sshd unbanip <IP>
 fail2ban_bantime_seconds: 315360000
 
 enable_unattended_upgrades: true
 
 enable_tailscale: true
-tailscale_authkey: "tskey-REPLACE_ME"
+# Tailscale authentication key - MUST be set in all_secrets.yml (not here)
+# See all_secrets.yml.example for template
+# The value from all_secrets.yml (loaded via vars_files) will be used automatically
 tailscale_advertise_exit_node: false
 tailscale_advertise_routes: []
 
 enable_docker: true
+# Add automation user to docker group (grants root-equivalent access)
+# Set to false if you prefer using sudo for docker commands
+docker_add_automation_user: true
 enable_desktop: false
 
+# LUKS disk encryption (for devices that need encrypted storage)
+enable_luks: false
+# LUKS device to encrypt (e.g., /dev/sda1, /dev/mmcblk0p2)
+# Leave empty for manual setup
+luks_device: ""
+# LUKS keyfile for automatic unlocking (optional)
+luks_keyfile: ""
+
 disable_default_pi_user: true
+
+# Docker deployment configuration
+enable_docker_deploy: false  # Enable per-host
+docker_deploy_dns_servers: []  # Optional: list of DNS servers for Docker daemon (e.g., ["8.8.8.8", "8.8.4.4"])
+docker_deploy_env_vars: {}  # Optional: dict of environment variables for deploy user (e.g., {"API_KEY": "value"})

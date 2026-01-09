@@ -3,3 +3,4 @@
   service:
     name: fail2ban
     state: restarted
+  when: enable_fail2ban | default(true)

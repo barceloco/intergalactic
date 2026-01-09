@@ -2,3 +2,28 @@
 hostname: "rigel"
 enable_desktop: false
 enable_docker: true
+
+# LUKS configuration
+enable_luks: true
+# LUKS device to encrypt (will be set based on system)
+# Common options: /dev/sda1, /dev/mmcblk0p2, etc.
+# Leave empty to skip automatic encryption (manual setup)
+luks_device: ""
+# LUKS keyfile location (optional, for automatic unlocking)
+luks_keyfile: ""
+
+# Samba configuration
+enable_samba: true
+# Samba uses its own password database (smbpasswd)
+# Password is set from samba_armand_passwords[inventory_hostname] in all_secrets.yml
+# Set it to match the system password if you want to use the same password
+# Future system password changes will sync to Samba automatically
+
+# Docker deployment configuration
+enable_docker_deploy: true
+docker_deploy_tcp_ports:
+  - 8000   # API
+  - 5432   # PostgreSQL
+  - 6379   # Redis
+  - 9000   # MinIO
+  - 9001   # MinIO

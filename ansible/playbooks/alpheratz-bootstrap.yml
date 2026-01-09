@@ -1,6 +1,6 @@
 ---
-- name: Bootstrap Vega (create ansible user, disable password auth, set up keys)
-  hosts: vega
+- name: Bootstrap Alpheratz (create ansible user, disable password auth, set up keys)
+  hosts: alpheratz
   become: true
   gather_facts: false
   vars_files:
@@ -68,6 +68,9 @@
         - item.split() | length >= 3
       # Filter out comment lines, add each valid key line to known_hosts
       # regexp ensures we update existing entries instead of duplicating
+
+    - name: Gather facts after host key verification
+      setup:
   roles:
     - common_bootstrap
 
@@ -83,7 +86,7 @@
           Next steps:
           1. The bootstrap inventory (hosts-bootstrap.yml) uses the initial user '{{ ansible_user }}'
           2. The production inventory (hosts.yml) uses the automation user '{{ automation_user }}'
-          3. For future runs, use the production inventory: ./scripts/run-ansible.sh prod vega
+          3. For future runs, use the production inventory: ./scripts/run-ansible.sh prod alpheratz
           ============================================================================
       delegate_to: localhost
       run_once: true
