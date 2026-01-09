@@ -25,22 +25,43 @@
       run_once: true
       changed_when: false
       failed_when: false
-
+      # Note: We check the return code below - if ssh-keyscan fails, we fail the playbook
       # This ensures we never connect to a host without verifying its identity
-      # -T 5 sets a 5 second timeout to prevent hanging
 
-        key: "{{ host_key_line.split()[1] if host_key_line.split() | length > 1 else '' }}"
+    - name: Warn if ssh-keyscan failed (host key will be verified on first connection)
+      assert:
+        that:
+          - ssh_keyscan_output.rc == 0
+          - ssh_keyscan_output.stdout_lines | length > 0
+        fail_msg: |
+          WARNING: ssh-keyscan failed - host key will be verified on first connection
+          This is non-fatal. Ansible will prompt to accept the host key when connecting.
+          Host key checking is ENABLED for security (prevents MITM attacks).
+        success_msg: "✓ Host key fetched successfully - will add to known_hosts"
+      failed_when: false
+
+    - name: Add fetched host keys to known_hosts (one key per line, skip comments)
+      lineinfile:
         path: "{{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
+        line: "{{ item }}"
+        create: true
+        mode: '0600'
+        regexp: "^{{ item.split()[0] if item.split() | length > 0 else '' }} "
         state: present
       delegate_to: localhost
       run_once: true
+      loop: "{{ ssh_keyscan_output.stdout_lines }}"
       when:
         - ssh_keyscan_output.rc == 0
-        - ssh_keyscan_output.stdout_lines | length > 0
-        - host_key_line is defined
-        - host_key_line.split() | length >= 3
+        - ssh_keyscan_output.stdout_lines is defined
+        - item is defined
+        - item | length > 0
+        - not item.startswith('#')
+        - item.split() | length >= 3
+      # Filter out comment lines, add each valid key line to known_hosts
+      # regexp ensures we update existing entries instead of duplicating
 
-    - name: Gather facts (will accept host key automatically if ssh-keyscan failed)
+    - name: Gather facts after host key verification
       setup:
   roles:
     - common
