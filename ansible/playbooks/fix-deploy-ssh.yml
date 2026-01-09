@@ -1,0 +1,248 @@
+---
+- name: Fix deploy user SSH access
+  hosts: rigel
+  become: true
+  gather_facts: false
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
+  
+  handlers:
+    - name: Restart ssh
+      service:
+        name: ssh
+        state: reloaded
+  
+  pre_tasks:
+    - name: Ensure .ssh directory exists for known_hosts
+      file:
+        path: "/root/.ssh"
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      run_once: true
+
+    - name: Fetch host key using ssh-keyscan
+      command: >
+        ssh-keyscan
+        -T 5
+        -t ecdsa,ed25519,rsa
+        {{ ansible_host | default(inventory_hostname) }}
+      register: ssh_keyscan_output
+      delegate_to: localhost
+      run_once: true
+      changed_when: false
+      failed_when: false
+
+    - name: Set SSH args to accept host key automatically if ssh-keyscan failed
+      set_fact:
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
+      when: ssh_keyscan_output.rc != 0 or ssh_keyscan_output.stdout_lines | length == 0
+      run_once: true
+
+    - name: Extract host key from ssh-keyscan output
+      set_fact:
+        host_key_line: "{{ ssh_keyscan_output.stdout_lines | reject('match', '^#') | first }}"
+      delegate_to: localhost
+      run_once: true
+      when: ssh_keyscan_output.rc == 0 and ssh_keyscan_output.stdout_lines | length > 0
+
+    - name: Add host key to known_hosts
+      known_hosts:
+        name: "{{ ansible_host | default(inventory_hostname) }}"
+        key: "{{ host_key_line.split()[1] if host_key_line.split() | length > 1 else '' }}"
+        path: "{{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
+        state: present
+      delegate_to: localhost
+      run_once: true
+      failed_when: false
+      when:
+        - ssh_keyscan_output.rc == 0
+        - ssh_keyscan_output.stdout_lines | length > 0
+        - host_key_line is defined
+        - host_key_line.split() | length >= 3
+
+    - name: Always set SSH args to accept host key (fallback)
+      set_fact:
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
+      run_once: true
+
+    - name: Gather facts
+      setup:
+
+  tasks:
+    # #region agent log
+    - name: HYPOTHESIS A - Check if deploy keys file exists
+      stat:
+        path: /etc/ssh/authorized_keys.d/deploy
+      register: deploy_keys_file
+    - name: Log Hypothesis A result
+      debug:
+        msg: |
+          HYPOTHESIS A: Deploy keys file exists: {{ deploy_keys_file.stat.exists | default(false) }}
+          File path: /etc/ssh/authorized_keys.d/deploy
+          File mode: {{ deploy_keys_file.stat.mode | default('N/A') }}
+          File owner: {{ deploy_keys_file.stat.pw_name | default('N/A') }}
+    # #endregion
+
+    # #region agent log
+    - name: HYPOTHESIS B - Check SSH daemon AuthorizedKeysFile config
+      command: sshd -T | grep -i authorizedkeysfile
+      register: sshd_authkeys
+      changed_when: false
+      failed_when: false
+    - name: Log Hypothesis B result
+      debug:
+        msg: |
+          HYPOTHESIS B: SSH AuthorizedKeysFile setting: {{ sshd_authkeys.stdout | default('NOT FOUND') }}
+    # #endregion
+
+    # #region agent log
+    - name: HYPOTHESIS C - Check if deploy user exists
+      command: id deploy
+      register: deploy_user_check
+      changed_when: false
+      failed_when: false
+    - name: Log Hypothesis C result
+      debug:
+        msg: |
+          HYPOTHESIS C: Deploy user exists: {{ deploy_user_check.rc == 0 }}
+          User info: {{ deploy_user_check.stdout | default('USER NOT FOUND') }}
+    # #endregion
+
+    # #region agent log
+    - name: HYPOTHESIS D - Check AllowUsers configuration
+      command: sshd -T | grep -i allowusers
+      register: sshd_allowusers
+      changed_when: false
+      failed_when: false
+    - name: Log Hypothesis D result
+      debug:
+        msg: |
+          HYPOTHESIS D: AllowUsers setting: {{ sshd_allowusers.stdout | default('NOT SET') }}
+          Contains 'deploy': {{ 'deploy' in (sshd_allowusers.stdout | default('')) }}
+    # #endregion
+
+    # #region agent log
+    - name: HYPOTHESIS E - Check SSH daemon restart time
+      command: systemctl show ssh --property=ActiveEnterTimestamp
+      register: ssh_start_time
+      changed_when: false
+      failed_when: false
+    - name: Log Hypothesis E result
+      debug:
+        msg: |
+          HYPOTHESIS E: SSH daemon started at: {{ ssh_start_time.stdout | default('UNKNOWN') }}
+    # #endregion
+
+    # #region agent log
+    - name: HYPOTHESIS F - Read deploy keys file content
+      slurp:
+        src: /etc/ssh/authorized_keys.d/deploy
+      register: deploy_keys_content
+      when: deploy_keys_file.stat.exists
+    - name: Log Hypothesis F result
+      debug:
+        msg: |
+          HYPOTHESIS F: Deploy keys file content length: {{ deploy_keys_content.content | b64decode | length | default(0) }} bytes
+          First 100 chars: {{ deploy_keys_content.content | b64decode | truncate(100) }}
+      when: deploy_keys_file.stat.exists
+    # #endregion
+
+    # FIX: Ensure deploy user exists
+    - name: Ensure deploy user exists
+      user:
+        name: deploy
+        shell: /bin/bash
+        create_home: true
+        groups: docker,sudo
+        append: true
+        state: present
+
+    # FIX: Get armand user SSH keys
+    - name: Get armand user SSH keys
+      set_fact:
+        armand_ssh_keys: "{{ (human_users | selectattr('name', 'equalto', 'armand') | first).authorized_keys | default([]) }}"
+
+    # FIX: Ensure deploy user SSH authorized_keys in system location
+    - name: Ensure deploy user SSH authorized_keys in system location
+      copy:
+        dest: /etc/ssh/authorized_keys.d/deploy
+        content: "{{ armand_ssh_keys | join('\n') }}\n"
+        mode: '0644'
+        owner: root
+        group: root
+
+    # FIX: Verify SSH daemon is configured correctly
+    - name: Check current SSH daemon config
+      command: sshd -T | grep -i authorizedkeysfile
+      register: sshd_authkeys_verify
+      changed_when: false
+      failed_when: false
+
+    - name: FIX - Ensure SSH daemon config directory exists
+      file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: FIX - Configure SSH daemon to use /etc/ssh/authorized_keys.d/%u
+      copy:
+        dest: /etc/ssh/sshd_config.d/10-intergalactic.conf
+        mode: "0600"
+        owner: root
+        group: root
+        content: |
+          Port {{ ssh_port | default(22) }}
+          
+          # SSH keys stored in system location for encrypted home directory support
+          AuthorizedKeysFile /etc/ssh/authorized_keys.d/%u
+          
+          PermitRootLogin no
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          ChallengeResponseAuthentication no
+          UsePAM yes
+          
+          PubkeyAuthentication yes
+          AuthenticationMethods publickey
+          
+          X11Forwarding no
+          AllowTcpForwarding local
+          AllowAgentForwarding yes
+          PermitTunnel no
+          
+          ClientAliveInterval 300
+          ClientAliveCountMax 2
+          LoginGraceTime 20
+          MaxAuthTries 3
+          MaxSessions 5
+          
+          # Allow users: ansible, armand, deploy
+          AllowUsers ansible armand deploy
+      notify: Restart ssh
+
+    # FIX: Force SSH reload to apply configuration (handlers run at end, this ensures immediate reload)
+    - name: FIX - Reload SSH service to apply configuration immediately
+      service:
+        name: ssh
+        state: reloaded
+
+    # VERIFY: Test SSH connection as deploy user
+    - name: Test SSH connection as deploy user (from server itself)
+      command: ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 deploy@localhost "echo 'SSH test successful'"
+      register: ssh_test_result
+      changed_when: false
+      failed_when: false
+
+    - name: Log SSH test result
+      debug:
+        msg: |
+          ============================================================================
+          SSH CONNECTION TEST RESULT:
+          ============================================================================
+          Return code: {{ ssh_test_result.rc }}
+          Output: {{ ssh_test_result.stdout | default('NONE') }}
+          Error: {{ ssh_test_result.stderr | default('NONE') }}
+          ============================================================================

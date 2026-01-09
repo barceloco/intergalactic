@@ -25,7 +25,6 @@
     state: present
     backup: true
     insertafter: '^//\s*Unattended-Upgrade::Allowed-Origins'
-    insertbefore: '^//\s*Unattended-Upgrade::Package-Blacklist'
   when:
     - enable_unattended_upgrades | default(true)
     - enable_tailscale | default(false)

@@ -5,6 +5,11 @@
     state: present
     update_cache: true
 
+- name: Merge docker_deploy_tcp_ports into firewall_allow_tcp_ports
+  when: docker_deploy_tcp_ports is defined
+  set_fact:
+    firewall_allow_tcp_ports: "{{ firewall_allow_tcp_ports | default([]) + (docker_deploy_tcp_ports | default([])) | unique }}"
+
 - name: Deploy nftables rules
   template:
     src: nftables.conf.j2

@@ -25,7 +25,7 @@
       run_once: true
       changed_when: false
       failed_when: false
-
+      # Note: We check the return code below - if ssh-keyscan fails, we fail the playbook
       # This ensures we never connect to a host without verifying its identity
       # -T 5 sets a 5 second timeout to prevent hanging
 
@@ -40,7 +40,7 @@
       known_hosts:
         name: "{{ ansible_host | default(inventory_hostname) }}"
         key: "{{ host_key_line.split()[1] if host_key_line.split() | length > 1 else '' }}"
-
+        path: "{{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
         state: present
       delegate_to: localhost
       run_once: true

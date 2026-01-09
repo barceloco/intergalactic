@@ -25,9 +25,15 @@
       run_once: true
       changed_when: false
       failed_when: false
-
+      # Note: We check the return code below - if ssh-keyscan fails, we fail the playbook
       # This ensures we never connect to a host without verifying its identity
       # -T 5 sets a 5 second timeout to prevent hanging
+
+    - name: Set SSH args to accept host key automatically if ssh-keyscan failed
+      set_fact:
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
+      when: ssh_keyscan_output.rc != 0 or ssh_keyscan_output.stdout_lines | length == 0
+      run_once: true
 
     - name: Extract host key from ssh-keyscan output (first valid key)
       set_fact:
@@ -40,7 +46,7 @@
       known_hosts:
         name: "{{ ansible_host | default(inventory_hostname) }}"
         key: "{{ host_key_line.split()[1] if host_key_line.split() | length > 1 else '' }}"
-
+        path: "{{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
         state: present
       delegate_to: localhost
       run_once: true

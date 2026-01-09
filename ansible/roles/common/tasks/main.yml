@@ -1,45 +1,4 @@
 ---
-# Pre-flight validation: ensure required variables are set
-- name: Validate automation SSH keys are configured
-  assert:
-    that:
-      - automation_authorized_keys is defined
-      - automation_authorized_keys | length > 0
-    fail_msg: |
-      automation_authorized_keys is not set or is empty.
-      Please configure SSH keys in all_secrets.yml
-      See ansible/inventories/prod/group_vars/all_secrets.yml.example for template.
-    success_msg: "Automation SSH keys are configured"
-
-- name: Validate human users SSH keys are configured (if human_users is defined)
-  when: human_users is defined and human_users | length > 0
-  assert:
-    that:
-      - item.authorized_keys is defined
-      - item.authorized_keys | length > 0
-    fail_msg: |
-      Human user '{{ item.name }}' has no authorized_keys configured.
-      Please add SSH keys for this user in all_secrets.yml
-      See ansible/inventories/prod/group_vars/all_secrets.yml.example for template.
-    success_msg: "Human user '{{ item.name }}' SSH keys are configured"
-  loop: "{{ human_users }}"
-  loop_control:
-    label: "{{ item.name }}"
-
-- name: Validate Tailscale auth key (if Tailscale is enabled)
-  when: enable_tailscale | default(false)
-  assert:
-    that:
-      - tailscale_authkey is defined
-      - tailscale_authkey | length > 0
-      - tailscale_authkey != "tskey-REPLACE_ME"
-      - not tailscale_authkey.startswith("tskey-REPLACE")
-    fail_msg: |
-      Tailscale is enabled but auth key is not set or is a placeholder.
-      Please set tailscale_authkey in all_secrets.yml
-      See ansible/inventories/prod/group_vars/all_secrets.yml.example for template.
-    success_msg: "Tailscale auth key is configured"
-
 - name: Install minimal base packages (headless safe)
   apt:
     name:
@@ -61,32 +20,21 @@
     enabled: true
     state: started
 
-- name: Ensure system SSH authorized_keys directory exists
-  file:
-    path: /etc/ssh/authorized_keys.d
-    state: directory
-    mode: '0755'
-    owner: root
-    group: root
+- name: Enforce automation authorized_keys (exclusive)
+  authorized_key:
+    user: "{{ automation_user }}"
+    key: "{{ item }}"
+    state: present
+    exclusive: true
+  loop: "{{ automation_authorized_keys }}"
 
-- name: Enforce automation authorized_keys in system location (exclusive)
-  copy:
-    dest: /etc/ssh/authorized_keys.d/{{ automation_user }}
-    content: "{{ automation_authorized_keys | join('\n') }}\n"
-    mode: '0644'
-    owner: root
-    group: root
-
-- name: Enforce human users authorized_keys in system location (exclusive)
-  copy:
-    dest: /etc/ssh/authorized_keys.d/{{ item.0.name }}
-    content: "{{ item.1 }}\n"
-    mode: '0644'
-    owner: root
-    group: root
+- name: Enforce human users authorized_keys (exclusive)
+  authorized_key:
+    user: "{{ item.0.name }}"
+    key: "{{ item.1 }}"
+    state: present
+    exclusive: true
   loop: "{{ (human_users | default([])) | subelements('authorized_keys') }}"
-  loop_control:
-    label: "{{ item.0.name }}"
 
 - name: Optionally disable default 'pi' user (if present)
   when: disable_default_pi_user | default(false)

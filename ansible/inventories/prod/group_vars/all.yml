@@ -9,9 +9,9 @@ automation_user: "ansible"
 # Do not define human_users here - it must come from all_secrets.yml
 
 ssh_port: 22
-# SSH allowlist is automatically generated from automation_user + human_users
+# SSH allowlist is automatically generated from automation_user + human_users + deploy (if enabled)
 # If you need additional users, override ssh_allow_users in host_vars or secrets
-ssh_allow_users: "{{ [automation_user] + (human_users | default([]) | map(attribute='name') | list) }}"
+ssh_allow_users: "{{ [automation_user] + (human_users | default([]) | map(attribute='name') | list) + (['deploy'] if enable_docker_deploy | default(false) else []) }}"
 
 firewall_allow_tcp_ports:
   - "{{ ssh_port }}"
@@ -56,3 +56,8 @@ luks_device: ""
 luks_keyfile: ""
 
 disable_default_pi_user: true
+
+# Docker deployment configuration
+enable_docker_deploy: false  # Enable per-host
+docker_deploy_dns_servers: []  # Optional: list of DNS servers for Docker daemon (e.g., ["8.8.8.8", "8.8.4.4"])
+docker_deploy_env_vars: {}  # Optional: dict of environment variables for deploy user (e.g., {"API_KEY": "value"})

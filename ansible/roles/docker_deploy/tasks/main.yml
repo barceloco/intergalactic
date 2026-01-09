@@ -1,0 +1,168 @@
+---
+- name: Validate armand user exists in human_users
+  when: enable_docker_deploy | default(false)
+  assert:
+    that:
+      - human_users is defined
+      - human_users | length > 0
+      - (human_users | selectattr('name', 'equalto', 'armand') | list | length) > 0
+    fail_msg: |
+      ============================================================================
+      ERROR: armand user not found in human_users!
+      ============================================================================
+      The docker_deploy role requires armand user to exist in human_users
+      to copy SSH keys. Please configure human_users in all_secrets.yml.
+      ============================================================================
+    success_msg: "✓ armand user found in human_users"
+
+- name: Get armand user SSH keys
+  when: enable_docker_deploy | default(false)
+  set_fact:
+    armand_ssh_keys: "{{ (human_users | selectattr('name', 'equalto', 'armand') | first).authorized_keys | default([]) }}"
+
+- name: Validate armand user has SSH keys
+  when: enable_docker_deploy | default(false)
+  assert:
+    that:
+      - armand_ssh_keys is defined
+      - armand_ssh_keys | length > 0
+    fail_msg: |
+      ============================================================================
+      ERROR: armand user has no SSH keys configured!
+      ============================================================================
+      The docker_deploy role requires armand user to have authorized_keys
+      configured in all_secrets.yml to copy to deploy user.
+      ============================================================================
+    success_msg: "✓ armand user has {{ armand_ssh_keys | length }} SSH key(s)"
+
+- name: Ensure deploy user exists
+  when: enable_docker_deploy | default(false)
+  user:
+    name: deploy
+    shell: /bin/bash
+    create_home: true
+    groups: docker,sudo
+    append: true
+    state: present
+
+- name: Ensure deploy user SSH authorized_keys in system location
+  when: enable_docker_deploy | default(false)
+  copy:
+    dest: /etc/ssh/authorized_keys.d/deploy
+    content: "{{ armand_ssh_keys | join('\n') }}\n"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Restart ssh
+
+- name: Reload SSH service to ensure deploy user keys are loaded
+  when: enable_docker_deploy | default(false)
+  service:
+    name: ssh
+    state: reloaded
+  # Explicit reload ensures SSH picks up the deploy user keys immediately
+  # Using reloaded instead of restarted to avoid dropping existing connections
+  # This is critical for the deploy user to be able to SSH in after playbook completion
+
+- name: Passwordless sudo for deploy user (no-password policy, no TTY required)
+  when: enable_docker_deploy | default(false)
+  copy:
+    dest: "/etc/sudoers.d/90-deploy"
+    content: |
+      # Allow deploy user to run all commands without password
+      # Disable requiretty to allow non-interactive sudo (required for automation)
+      Defaults:deploy !requiretty
+      deploy ALL=(ALL) NOPASSWD:ALL
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Verify deploy sudoers file syntax
+  when: enable_docker_deploy | default(false)
+  command: visudo -c -f /etc/sudoers.d/90-deploy
+  changed_when: false
+  failed_when: false
+  register: deploy_sudoers_check
+
+- name: Fail if deploy sudoers file is invalid
+  when: enable_docker_deploy | default(false)
+  assert:
+    that:
+      - deploy_sudoers_check.rc == 0
+    fail_msg: |
+      ============================================================================
+      ERROR: Sudoers file syntax is invalid for deploy user!
+      ============================================================================
+      The sudoers file for deploy has syntax errors.
+      This will prevent passwordless sudo from working.
+      
+      Check output: {{ deploy_sudoers_check.stdout | default('No output') }}
+      ============================================================================
+    success_msg: "✓ Deploy user sudoers file syntax is valid"
+
+- name: Ensure /srv/ directory exists
+  when: enable_docker_deploy | default(false)
+  file:
+    path: /srv
+    state: directory
+    owner: deploy
+    group: deploy
+    mode: '0755'
+
+- name: Install git if not present
+  when: enable_docker_deploy | default(false)
+  apt:
+    name: git
+    state: present
+    update_cache: true
+
+- name: Set deploy user environment variables (if configured)
+  when:
+    - enable_docker_deploy | default(false)
+    - docker_deploy_env_vars is defined
+    - docker_deploy_env_vars | length > 0
+  blockinfile:
+    path: /home/deploy/.bashrc
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - docker_deploy env vars"
+    block: |
+      {% for key, value in docker_deploy_env_vars.items() %}
+      export {{ key }}="{{ value }}"
+      {% endfor %}
+    create: true
+    owner: deploy
+    group: deploy
+    mode: '0644'
+
+- name: Configure Docker daemon DNS (if specified)
+  when:
+    - enable_docker_deploy | default(false)
+    - docker_deploy_dns_servers is defined
+    - docker_deploy_dns_servers | length > 0
+  block:
+    - name: Check if Docker daemon.json exists
+      stat:
+        path: /etc/docker/daemon.json
+      register: docker_daemon_json
+
+    - name: Read existing Docker daemon.json
+      slurp:
+        src: /etc/docker/daemon.json
+      register: docker_daemon_json_content
+      when: docker_daemon_json.stat.exists
+
+    - name: Set Docker daemon.json content
+      set_fact:
+        docker_daemon_config: "{{ (docker_daemon_json_content.content | b64decode | from_json) if (docker_daemon_json.stat.exists and docker_daemon_json_content.content | default('') != '') else {} }}"
+
+    - name: Update Docker daemon.json with DNS servers
+      copy:
+        dest: /etc/docker/daemon.json
+        content: "{{ (docker_daemon_config | combine({'dns': docker_deploy_dns_servers})) | to_json(indent=2) }}\n"
+        mode: '0644'
+        owner: root
+        group: root
+      notify: Restart docker
+
+- name: Set fact for docker_deploy_tcp_ports (for firewall integration)
+  when: enable_docker_deploy | default(false)
+  set_fact:
+    docker_deploy_tcp_ports: "{{ docker_deploy_tcp_ports | default([]) }}"

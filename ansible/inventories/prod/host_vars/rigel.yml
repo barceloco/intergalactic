@@ -18,3 +18,12 @@ enable_samba: true
 # Password is set from samba_armand_passwords[inventory_hostname] in all_secrets.yml
 # Set it to match the system password if you want to use the same password
 # Future system password changes will sync to Samba automatically
+
+# Docker deployment configuration
+enable_docker_deploy: true
+docker_deploy_tcp_ports:
+  - 8000   # API
+  - 5432   # PostgreSQL
+  - 6379   # Redis
+  - 9000   # MinIO
+  - 9001   # MinIO
