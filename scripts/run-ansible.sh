@@ -80,11 +80,11 @@ if [[ "${PLAY}" == *"-bootstrap"* ]]; then
 else
   # Production: use SSH args (host key checking disabled in ansible.cfg)
   docker run --rm -i \
-    -v "${ROOT_DIR}:/repo" \
+  -v "${ROOT_DIR}:/repo" \
     ${SSH_KEY_MOUNT} \
-    ${SSH_AUTH_SOCK_MOUNT} \
+  ${SSH_AUTH_SOCK_MOUNT} \
     -e ANSIBLE_SSH_ARGS="${ANSIBLE_SSH_ARGS:-}" \
-    "${IMAGE}" \
+  "${IMAGE}" \
     ansible-playbook -i "${INVENTORY_FILE}" "playbooks/${PLAY}.yml"
 fi
 EXIT_CODE=$?
