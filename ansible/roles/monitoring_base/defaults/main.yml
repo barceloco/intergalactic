@@ -1,0 +1,10 @@
+---
+# Install tmux (optional but recommended for headless servers)
+monitoring_base_install_tmux: true
+
+# Enable sysstat collection (sar, iostat historical data)
+# Set to false to disable sysstat data collection
+monitoring_base_enable_sysstat: true
+
+# Create /etc/profile.d/monitoring-aliases.sh with CLI aliases
+monitoring_base_aliases_enabled: true

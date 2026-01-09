@@ -1,0 +1,18 @@
+#!/bin/bash
+# Monitoring aliases for CLI-based system monitoring
+# Managed by Ansible role: monitoring_base
+
+{% if monitoring_base_aliases_enabled | default(true) %}
+# Memory and system stats
+alias mem='free -h'
+alias v1='vmstat 1'
+alias io1='iostat -xz 1'
+alias top10='ps aux --sort=-%cpu | head -n 11'
+alias mem10='ps aux --sort=-%mem | head -n 11'
+alias dmesgt='dmesg -T | tail -n 80'
+
+# Linux PSI (Pressure Stall Information) - available on kernel 4.20+
+alias p_cpu='cat /proc/pressure/cpu'
+alias p_mem='cat /proc/pressure/memory'
+alias p_io='cat /proc/pressure/io'
+{% endif %}

@@ -83,6 +83,8 @@
     - updates
     - tailscale
     - docker_host
+    - monitoring_base
+    - monitoring_docker
     - luks
     - desktop
     - samba

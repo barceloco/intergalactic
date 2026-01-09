@@ -1,0 +1,133 @@
+---
+- name: Fail if not Debian-family OS
+  fail:
+    msg: "monitoring_docker role only supports Debian-family distributions (Debian, Ubuntu, Raspberry Pi OS). Detected OS family: {{ ansible_facts['os_family'] }}"
+  when: ansible_facts['os_family'] != 'Debian'
+
+- name: Set ctop architecture
+  set_fact:
+    ctop_arch: "{{ monitoring_docker_ctop_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+
+- name: Attempt to install ctop from apt (if method is auto or apt)
+  apt:
+    name: ctop
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+  register: ctop_apt_install
+  failed_when: false
+  changed_when: ctop_apt_install.rc == 0 and ctop_apt_install.changed | default(false)
+  when:
+    - monitoring_docker_ctop_install_method in ['auto', 'apt']
+
+- name: Check if ctop was installed via apt
+  set_fact:
+    ctop_installed_via_apt: "{{ ctop_apt_install.rc == 0 }}"
+  when:
+    - monitoring_docker_ctop_install_method in ['auto', 'apt']
+    - ctop_apt_install is defined
+    - ctop_apt_install.rc is defined
+
+- name: Fail if apt install failed and method is apt
+  fail:
+    msg: "Failed to install ctop from apt. Package 'ctop' not available. Try method: 'binary' or 'auto'."
+  when:
+    - monitoring_docker_ctop_install_method == 'apt'
+    - not (ctop_installed_via_apt | default(false))
+
+- name: Resolve latest ctop version from GitHub API
+  uri:
+    url: "https://api.github.com/repos/bcicen/ctop/releases/latest"
+    method: GET
+    return_content: true
+    status_code: [200, 404]
+  register: ctop_latest_release
+  when:
+    - monitoring_docker_ctop_version == 'latest'
+    - monitoring_docker_ctop_install_method in ['auto', 'binary']
+    - not (ctop_installed_via_apt | default(false))
+
+- name: Extract latest version from GitHub API response
+  set_fact:
+    ctop_resolved_version: "{{ ctop_latest_release.json.tag_name | regex_replace('^v', '') }}"
+  when:
+    - monitoring_docker_ctop_version == 'latest'
+    - monitoring_docker_ctop_install_method in ['auto', 'binary']
+    - not (ctop_installed_via_apt | default(false))
+    - ctop_latest_release.status == 200
+
+- name: Fail if latest version resolution failed
+  fail:
+    msg: |
+      Failed to resolve latest ctop version from GitHub API.
+      This requires network access to https://api.github.com
+      Solution: Pin a specific version using monitoring_docker_ctop_version (e.g., "0.7.7")
+      or ensure network connectivity to GitHub.
+  when:
+    - monitoring_docker_ctop_version == 'latest'
+    - monitoring_docker_ctop_install_method in ['auto', 'binary']
+    - not (ctop_installed_via_apt | default(false))
+    - ctop_latest_release.status != 200
+
+- name: Set ctop version to use
+  set_fact:
+    ctop_version_to_use: "{{ ctop_resolved_version | default(monitoring_docker_ctop_version) }}"
+  when:
+    - monitoring_docker_ctop_install_method in ['auto', 'binary']
+    - not (ctop_installed_via_apt | default(false))
+
+- name: Set ctop download URL
+  set_fact:
+    ctop_download_url: "https://github.com/bcicen/ctop/releases/download/v{{ ctop_version_to_use }}/ctop-{{ ctop_version_to_use }}-linux-{{ ctop_arch }}"
+  when:
+    - monitoring_docker_ctop_install_method in ['auto', 'binary']
+    - not (ctop_installed_via_apt | default(false))
+    - ctop_version_to_use is defined
+
+- name: Download ctop binary
+  get_url:
+    url: "{{ ctop_download_url }}"
+    dest: /usr/local/bin/ctop
+    mode: '0755'
+    timeout: 30
+  become: true
+  when:
+    - monitoring_docker_ctop_install_method in ['auto', 'binary']
+    - not (ctop_installed_via_apt | default(false))
+    - ctop_download_url is defined
+
+- name: Verify ctop is installed
+  command: which ctop
+  register: ctop_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if ctop is not available
+  fail:
+    msg: "ctop installation failed. Check network connectivity and installation method settings."
+  when: ctop_check.rc != 0
+
+- name: Ensure docker group exists
+  group:
+    name: docker
+    state: present
+  become: true
+  when: monitoring_docker_add_users_to_docker_group | length > 0
+
+- name: Add users to docker group
+  user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  become: true
+  loop: "{{ monitoring_docker_add_users_to_docker_group }}"
+  when: monitoring_docker_add_users_to_docker_group | length > 0
+
+- name: Create docker monitoring aliases file
+  template:
+    src: docker-monitoring-aliases.sh.j2
+    dest: /etc/profile.d/docker-monitoring-aliases.sh
+    mode: '0644'
+  become: true
+  when: monitoring_docker_aliases_enabled | default(true)

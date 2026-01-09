@@ -1,0 +1,22 @@
+---
+# ctop installation method: "auto" (try apt first, fallback to binary), "apt", or "binary"
+monitoring_docker_ctop_install_method: "auto"
+
+# ctop version: "latest" (resolve via GitHub API) or specific version (e.g., "0.7.7")
+# Note: "latest" requires network access to GitHub API
+monitoring_docker_ctop_version: "latest"
+
+# Architecture mapping for ctop binary downloads
+# Maps Ansible ansible_architecture to ctop release architecture
+monitoring_docker_ctop_arch_map:
+  x86_64: "amd64"
+  aarch64: "arm64"
+  armv7l: "arm"
+  armv6l: "arm"
+
+# Create /etc/profile.d/docker-monitoring-aliases.sh with Docker aliases
+monitoring_docker_aliases_enabled: true
+
+# List of users to add to docker group (requires logout/login to take effect)
+# Example: ["pi", "deploy"]
+monitoring_docker_add_users_to_docker_group: []

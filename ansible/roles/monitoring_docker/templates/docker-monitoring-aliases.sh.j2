@@ -1,0 +1,19 @@
+#!/bin/bash
+# Docker monitoring aliases
+# Managed by Ansible role: monitoring_docker
+# Note: Docker must be installed separately
+
+{% if monitoring_docker_aliases_enabled | default(true) %}
+# Docker stats (one-shot and continuous)
+alias dstats='docker stats --no-stream'
+alias dtop='docker stats'
+
+# ctop (container top)
+alias ctop='ctop'
+
+# Docker ps with formatted output
+alias dps='docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
+
+# Docker logs tail and follow
+alias dlogstail='docker logs --tail 200 -f'
+{% endif %}

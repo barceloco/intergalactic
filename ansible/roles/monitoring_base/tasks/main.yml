@@ -1,0 +1,131 @@
+---
+- name: Fail if not Debian-family OS
+  fail:
+    msg: "monitoring_base role only supports Debian-family distributions (Debian, Ubuntu, Raspberry Pi OS). Detected OS family: {{ ansible_facts['os_family'] }}"
+  when: ansible_facts['os_family'] != 'Debian'
+
+- name: Update apt cache
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Install monitoring packages
+  apt:
+    name:
+      - htop
+      - procps
+      - sysstat
+    state: present
+    update_cache: false
+  become: true
+
+- name: Install tmux (optional)
+  apt:
+    name: tmux
+    state: present
+    update_cache: false
+  become: true
+  when: monitoring_base_install_tmux | default(true)
+
+- name: Check if /etc/default/sysstat exists
+  stat:
+    path: /etc/default/sysstat
+  register: sysstat_default_file
+  become: true
+
+- name: Enable sysstat collection in /etc/default/sysstat
+  lineinfile:
+    path: /etc/default/sysstat
+    regexp: '^ENABLED='
+    line: 'ENABLED="true"'
+    create: true
+    mode: '0644'
+  become: true
+  notify:
+    - Restart sysstat
+  when:
+    - monitoring_base_enable_sysstat | default(true)
+    - sysstat_default_file.stat.exists | default(false)
+
+- name: Disable sysstat collection in /etc/default/sysstat
+  lineinfile:
+    path: /etc/default/sysstat
+    regexp: '^ENABLED='
+    line: 'ENABLED="false"'
+    create: true
+    mode: '0644'
+  become: true
+  notify:
+    - Restart sysstat
+  when:
+    - not (monitoring_base_enable_sysstat | default(true))
+    - sysstat_default_file.stat.exists | default(false)
+
+- name: Gather systemd service facts
+  service_facts:
+
+- name: Check if sysstat.service exists
+  stat:
+    path: /etc/systemd/system/sysstat.service
+  register: sysstat_service_file
+  become: true
+  when: ansible_facts['service_mgr'] == 'systemd'
+
+- name: Enable and start sysstat.service
+  systemd:
+    name: sysstat
+    enabled: "{{ monitoring_base_enable_sysstat | default(true) }}"
+    state: started
+    daemon_reload: true
+  become: true
+  when:
+    - ansible_facts['service_mgr'] == 'systemd'
+    - monitoring_base_enable_sysstat | default(true)
+    - sysstat_service_file.stat.exists | default(false)
+
+- name: Check if sysstat-collect.timer exists
+  stat:
+    path: /etc/systemd/system/sysstat-collect.timer
+  register: sysstat_collect_timer_file
+  become: true
+  when: ansible_facts['service_mgr'] == 'systemd'
+
+- name: Enable and start sysstat-collect.timer
+  systemd:
+    name: sysstat-collect.timer
+    enabled: "{{ monitoring_base_enable_sysstat | default(true) }}"
+    state: started
+    daemon_reload: true
+  become: true
+  when:
+    - ansible_facts['service_mgr'] == 'systemd'
+    - monitoring_base_enable_sysstat | default(true)
+    - sysstat_collect_timer_file.stat.exists | default(false)
+
+- name: Check if sysstat-summary.timer exists
+  stat:
+    path: /etc/systemd/system/sysstat-summary.timer
+  register: sysstat_summary_timer_file
+  become: true
+  when: ansible_facts['service_mgr'] == 'systemd'
+
+- name: Enable and start sysstat-summary.timer
+  systemd:
+    name: sysstat-summary.timer
+    enabled: "{{ monitoring_base_enable_sysstat | default(true) }}"
+    state: started
+    daemon_reload: true
+  become: true
+  when:
+    - ansible_facts['service_mgr'] == 'systemd'
+    - monitoring_base_enable_sysstat | default(true)
+    - sysstat_summary_timer_file.stat.exists | default(false)
+
+- name: Create monitoring aliases file
+  template:
+    src: monitoring-aliases.sh.j2
+    dest: /etc/profile.d/monitoring-aliases.sh
+    mode: '0644'
+  become: true
+  when: monitoring_base_aliases_enabled | default(true)

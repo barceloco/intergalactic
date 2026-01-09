@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  author: intergalactic
+  description: CLI monitoring tools for Debian-family systems (htop, sysstat, procps, tmux)
+  license: MIT
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Debian
+      versions:
+        - all
+    - name: Ubuntu
+      versions:
+        - all
+  galaxy_tags:
+    - monitoring
+    - cli
+    - debian
+    - ubuntu
+
+dependencies: []

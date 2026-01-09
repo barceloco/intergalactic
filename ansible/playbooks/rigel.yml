@@ -61,4 +61,6 @@
     - tailscale
     - docker_host
     - docker_deploy
+    - monitoring_base
+    - monitoring_docker
     - luks
