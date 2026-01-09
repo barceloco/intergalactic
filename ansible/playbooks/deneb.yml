@@ -17,6 +17,7 @@
     - name: Fetch host key using ssh-keyscan (secure host key verification)
       command: >
         ssh-keyscan
+        -T 5
         -t ecdsa,ed25519,rsa
         {{ ansible_host | default(inventory_hostname) }}
       register: ssh_keyscan_output

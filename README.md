@@ -287,6 +287,7 @@ This applies the full configuration: firewall, SSH hardening, Tailscale, Docker,
 - Configures fail2ban (optional, enabled by default - provides security intelligence and bans after failed authentication attempts)
 - Installs and configures Tailscale (if enabled)
 - Installs Docker (if enabled)
+- Sets up Docker deployment host (if `enable_docker_deploy: true` - creates `deploy` user with SSH access, configures `/srv/` directory)
 - Sets up automatic security updates
 - Configures system hardening (sysctl, etc.)
 - And more...
@@ -444,6 +445,7 @@ ssh <your-username>@<pi-ip-address>
 
 - **Automation account**: `ansible` (SSH key only, sudo via become, NOPASSWD)
 - **Human account(s)**: Separate from automation for clear audit trails
+- **Deployment account**: `deploy` (if `enable_docker_deploy: true` - SSH key only, docker group, passwordless sudo, owns `/srv/` directory)
 
 ## Security Non-Negotiables
 
@@ -602,7 +604,8 @@ This script checks:
 - SSH configuration has `AuthorizedKeysFile` directive
 - System SSH keys directory is created
 - Keys are written to system location (not home directories)
-- LUKS role has encrypted home support
+- **docker_deploy**: Sets up a `deploy` user for Docker container deployment. Creates user with SSH access (using same keys as `armand`), configures `/srv/` directory, installs git, sets up passwordless sudo, and optionally configures Docker daemon DNS and environment variables. Enable with `enable_docker_deploy: true` in host_vars.
+- **LUKS**: Encrypted home partition support with automatic boot capability
 - Configuration files are properly set up
 - Helper script exists and is executable
 - Documentation is complete
