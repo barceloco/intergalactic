@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Migrate existing hosts to three-phase structure
+# Helper script to get Tailscale hostname for re-configuring existing hosts
 # Usage: ./scripts/migrate-to-three-phase.sh <host> [tailscale-hostname]
+#
+# This script helps when re-configuring existing hosts with the three-phase structure.
+# It detects the Tailscale hostname so you can update hosts.yml before running production phase.
 
 set -euo pipefail
 

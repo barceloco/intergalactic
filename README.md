@@ -714,43 +714,25 @@ This verifies:
 
 ---
 
-## Migration Guide
+## Re-configuring Existing Hosts
 
-### Migrating Existing Hosts to Three-Phase Structure
+If you have hosts that were previously configured with the old single-phase approach, you should re-configure them using the new three-phase structure. This ensures all hosts follow the same architecture and are in a known good state.
 
-If you have hosts that were set up with the old single-phase approach (using `rigel.yml`, `vega.yml`, etc.), you can migrate them to the new three-phase structure.
+**Recommended Approach:**
 
-**Prerequisites:**
-- Host must have Tailscale installed and connected
-- Host must be accessible via SSH as `ansible` user
+1. **If the host already has Tailscale:**
+   - Get Tailscale hostname: `tailscale status | grep <hostname>`
+   - Update `hosts.yml` with Tailscale hostname
+   - Run production phase: `./scripts/run-ansible.sh prod <hostname> production`
 
-**Migration Steps:**
+2. **If the host doesn't have Tailscale yet:**
+   - Ensure host is accessible via local IP
+   - Update `hosts-foundation.yml` with local IP and `ansible_user: ansible`
+   - Run foundation phase: `./scripts/run-ansible.sh prod <hostname> foundation`
+   - Update `hosts.yml` with Tailscale hostname (from foundation output)
+   - Run production phase: `./scripts/run-ansible.sh prod <hostname> production`
 
-1. **Run the migration helper script:**
-   ```bash
-   ./scripts/migrate-to-three-phase.sh <hostname> [tailscale-hostname]
-   ```
-   
-   The script will:
-   - Check host accessibility
-   - Verify Tailscale is installed and connected
-   - Detect or accept Tailscale hostname
-   - Test Tailscale connectivity
-   - Provide instructions for updating `hosts.yml`
-
-2. **Update `hosts.yml` with Tailscale hostname:**
-   ```yaml
-   rigel:
-     ansible_host: rigel.tailnet-name.ts.net  # Or just "rigel" with MagicDNS
-     ansible_user: ansible
-   ```
-
-3. **Run production phase:**
-   ```bash
-   ./scripts/run-ansible.sh prod <hostname> production
-   ```
-
-**Note:** The old playbooks (`rigel.yml`, `vega.yml`, etc.) are deprecated but still functional. They will be removed in a future version. Please migrate to the three-phase structure.
+**Note:** The three-phase playbooks are idempotent, so re-running them is safe and will ensure your hosts match the current configuration.
 
 ## Next Steps
 
@@ -760,9 +742,11 @@ Once your first Pi is set up:
    - Install standard Raspberry Pi image on each new Pi
    - Ensure you can SSH in with your existing user
    - Add the new Pi to `ansible/inventories/prod/hosts-bootstrap.yml` (with initial user)
-   - Add the new Pi to `ansible/inventories/prod/hosts.yml` (with `ansible_user: ansible`)
-   - Run bootstrap: `./scripts/run-ansible.sh prod <new-hostname>-bootstrap` (uses bootstrap inventory)
-   - Run main playbook: `./scripts/run-ansible.sh prod <new-hostname>` (uses production inventory)
+   - Run Phase 1: `./scripts/run-ansible.sh prod <new-hostname> bootstrap`
+   - Add the new Pi to `ansible/inventories/prod/hosts-foundation.yml` (with local IP, ansible user)
+   - Run Phase 2: `./scripts/run-ansible.sh prod <new-hostname> foundation`
+   - Update `ansible/inventories/prod/hosts.yml` with Tailscale hostname (from foundation output)
+   - Run Phase 3: `./scripts/run-ansible.sh prod <new-hostname> production`
 
 2. **Customize**: Edit `ansible/inventories/prod/group_vars/all.yml` for global settings
 
