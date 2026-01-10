@@ -1,0 +1,35 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify nftables is installed
+      command: which nft
+      register: nft_check
+      changed_when: false
+      failed_when: nft_check.rc != 0
+
+    - name: Verify nftables service is running
+      command: systemctl is-active nftables
+      register: nftables_status
+      changed_when: false
+      failed_when: nftables_status.stdout != "active"
+
+    - name: Verify nftables configuration exists
+      stat:
+        path: /etc/nftables.conf
+      register: nftables_config
+      failed_when: not nftables_config.stat.exists
+
+    - name: Verify nftables configuration syntax
+      command: nft -c -f /etc/nftables.conf
+      register: syntax_check
+      changed_when: false
+      failed_when: syntax_check.rc != 0
+
+    - name: Verify firewall rules are loaded
+      command: nft list ruleset
+      register: ruleset_check
+      changed_when: false
+      failed_when: ruleset_check.rc != 0 or ruleset_check.stdout | length == 0

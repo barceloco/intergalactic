@@ -59,7 +59,7 @@
           {% endif %}
           
           Next steps:
-          1. Update hosts.yml to use Tailscale hostname:
+          1. Update hosts-production.yml to use Tailscale hostname:
              rigel:
                ansible_host: {{ tailscale_hostname | default('rigel.tailnet-name.ts.net') }}
                ansible_user: ansible

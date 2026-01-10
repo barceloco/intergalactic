@@ -56,7 +56,7 @@
           
           Please:
           1. Ensure foundation phase completed successfully
-          2. Update hosts.yml to use Tailscale hostname (deneb.tailnet-name.ts.net or just 'deneb' with MagicDNS)
+          2. Update hosts-production.yml to use Tailscale hostname (deneb.tailnet-name.ts.net or just 'deneb' with MagicDNS)
           3. Verify Tailscale connectivity: tailscale status
           4. Re-run production phase
           ============================================================================

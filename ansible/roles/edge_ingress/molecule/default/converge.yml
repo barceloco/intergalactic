@@ -1,0 +1,19 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../../../../inventories/prod/group_vars/all_secrets.yml
+  roles:
+    - role: docker_host
+      vars:
+        enable_docker: true
+    - role: tailscale
+      vars:
+        enable_tailscale: true
+        # Skip actual Tailscale connection in test
+    - role: edge_ingress
+      vars:
+        # Override tailnet detection for testing
+        final_tailnet_name: "test-tailnet.ts.net"

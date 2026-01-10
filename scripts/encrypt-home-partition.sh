@@ -1,5 +1,7 @@
 #!/bin/bash
-# Helper script to encrypt home partition using passphrase from Ansible secrets
+# Helper script to encrypt external devices using LUKS
+# This script is for encrypting external USB drives or network storage devices
+# Internal partitions are NOT encrypted - this is only for external devices
 # Usage: ./encrypt-home-partition.sh <device> <base64-passphrase>
 
 set -euo pipefail

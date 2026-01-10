@@ -99,14 +99,74 @@
       ============================================================================
     success_msg: "✓ Deploy user sudoers file syntax is valid"
 
-- name: Ensure /srv/ directory exists
+- name: Create deployment directory structure
   when: enable_docker_deploy | default(false)
-  file:
-    path: /srv
-    state: directory
-    owner: deploy
-    group: deploy
-    mode: '0755'
+  block:
+    - name: Create /home/deploy/docker directory (Docker data-root)
+      file:
+        path: /home/deploy/docker
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: '0711'
+      # Docker requires 711 permissions for data-root directory
+
+    - name: Create /home/deploy/srv directory (service data)
+      file:
+        path: /home/deploy/srv
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: '0755'
+
+    - name: Create /home/deploy/logs/apps directory (application logs)
+      file:
+        path: /home/deploy/logs/apps
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: '0755'
+
+- name: Configure bind mounts for deployment directories
+  when: enable_docker_deploy | default(false)
+  block:
+    - name: Check if /srv is already a mount point
+      command: findmnt /srv
+      register: srv_mount_check
+      changed_when: false
+      failed_when: false
+
+    - name: Configure /srv bind mount from /home/deploy/srv
+      mount:
+        path: /srv
+        src: /home/deploy/srv
+        fstype: none
+        opts: bind,defaults
+        state: mounted
+      when: srv_mount_check.rc != 0
+
+    - name: Ensure /var/log/apps directory exists
+      file:
+        path: /var/log/apps
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: '0755'
+
+    - name: Check if /var/log/apps is already a mount point
+      command: findmnt /var/log/apps
+      register: logs_mount_check
+      changed_when: false
+      failed_when: false
+
+    - name: Configure /var/log/apps bind mount from /home/deploy/logs/apps
+      mount:
+        path: /var/log/apps
+        src: /home/deploy/logs/apps
+        fstype: none
+        opts: bind,defaults
+        state: mounted
+      when: logs_mount_check.rc != 0
 
 - name: Install git if not present
   when: enable_docker_deploy | default(false)

@@ -1,4 +1,3 @@
 # Python dependencies for scripts
-Pillow>=10.0.0
-# Optional: exifread is an alternative EXIF library
-# exifread>=3.0.0
+# Currently no scripts require additional Python packages
+# All scripts use standard library or system packages

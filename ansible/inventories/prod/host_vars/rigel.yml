@@ -3,14 +3,8 @@ hostname: "rigel"
 enable_desktop: false
 enable_docker: true
 
-# LUKS configuration
-enable_luks: true
-# LUKS device to encrypt (will be set based on system)
-# Common options: /dev/sda1, /dev/mmcblk0p2, etc.
-# Leave empty to skip automatic encryption (manual setup)
-luks_device: ""
-# LUKS keyfile location (optional, for automatic unlocking)
-luks_keyfile: ""
+# LUKS/cryptsetup: Installed for mounting external encrypted devices
+# No configuration needed - cryptsetup is installed and ready to use
 
 # Samba configuration
 enable_samba: true

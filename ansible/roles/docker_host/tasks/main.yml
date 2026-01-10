@@ -36,6 +36,73 @@
         state: present
         update_cache: true
 
+    - name: Ensure Docker data directory exists (if custom data-root is configured)
+      file:
+        path: "{{ docker_data_root | default('/var/lib/docker') }}"
+        state: directory
+        mode: '0711'
+        owner: root
+        group: root
+      when:
+        - enable_docker | default(false)
+        - docker_data_root is defined
+        - docker_data_root != '/var/lib/docker'
+      # Docker requires 711 permissions for data-root directory
+
+    - name: Stop Docker before configuring data-root (if changing from default)
+      service:
+        name: docker
+        state: stopped
+      when:
+        - enable_docker | default(false)
+        - docker_data_root is defined
+        - docker_data_root != '/var/lib/docker'
+        - docker_data_root | default('') != ''
+
+    - name: Check if Docker daemon.json exists
+      stat:
+        path: /etc/docker/daemon.json
+      register: docker_daemon_json
+      when:
+        - enable_docker | default(false)
+        - docker_data_root is defined
+        - docker_data_root != '/var/lib/docker'
+        - docker_data_root | default('') != ''
+
+    - name: Read existing Docker daemon.json
+      slurp:
+        src: /etc/docker/daemon.json
+      register: docker_daemon_json_content
+      when:
+        - enable_docker | default(false)
+        - docker_data_root is defined
+        - docker_data_root != '/var/lib/docker'
+        - docker_data_root | default('') != ''
+        - docker_daemon_json.stat.exists
+
+    - name: Set Docker daemon.json content
+      set_fact:
+        docker_daemon_config: "{{ (docker_daemon_json_content.content | b64decode | from_json) if (docker_daemon_json.stat.exists and docker_daemon_json_content.content | default('') != '') else {} }}"
+      when:
+        - enable_docker | default(false)
+        - docker_data_root is defined
+        - docker_data_root != '/var/lib/docker'
+        - docker_data_root | default('') != ''
+
+    - name: Configure Docker daemon.json with data-root
+      copy:
+        dest: /etc/docker/daemon.json
+        content: "{{ (docker_daemon_config | combine({'data-root': docker_data_root})) | to_json(indent=2) }}\n"
+        mode: '0644'
+        owner: root
+        group: root
+      when:
+        - enable_docker | default(false)
+        - docker_data_root is defined
+        - docker_data_root != '/var/lib/docker'
+        - docker_data_root | default('') != ''
+      notify: Restart docker
+
     - name: Enable docker
       service:
         name: docker

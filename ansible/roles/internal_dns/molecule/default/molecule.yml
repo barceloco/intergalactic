@@ -1,0 +1,34 @@
+---
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: instance
+    image: debian:bookworm-slim
+    pre_build_image: true
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    command: "/lib/systemd/systemd"
+    tmpfs:
+      - /run
+      - /tmp
+    capabilities:
+      - SYS_ADMIN
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      instance:
+        ansible_python_interpreter: /usr/bin/python3
+        internal_dns_enabled: true
+        internal_dns_domain: company.com
+        internal_dns_private_hosts:
+          - mpnas
+          - aispector
+        enable_tailscale: true
+        # Mock Tailscale for testing
+        tailscale_ip: "100.64.0.1"
+verifier:
+  name: ansible

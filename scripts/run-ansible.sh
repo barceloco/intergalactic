@@ -43,7 +43,7 @@ case "${PHASE}" in
     echo "============================================================================"
     ;;
   production)
-    INVENTORY_FILE="inventories/${ENV_NAME}/hosts.yml"
+    INVENTORY_FILE="inventories/${ENV_NAME}/hosts-production.yml"
     PLAYBOOK="${HOST}-production"
     SSH_USER="ansible"
     echo "============================================================================"
@@ -152,7 +152,7 @@ elif [[ "${PHASE}" == "foundation" ]]; then
     echo "  1. Get Tailscale hostname from output above, or run:"
     echo "     tailscale status | grep ${HOST}"
     echo ""
-    echo "  2. Update hosts.yml with Tailscale hostname:"
+    echo "  2. Update hosts-production.yml with Tailscale hostname:"
     echo "     ${HOST}:"
     echo "       ansible_host: ${HOST}.tailnet-name.ts.net  # Or just '${HOST}' with MagicDNS"
     echo "       ansible_user: ansible"

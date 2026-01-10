@@ -59,7 +59,7 @@
           {% endif %}
           
           Next steps:
-          1. Update hosts.yml to use Tailscale hostname:
+          1. Update hosts-production.yml to use Tailscale hostname:
              vega:
                ansible_host: {{ tailscale_hostname | default('vega.tailnet-name.ts.net') }}
                ansible_user: ansible

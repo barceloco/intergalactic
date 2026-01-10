@@ -31,7 +31,7 @@ if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
   SSH_AUTH_SOCK_MOUNT="-v ${SSH_AUTH_SOCK}:/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent"
 fi
 
-INVENTORY_FILE="inventories/${ENV_NAME}/hosts.yml"
+INVENTORY_FILE="inventories/${ENV_NAME}/hosts-production.yml"
 
 # Configure SSH to use the correct key
 if [[ -n "${SSH_KEY_NAME:-}" ]]; then

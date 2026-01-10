@@ -1,0 +1,60 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify deploy user exists
+      command: id deploy
+      register: deploy_user_check
+      changed_when: false
+      failed_when: deploy_user_check.rc != 0
+
+    - name: Verify deploy user is in docker group
+      command: groups deploy
+      register: deploy_groups
+      changed_when: false
+      failed_when: "'docker' not in deploy_groups.stdout"
+
+    - name: Verify deploy user is in sudo group
+      command: groups deploy
+      register: deploy_groups
+      changed_when: false
+      failed_when: "'sudo' not in deploy_groups.stdout"
+
+    - name: Verify SSH keys file exists
+      stat:
+        path: /etc/ssh/authorized_keys.d/deploy
+      register: deploy_keys_file
+      failed_when: not deploy_keys_file.stat.exists
+
+    - name: Verify directory structure exists
+      stat:
+        path: "{{ item }}"
+      register: dir_check
+      loop:
+        - /home/deploy/docker
+        - /home/deploy/srv
+        - /home/deploy/logs/apps
+      failed_when: not dir_check.results | selectattr('stat.exists') | list | length == 3
+
+    - name: Verify bind mounts are configured
+      command: findmnt {{ item }}
+      register: mount_check
+      loop:
+        - /srv
+        - /var/log/apps
+      changed_when: false
+      failed_when: mount_check.results | selectattr('rc', 'equalto', 0) | list | length != 2
+
+    - name: Verify sudoers file exists
+      stat:
+        path: /etc/sudoers.d/90-deploy
+      register: sudoers_file
+      failed_when: not sudoers_file.stat.exists
+
+    - name: Verify passwordless sudo works
+      command: sudo -n -u deploy whoami
+      register: sudo_test
+      changed_when: false
+      failed_when: sudo_test.rc != 0 or sudo_test.stdout != "deploy"

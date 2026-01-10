@@ -1,6 +1,8 @@
 # intergalactic
 
-Manage a Raspberry Pi fleet (Gen1–Gen5) on **Debian Stable (Trixie)** using a three-phase deployment model:
+Manage a Raspberry Pi fleet (Gen1–Gen5) on **Debian Stable (Trixie)** using a three-phase deployment model.
+
+**See [scripts/README.md](scripts/README.md) for documentation on all utility scripts.**
 - **Phase 1: Bootstrap** - Establish secure automation access (local IP)
 - **Phase 2: Foundation** - Network connectivity and security foundation (local IP)
 - **Phase 3: Production** - Application services (Tailscale network only)
@@ -42,14 +44,17 @@ This project uses a clean three-phase deployment model that separates concerns a
 **Purpose**: Application services and advanced features  
 **Connection**: **Tailscale network ONLY** (rigel.tailnet-name.ts.net)  
 **User**: `ansible` (automation user)  
-**Inventory**: `hosts.yml` (Tailscale hostnames)  
+**Inventory**: `hosts-production.yml` (Tailscale hostnames)  
 **Roles**: `docker_deploy`, `internal_dns`, `edge_ingress`, `monitoring_docker`, `luks`  
 **What it does**:
-- Docker deploy user setup
+- Docker deploy user setup and directory structure
+- Docker data-root configuration (`/home/deploy/docker`)
 - Internal DNS (CoreDNS)
 - Edge ingress (Traefik)
 - Advanced monitoring
-- LUKS encryption
+- LUKS/cryptsetup (for external encrypted devices)
+- Samba file sharing (if enabled)
+- Desktop environment (if enabled)
 
 **Requirement**: MUST connect via Tailscale - fails if not on Tailscale network.
 
@@ -61,7 +66,7 @@ The three-phase model enables a clean transition from local network to Tailscale
 2. **Foundation** → Uses local IP, sets up Tailscale
 3. **Production** → Uses Tailscale hostname, deploys services
 
-After Foundation completes, update `hosts.yml` with the Tailscale hostname, then run Production.
+After Foundation completes, update `hosts-production.yml` with the Tailscale hostname, then run Production.
 
 ## Prerequisites
 
@@ -151,6 +156,16 @@ Tailscale provides secure VPN access to your Raspberry Pi. If you want to use it
 
 **Note**: If you don't want to use Tailscale, you can skip this step and set `enable_tailscale: false` in `ansible/inventories/prod/group_vars/all.yml` later.
 
+#### 3.3: Get Hostinger API Token (Optional, for Edge Ingress)
+
+If you plan to use the `edge_ingress` role (Traefik with HTTPS), you'll need a Hostinger DNS API token for ACME DNS-01 challenges:
+
+1. Go to https://hpanel.hostinger.com/api
+2. Generate an API token
+3. **Copy the token** - you'll need it in Step 4
+
+**Note**: This is only needed if `edge_ingress_enabled: true` for a host. You can skip this if not using Traefik.
+
 ### Step 4: Configure Secrets File
 
 The secrets file stores your SSH keys and Tailscale auth key. It's gitignored (never committed to the repository).
@@ -185,6 +200,12 @@ human_users:
 # Tailscale authentication key (from Step 3.2)
 tailscale_authkey: "tskey-auth-xxxxxxxxxxxxx"
 # Paste your Tailscale auth key here (or leave empty if not using Tailscale)
+
+# Hostinger DNS API token (from Step 3.3, optional)
+# Get your API token from: https://hpanel.hostinger.com/api
+# Only needed if edge_ingress_enabled is true for a host
+hostinger_api_token: "Hostinger_API_Key_here"
+# Paste your Hostinger API token here (or leave empty if not using edge ingress)
 ```
 
 **Example** (with real-looking values):
@@ -254,9 +275,9 @@ all:
 - This user must have **sudo access** (passwordless sudo is preferred, but password sudo will work)
 - This file is only used during bootstrap - the script automatically selects it
 
-#### 6.2: Edit ansible/inventories/prod/hosts.yml (Production Inventory)
+#### 6.2: Edit ansible/inventories/prod/hosts-production.yml (Production Inventory)
 
-The production inventory (`hosts.yml`) should use the `ansible` automation user for all hosts that have been bootstrapped:
+The production inventory (`hosts-production.yml`) should use the `ansible` automation user for all hosts that have been bootstrapped:
 
 ```yaml
 all:
@@ -272,7 +293,7 @@ all:
 
 **Note**: The `run-ansible.sh` script automatically uses:
 - `hosts-bootstrap.yml` for bootstrap playbooks (e.g., `rigel-bootstrap`)
-- `hosts.yml` for regular playbooks (e.g., `rigel`)
+- `hosts-production.yml` for regular playbooks (e.g., `rigel`)
 
 **How to find your Pi's IP address:**
 - If connected via Ethernet: Check your router's admin page
@@ -326,7 +347,7 @@ rigel                      : ok=10   changed=7    unreachable=0    failed=0
 - If bootstrap fails, you can still SSH in with your existing user/key to troubleshoot
 - The `ansible` user is now created and ready for automation
 - The bootstrap inventory (`hosts-bootstrap.yml`) uses your initial user
-- The production inventory (`hosts.yml`) uses the `ansible` user - make sure it's configured correctly
+- The production inventory (`hosts-production.yml`) uses the `ansible` user - make sure it's configured correctly
 
 ### Step 8: Phase 2 - Run Foundation
 
@@ -348,14 +369,14 @@ This sets up network connectivity, security, and base infrastructure.
 - Basic monitoring tools
 
 **After Foundation completes:**
-The playbook will display the Tailscale hostname. Update `hosts.yml` with this hostname before running Production.
+The playbook will display the Tailscale hostname. Update `hosts-production.yml` with this hostname before running Production.
 
 ### Step 9: Phase 3 - Run Production
 
-**CRITICAL**: Production phase **requires Tailscale connection**. Update `hosts.yml` with Tailscale hostname first.
+**CRITICAL**: Production phase **requires Tailscale connection**. Update `hosts-production.yml` with Tailscale hostname first.
 
 ```bash
-# 1. Update hosts.yml with Tailscale hostname (from foundation output)
+# 1. Update hosts-production.yml with Tailscale hostname (from foundation output)
 #    rigel:
 #      ansible_host: rigel.tailnet-name.ts.net  # Or just "rigel" with MagicDNS
 #      ansible_user: ansible
@@ -365,11 +386,13 @@ The playbook will display the Tailscale hostname. Update `hosts.yml` with this h
 ```
 
 **What this does:**
-- Sets up Docker deploy user
+- Sets up Docker deploy user and directory structure
+- Configures Docker data-root to `/home/deploy/docker` (on data partition)
+- Sets up bind mounts: `/srv` → `/home/deploy/srv`, `/var/log/apps` → `/home/deploy/logs/apps`
 - Deploys internal DNS (CoreDNS)
 - Deploys edge ingress (Traefik)
 - Advanced monitoring tools
-- LUKS encryption (if configured)
+- LUKS/cryptsetup (for mounting external encrypted devices)
 
 **Expected output:**
 ```
@@ -388,11 +411,11 @@ rigel                      : ok=45   changed=12   unreachable=0    failed=0
 
 **This may take 5-10 minutes** depending on your internet connection (it downloads packages).
 
-**Note**: The script automatically uses the production inventory (`hosts.yml`) which uses the `ansible` user. Make sure your host is configured in `hosts.yml` with `ansible_user: ansible` after bootstrap completes.
+**Note**: The script automatically uses the production inventory (`hosts-production.yml`) which uses the `ansible` user. Make sure your host is configured in `hosts-production.yml` with `ansible_user: ansible` after bootstrap completes.
 
-### Step 9: Verify Everything Works
+### Step 10: Verify Everything Works
 
-#### 9.1: Test SSH Access with Ansible User
+#### 10.1: Test SSH Access with Ansible User
 
 ```bash
 # SSH into your Pi using the ansible user
@@ -404,7 +427,7 @@ sudo docker ps
 exit
 ```
 
-#### 9.2: Test SSH Access with Your User
+#### 10.2: Test SSH Access with Your User
 
 ```bash
 # SSH into your Pi using your personal user
@@ -416,13 +439,13 @@ ssh armand@192.168.1.40
 exit
 ```
 
-#### 9.3: Test Tailscale (if enabled)
+#### 10.3: Test Tailscale (if enabled)
 
 1. Go to https://login.tailscale.com/admin/machines
 2. You should see your Raspberry Pi listed
 3. You can now access it via Tailscale IP from anywhere
 
-#### 9.4: Test Docker (if enabled)
+#### 10.4: Test Docker (if enabled)
 
 ```bash
 ssh ansible@192.168.1.40
@@ -437,55 +460,336 @@ exit
 
 ### "Permission denied" when SSH'ing
 
-- **Check**: Your SSH public key is correctly in `all_secrets.yml`
-- **Check**: The bootstrap playbook ran successfully
-- **Check**: You're using the correct user (`ansible` for automation, your username for personal)
-- **Try**: `ssh -v ansible@192.168.1.40` to see detailed error messages
-- **Try**: Verify your key is on the Pi: `ssh armand@192.168.1.40 "cat ~/.ssh/authorized_keys"`
+**Symptoms**: Cannot SSH into the Pi, getting "Permission denied (publickey)"
+
+**Diagnosis**:
+1. **Check SSH key configuration**:
+   ```bash
+   # Verify key is in all_secrets.yml
+   cat ansible/inventories/prod/group_vars/all_secrets.yml | grep -A 5 "automation_authorized_keys"
+   ```
+
+2. **Check key file exists locally**:
+   ```bash
+   ls -la ~/.ssh/intergalactic_ansible
+   ```
+
+3. **Test SSH connection with verbose output**:
+   ```bash
+   ssh -v -i ~/.ssh/intergalactic_ansible ansible@192.168.1.40
+   ```
+
+4. **Verify key is on the Pi**:
+   ```bash
+   ssh armand@192.168.1.40 "sudo cat /etc/ssh/authorized_keys.d/ansible"
+   ```
+
+**Solutions**:
+- Ensure SSH key is in `all_secrets.yml` under `automation_authorized_keys`
+- Verify you're using the correct user (`ansible` for automation, `armand` for personal)
+- Check bootstrap playbook ran successfully
+- Verify SSH key file permissions: `chmod 600 ~/.ssh/intergalactic_ansible`
 
 ### Ansible playbook fails with "authentication required"
 
-- **Check**: You can SSH into the Pi manually with your existing user
-- **Check**: Your existing user has sudo access: `ssh armand@192.168.1.40 "sudo whoami"`
-- **Check**: The bootstrap playbook ran successfully first
-- **Check**: `ansible_user` in `hosts-bootstrap.yml` matches your existing username (for bootstrap)
-- **Check**: `ansible_user` in `hosts.yml` is set to `ansible` (for regular operations)
-- **Try**: Run bootstrap again: `./scripts/run-ansible.sh prod rigel-bootstrap`
+**Symptoms**: Playbook fails with authentication errors
+
+**Diagnosis**:
+1. **Test manual SSH access**:
+   ```bash
+   ssh armand@192.168.1.40
+   ```
+
+2. **Check sudo access**:
+   ```bash
+   ssh armand@192.168.1.40 "sudo whoami"
+   # Should output: root
+   ```
+
+3. **Verify inventory configuration**:
+   ```bash
+   # For bootstrap
+   cat ansible/inventories/prod/hosts-bootstrap.yml | grep ansible_user
+   # Should be: ansible_user: armand
+   
+   # For foundation/production
+   cat ansible/inventories/prod/hosts-foundation.yml | grep ansible_user
+   # Should be: ansible_user: ansible
+   ```
+
+**Solutions**:
+- Ensure you can SSH manually with your existing user
+- Verify `ansible_user` in inventory matches the phase (armand for bootstrap, ansible for others)
+- Check bootstrap completed successfully before running foundation/production
+- Re-run bootstrap if needed: `./scripts/run-ansible.sh prod <hostname> bootstrap`
 
 ### Password authentication still works after bootstrap
 
-- **Check**: SSH service was restarted: `ssh armand@192.168.1.40 "sudo systemctl status ssh"`
-- **Check**: Bootstrap playbook completed successfully
-- **Try**: Manually verify: `ssh armand@192.168.1.40 "sudo grep PasswordAuthentication /etc/ssh/sshd_config.d/*"`
-- **Try**: Restart SSH manually: `ssh armand@192.168.1.40 "sudo systemctl restart ssh"`
+**Symptoms**: Can still SSH with password after bootstrap
+
+**Diagnosis**:
+1. **Check SSH service status**:
+   ```bash
+   ssh armand@192.168.1.40 "sudo systemctl status ssh"
+   ```
+
+2. **Verify SSH configuration**:
+   ```bash
+   ssh armand@192.168.1.40 "sudo grep PasswordAuthentication /etc/ssh/sshd_config.d/*"
+   # Should show: PasswordAuthentication no
+   ```
+
+3. **Check bootstrap completed**:
+   - Review bootstrap playbook output for errors
+
+**Solutions**:
+- Restart SSH service: `ssh armand@192.168.1.40 "sudo systemctl restart ssh"`
+- Verify bootstrap playbook completed successfully
+- Check SSH config file exists: `/etc/ssh/sshd_config.d/10-intergalactic-bootstrap.conf`
 
 ### Tailscale not connecting
 
-- **Check**: `tailscale_authkey` is set in `all_secrets.yml` (not empty, not placeholder)
-- **Check**: The auth key is still valid (they expire)
-- **Check**: Firewall allows UDP port 41641 (should be automatic)
-- **Try**: SSH into Pi and run `sudo tailscale status` to see error messages
+**Symptoms**: Tailscale status shows "not connected" or connection fails
+
+**Diagnosis**:
+1. **Check auth key configuration**:
+   ```bash
+   grep tailscale_authkey ansible/inventories/prod/group_vars/all_secrets.yml
+   # Should not be empty or placeholder
+   ```
+
+2. **Check Tailscale service**:
+   ```bash
+   ssh ansible@<host> "sudo systemctl status tailscaled"
+   ```
+
+3. **Check Tailscale logs**:
+   ```bash
+   ssh ansible@<host> "sudo journalctl -u tailscaled -n 50"
+   ```
+
+4. **Verify firewall allows Tailscale**:
+   ```bash
+   ssh ansible@<host> "sudo nft list ruleset | grep 41641"
+   ```
+
+**Solutions**:
+- Verify `tailscale_authkey` is set and valid (not expired)
+- Check firewall allows UDP port 41641
+- Verify Tailscale service is running: `sudo systemctl start tailscaled`
+- Check for network connectivity issues
 
 ### Can't SSH into Pi after bootstrap
 
-- **Check**: Your SSH keys are correctly configured in `all_secrets.yml`
-- **Check**: You're using the correct username (`ansible` or your personal username)
-- **Check**: Your SSH key is in your local `~/.ssh/` directory
-- **Try**: Test with verbose output: `ssh -v ansible@192.168.1.40`
-- **Try**: Verify key is authorized: `ssh armand@192.168.1.40 "sudo cat /home/ansible/.ssh/authorized_keys"`
+**Symptoms**: Locked out after running bootstrap
+
+**Diagnosis**:
+1. **Check SSH keys are configured**:
+   ```bash
+   # On your local machine
+   cat ansible/inventories/prod/group_vars/all_secrets.yml | grep -A 10 "automation_authorized_keys"
+   ```
+
+2. **Verify key file exists**:
+   ```bash
+   ls -la ~/.ssh/intergalactic_ansible
+   ```
+
+3. **Test with verbose SSH**:
+   ```bash
+   ssh -v -i ~/.ssh/intergalactic_ansible ansible@192.168.1.40
+   ```
+
+**Solutions**:
+- **If you have physical/console access**: Add SSH keys manually:
+  ```bash
+  # On the Pi (via console)
+  sudo mkdir -p /etc/ssh/authorized_keys.d
+  echo "your-public-key" | sudo tee /etc/ssh/authorized_keys.d/ansible
+  sudo chmod 644 /etc/ssh/authorized_keys.d/ansible
+  sudo systemctl reload ssh
+  ```
+- Verify SSH keys are correct in `all_secrets.yml`
+- Check you're using the correct username (`ansible` not `armand` after bootstrap)
+- Verify bootstrap playbook completed successfully
 
 ### "Host key checking" errors
 
-- **Fix**: Remove old host key: `ssh-keygen -R 192.168.1.40`
-- **Note**: The bootstrap playbooks automatically fetch and add host keys using `ssh-keyscan` for secure verification
-- **Security**: Host key checking is enabled by default to prevent MITM attacks. Do NOT disable it.
+**Symptoms**: Ansible fails with "Host key verification failed"
+
+**Diagnosis**:
+```bash
+# Check known_hosts
+cat ~/.ssh/known_hosts | grep 192.168.1.40
+```
+
+**Solutions**:
+- Remove old host key: `ssh-keygen -R 192.168.1.40`
+- The bootstrap playbooks automatically fetch and add host keys
+- **Security**: Do NOT disable host key checking - it prevents MITM attacks
 
 ### Can't find Raspberry Pi on network
 
-- **Check**: Pi is powered on and has Ethernet/WiFi connected
-- **Check**: Pi and your computer are on the same network
-- **Try**: Scan network: `nmap -sn 192.168.1.0/24` (adjust subnet)
-- **Try**: Check router admin page for connected devices
+**Symptoms**: Cannot reach Pi via network
+
+**Diagnosis**:
+1. **Check Pi is powered on**:
+   - Verify power LED is on
+   - Check network LED activity
+
+2. **Check network connectivity**:
+   ```bash
+   # Scan network
+   nmap -sn 192.168.1.0/24
+   
+   # Or check router admin page
+   ```
+
+3. **Check Pi network configuration**:
+   ```bash
+   # If you have console access
+   ip addr show
+   ping 8.8.8.8
+   ```
+
+**Solutions**:
+- Verify Pi is powered on and connected to network
+- Check Ethernet cable or WiFi connection
+- Verify Pi and your computer are on the same network
+- Check router admin page for connected devices
+- Try different network port or cable
+
+### Playbook execution errors
+
+**Symptoms**: Playbook fails with various errors
+
+**Debugging steps**:
+1. **Run with verbose output**:
+   ```bash
+   ./scripts/run-ansible.sh prod <hostname> <phase> -vvv
+   ```
+
+2. **Check Ansible logs**:
+   - Review playbook output for specific error messages
+   - Look for failed tasks and their error messages
+
+3. **Check system logs on target host**:
+   ```bash
+   ssh ansible@<host> "sudo journalctl -xe"
+   ```
+
+4. **Validate playbook syntax**:
+   ```bash
+   ./scripts/validate-playbooks.sh
+   ```
+
+**Common errors**:
+- **YAML syntax errors**: Check indentation and quotes
+- **Variable not defined**: Check inventory and group_vars
+- **Permission denied**: Check sudo access and SSH keys
+- **Package installation fails**: Check network connectivity and apt sources
+
+### Role-specific troubleshooting
+
+#### Docker issues
+- **Docker not starting**: Check Docker service: `sudo systemctl status docker`
+- **Container not running**: Check logs: `docker logs <container-name>`
+- **Port conflicts**: Check what's using the port: `sudo netstat -tuln | grep :8000`
+
+#### Firewall issues
+- **Cannot access services**: Check firewall rules: `sudo nft list ruleset`
+- **Port not open**: Verify port is in `firewall_allow_tcp_ports`
+- **Tailscale services not accessible**: Check `internal_dns_enabled` or `edge_ingress_enabled` are set
+
+#### DNS issues
+- **DNS not resolving**: Check CoreDNS is running: `docker ps | grep coredns`
+- **Wrong IP**: Check Tailscale IP: `tailscale ip -4`
+- **Zone file errors**: Check zone file: `sudo cat /opt/coredns/db.company.com`
+
+#### Traefik issues
+- **SSL certificate not issued**: Check ACME logs: `docker logs traefik | grep -i acme`
+- **Backend not reachable**: Check backend service is running and accessible
+- **HTTP not redirecting**: Check Traefik configuration: `sudo cat /opt/traefik/traefik.yml`
+
+#### Samba issues
+- **Cannot access Samba share**: Check Samba service: `sudo systemctl status smbd`
+- **Authentication fails**: Verify password is set: `sudo pdbedit -L | grep armand`
+- **Configuration changes not applied**: Use update script: `./scripts/update-samba.sh prod <hostname>`
+- **Check Samba configuration**: `sudo testparm -s`
+
+### Debugging playbook execution
+
+**Enable verbose output**:
+```bash
+# Add -v, -vv, or -vvv for increasing verbosity
+ansible-playbook -vvv -i inventories/prod/hosts-production.yml playbooks/rigel-production.yml
+```
+
+**Check specific task**:
+```bash
+# Run playbook with specific tag
+ansible-playbook --tags "security" -i inventories/prod/hosts-production.yml playbooks/rigel-production.yml
+```
+
+**Test connectivity**:
+```bash
+# Test SSH connectivity
+ansible all -i inventories/prod/hosts-production.yml -m ping
+
+# Test with specific user
+ansible all -i inventories/prod/hosts-production.yml -m ping -u ansible
+```
+
+### Log analysis
+
+**System logs**:
+```bash
+# Recent system logs
+ssh ansible@<host> "sudo journalctl -n 100"
+
+# Service-specific logs
+ssh ansible@<host> "sudo journalctl -u docker -n 50"
+ssh ansible@<host> "sudo journalctl -u tailscaled -n 50"
+```
+
+**Application logs**:
+```bash
+# Docker container logs
+ssh ansible@<host> "docker logs <container-name>"
+
+# Application logs
+ssh ansible@<host> "sudo tail -f /var/log/apps/*.log"
+```
+
+### Network troubleshooting
+
+**Check connectivity**:
+```bash
+# Ping test
+ping <host-ip>
+
+# Port test
+nc -zv <host-ip> 22
+
+# Tailscale connectivity
+tailscale ping <hostname>
+```
+
+**Check DNS resolution**:
+```bash
+# Test DNS
+dig @127.0.0.1 mpnas.company.com
+nslookup mpnas.company.com
+```
+
+**Check firewall rules**:
+```bash
+# List all rules
+sudo nft list ruleset
+
+# Check specific port
+sudo nft list ruleset | grep :8000
+```
 
 ---
 
@@ -506,6 +810,9 @@ exit
 # Migrate existing host to three-phase structure
 ./scripts/migrate-to-three-phase.sh <hostname> [tailscale-hostname]
 
+# Update Samba configuration (without running full playbook)
+./scripts/update-samba.sh prod <hostname>
+
 # SSH into Pi with ansible user (local IP)
 ssh -i ~/.ssh/intergalactic_ansible ansible@<pi-ip-address>
 
@@ -518,7 +825,7 @@ ssh -i ~/.ssh/intergalactic_ansible ansible@<hostname>.tailnet-name.ts.net
 - **Secrets**: `ansible/inventories/prod/group_vars/all_secrets.yml` (SSH keys, Tailscale key, Hostinger API token)
 - **Bootstrap inventory**: `ansible/inventories/prod/hosts-bootstrap.yml` (Phase 1: local IP, armand user)
 - **Foundation inventory**: `ansible/inventories/prod/hosts-foundation.yml` (Phase 2: local IP, ansible user)
-- **Production inventory**: `ansible/inventories/prod/hosts.yml` (Phase 3: Tailscale hostname, ansible user)
+- **Production inventory**: `ansible/inventories/prod/hosts-production.yml` (Phase 3: Tailscale hostname, ansible user)
 - **General config**: `ansible/inventories/prod/group_vars/all.yml` (global settings)
 - **Host-specific config**: `ansible/inventories/prod/host_vars/<hostname>.yml` (per-host overrides)
 
@@ -567,137 +874,310 @@ Set `enable_fail2ban: false` in `ansible/inventories/prod/group_vars/all.yml` or
 
 ---
 
-### Encrypted Home Directories
+### Partition Layout for 128GB Drives
 
-For systems requiring encrypted user data, this setup supports encrypted home directories with automatic boot capability.
-
-#### Architecture
+This project uses a standard 3-partition layout optimized for Raspberry Pi systems:
 
 **Partition Layout:**
-- `/dev/nvme0n1p1` → `/boot` (512MB, FAT32, unencrypted)
-- `/dev/nvme0n1p2` → `/` (32GB recommended, ext4, unencrypted)
-  - Contains `/etc/ssh/authorized_keys.d/` (SSH keys - unencrypted, accessible at boot)
-- `/dev/nvme0n1p3` → `/home` (Remaining space, LUKS encrypted, mounted after boot)
+- **Partition 1**: 1GB (FAT32, `/boot`) - Boot partition for kernel and initramfs
+- **Partition 2**: 32GB (ext4, `/`) - Root filesystem with OS and system files
+- **Partition 3**: ~95GB (ext4, `/home`) - Data partition for user data and Docker storage
 
-**Boot Sequence:**
-1. Root filesystem mounts (unencrypted) → SSH keys available immediately
-2. SSH daemon starts → Authentication works (keys on unencrypted root)
-3. Tailscale connects → System fully operational
-4. User SSHs in remotely → Unlocks encrypted `/home` partition
-5. `/home` mounts → User directories available
+**What Goes Where:**
+- `/boot`: Kernel, initramfs, boot configuration (unencrypted, required for boot)
+- `/`: Operating system, system packages, SSH keys in `/etc/ssh/authorized_keys.d/` (unencrypted)
+- `/home`: User home directories, Docker data (`/home/deploy/docker`), service data (`/home/deploy/srv`), application logs (`/home/deploy/logs`) (unencrypted)
 
-#### Configuration
+**Rationale:**
+- **1GB boot**: Standard size for Raspberry Pi, sufficient for kernel and boot files
+- **32GB root**: Provides comfortable headroom for:
+  - Debian base system (~2-3GB)
+  - System packages and updates (~5-10GB)
+  - Docker engine and base images (~5-10GB)
+  - Logs, temp files, and buffer (~5GB)
+- **~95GB data**: All user data, Docker images/containers, service data, and logs
 
-**1. Enable encrypted home in host_vars:**
+**Note**: Internal partitions are **not encrypted**. LUKS/cryptsetup is installed for mounting **external** encrypted devices (USB drives, network storage).
 
-Edit `ansible/inventories/prod/host_vars/<hostname>.yml`:
-```yaml
-enable_luks: true
-luks_encrypt_home: true
-luks_home_device: "/dev/nvme0n1p3"  # Set after identifying partition
-```
+#### Setting Up Partitions
 
-**2. Add passphrase to secrets:**
-
-Edit `ansible/inventories/prod/group_vars/all_secrets.yml`:
-```yaml
-# Generate base64-encoded passphrase:
-# Generate 64-character base64 string (48 bytes entropy):
-# openssl rand -base64 48 | head -c 64
-# Or: echo -n "your-long-passphrase" | base64 (ensure 64+ chars)
-luks_home_passphrase: "dGhpcyBpcyBhIHNhbXBsZSBwYXNzcGhyYXNlIGluIGJhc2U2NA=="
-```
-
-**3. Bootstrap and setup:**
+**Before running bootstrap**, partition your drive:
 
 ```bash
-# Bootstrap (creates ansible user, sets up SSH keys in system location)
-./scripts/run-ansible.sh prod <hostname>-bootstrap
+# Identify your drive (replace /dev/sdX with your actual device)
+lsblk
+sudo fdisk -l
 
-# Normal setup (installs cryptsetup, shows encryption instructions)
-./scripts/run-ansible.sh prod <hostname>
+# Partition using parted (recommended)
+sudo parted /dev/sdX
+
+# In parted:
+(parted) mklabel gpt
+(parted) mkpart primary fat32 1MiB 1025MiB
+(parted) set 1 esp on
+(parted) mkpart primary ext4 1025MiB 33793MiB
+(parted) mkpart primary ext4 33793MiB 100%
+
+# Format partitions
+sudo mkfs.vfat -F 32 /dev/sdX1
+sudo mkfs.ext4 /dev/sdX2
+sudo mkfs.ext4 /dev/sdX3
+
+# Mount and install OS to partitions 1 and 2
+# (Use Raspberry Pi Imager or manual installation)
 ```
 
-**4. Encrypt home partition:**
-
-After identifying the partition with `lsblk` or `fdisk -l`:
+**Or use `fdisk`:**
 
 ```bash
-# Option A: Use helper script
-./scripts/encrypt-home-partition.sh /dev/nvme0n1p3 "<base64-passphrase>"
+sudo fdisk /dev/sdX
+# Type 'g' to create GPT partition table
+# Type 'n' to create partition 1: start=2048, end=2099200 (1GB)
+# Type 't' to set type: 1 (EFI System)
+# Type 'n' to create partition 2: start=2099200, end=69206016 (32GB)
+# Type 'n' to create partition 3: start=69206016, end=<default> (rest of disk)
+# Type 'w' to write and exit
 
-# Option B: Manual encryption
-echo -n "<base64-passphrase>" | base64 -d | sudo cryptsetup luksFormat /dev/nvme0n1p3 -
-sudo cryptsetup open /dev/nvme0n1p3 home-crypt
-sudo mkfs.ext4 /dev/mapper/home-crypt
-sudo cryptsetup close home-crypt
+# Format partitions
+sudo mkfs.vfat -F 32 /dev/sdX1
+sudo mkfs.ext4 /dev/sdX2
+sudo mkfs.ext4 /dev/sdX3
 ```
 
-**5. Configure mounting:**
+**After installation**, ensure `/home` is mounted from partition 3 in `/etc/fstab`:
 
-Run the playbook again - it will automatically configure `/etc/crypttab` and `/etc/fstab`:
 ```bash
-./scripts/run-ansible.sh prod <hostname>
+# Add to /etc/fstab (replace /dev/sdX3 with your actual partition)
+UUID=<partition3-uuid> /home ext4 defaults 0 2
+
+# Find UUID: sudo blkid /dev/sdX3
 ```
 
-**6. Test unlock:**
+### LUKS/Cryptsetup for External Devices
 
-After reboot, SSH in and unlock:
+The `luks` role installs `cryptsetup` which enables mounting **external** LUKS-encrypted devices (USB drives, network storage). Internal partitions are **not encrypted**.
+
+**To mount an external encrypted device:**
+
 ```bash
-ssh ansible@<host-ip>
-sudo cryptsetup open /dev/nvme0n1p3 home-crypt
-# Enter passphrase when prompted
-sudo mount /home
-ls -la /home  # Should show user directories
+# Check if device is encrypted
+sudo cryptsetup isLuks /dev/sdX1
+
+# Open encrypted device
+sudo cryptsetup open /dev/sdX1 my-encrypted-drive
+
+# Mount the decrypted device
+sudo mount /dev/mapper/my-encrypted-drive /mnt
+
+# When done, unmount and close
+sudo umount /mnt
+sudo cryptsetup close my-encrypted-drive
 ```
 
-#### Security Considerations
+### Docker Data-Root and Directory Structure
 
-- **SSH Keys**: Stored in `/etc/ssh/authorized_keys.d/` on unencrypted root (required for boot-time authentication)
-- **Home Data**: Fully encrypted with LUKS, unlocked remotely after boot
-- **Passphrase**: Base64-encoded in `all_secrets.yml` (gitignored), decoded only during encryption
-- **Trade-off**: Root filesystem unencrypted (required for automatic boot), but user data is protected
+The production phase configures Docker to store all data in `/home/deploy/docker` (on the data partition) instead of the default `/var/lib/docker` (on root partition). This keeps Docker data separate from the OS and makes it easier to manage.
 
-#### Partition Sizing Recommendations
+**Directory Structure:**
 
-For a **250GB NVMe drive**:
-- **Boot (512MB)**: Standard for Raspberry Pi, holds kernel/initramfs
-- **Root (64GB)**: Recommended for desktop + Docker systems. Provides headroom for:
-  - Debian base + desktop (~8-10GB)
-  - Docker images/containers (10-20GB+)
-  - System packages and updates (~10-15GB)
-  - Logs, temp files, and buffer (~10GB)
-- **Home (~185GB)**: All user data encrypted, typically largest partition
+- `/home/deploy/docker/` - Docker data-root (images, containers, volumes, networks)
+- `/home/deploy/srv/` - Service data (bind mounted to `/srv`)
+- `/home/deploy/logs/apps/` - Application logs (bind mounted to `/var/log/apps`)
 
-For smaller drives or minimal systems, 32-48GB root may suffice, but 64GB is recommended for desktop + Docker workloads.
+**Bind Mounts:**
+
+- `/srv` → `/home/deploy/srv` (service data accessible at standard location)
+- `/var/log/apps` → `/home/deploy/logs/apps` (application logs at standard location)
+
+All directories are owned by the `deploy` user and are on the data partition, keeping the root partition clean and organized.
 
 ---
 
 ## Verification and Testing
 
-### Verify Encrypted Home Setup
+This project uses a comprehensive three-phase testing strategy to ensure playbooks and roles work correctly:
 
-Before deploying encrypted home directories, verify the implementation:
+### Phase 1: Linting and Syntax Checks (Immediate)
+
+**Tools**: `ansible-lint`, `yamllint`, `ansible-playbook --syntax-check`
+
+**Purpose**: Catch errors before they reach production
+
+**Installation**: **No installation required!** All tools run in Docker containers.
+
+**Usage**:
+```bash
+# Run all linting checks (containerized)
+./scripts/run-linting.sh
+
+# Run syntax validation (containerized)
+./scripts/validate-playbooks.sh
+
+# Run specific linter
+./scripts/run-linting.sh ansible-lint
+./scripts/run-linting.sh yamllint
+```
+
+**Requirements**: Only Docker (no Python, pip, or virtual environments needed)
+
+**What it checks**:
+- YAML syntax errors
+- Ansible best practices
+- Deprecated modules
+- Security issues
+- Playbook syntax
+
+### Phase 2: Molecule Role Testing (Short-term)
+
+**Tools**: `molecule`, `molecule-plugins[docker]`
+
+**Purpose**: Test roles in isolated environments
+
+**Installation**: **No installation required!** All tools run in Docker containers.
+
+**Usage**:
+```bash
+# Test all roles with Molecule (containerized)
+./scripts/run-molecule-tests.sh
+
+# Test specific role
+./scripts/run-molecule-tests.sh docker_deploy
+```
+
+**Requirements**: Docker (with Docker socket accessible for Docker-in-Docker)
+
+**Roles with Molecule tests**:
+- `docker_deploy` - Docker deployment user setup
+- `internal_dns` - CoreDNS configuration
+- `edge_ingress` - Traefik ingress routing
+- `firewall_nftables` - Firewall configuration
+
+**What it tests**:
+- Role idempotency (running twice produces no changes)
+- Role convergence (role applies successfully)
+- Role verification (expected state is achieved)
+
+### Phase 3: Testinfra Production Verification (Long-term)
+
+**Tools**: `testinfra`, `pytest`
+
+**Purpose**: Verify actual server state after deployment
+
+**Installation**: **No installation required!** All tools run in Docker containers.
+
+**Usage**:
+```bash
+# Test specific host (containerized, requires SSH keys)
+docker run --rm -it \
+  -v $(pwd):/repo \
+  -v $HOME/.ssh:/root/.ssh:ro \
+  intergalactic-ansible-testing:latest \
+  pytest tests/testinfra/ \
+    --hosts=ansible://rigel \
+    --ansible-inventory=ansible/inventories/prod/hosts.yml \
+    -v
+```
+
+**Requirements**: Docker and SSH keys configured
+
+**Test files**:
+- `tests/testinfra/test_common.py` - Common system configuration
+- `tests/testinfra/test_docker.py` - Docker installation and configuration
+- `tests/testinfra/test_firewall.py` - Firewall configuration
+- `tests/testinfra/test_tailscale.py` - Tailscale connectivity
+
+**What it tests**:
+- Services are running and enabled
+- Packages are installed
+- Configuration files exist and are correct
+- Users and groups are configured
+- Network interfaces are up
+
+### Running All Tests
+
+Run all automated tests (containerized, no installation needed):
 
 ```bash
-./scripts/verify-encrypted-home-setup.sh
+# Just run - containers are built automatically
+./scripts/run-all-tests.sh
 ```
 
-This script checks:
-- SSH configuration has `AuthorizedKeysFile` directive
-- System SSH keys directory is created
-- Keys are written to system location (not home directories)
-- **docker_deploy**: Sets up a `deploy` user for Docker container deployment. Creates user with SSH access (using same keys as `armand`), configures `/srv/` directory, installs git, sets up passwordless sudo, and optionally configures Docker daemon DNS and environment variables. Enable with `enable_docker_deploy: true` in host_vars.
-- **LUKS**: Encrypted home partition support with automatic boot capability
-- Configuration files are properly set up
-- Helper script exists and is executable
-- Documentation is complete
-- YAML syntax is valid
+Skip specific phases:
+```bash
+./scripts/run-all-tests.sh --skip-molecule --skip-testinfra
+```
 
-**Expected output:**
+**Note**: All tests run in Docker containers - no host installation required!
+
+### Pre-commit Hooks (Optional)
+
+The project includes pre-commit hooks for automatic linting (optional - scripts work without them):
+
+```bash
+# Install pre-commit (optional - can use containerized scripts instead)
+pip install pre-commit
+
+# Install hooks
+pre-commit install
+
+# Run hooks manually
+pre-commit run --all-files
 ```
-✓ VERIFICATION PASSED: All checks passed
+
+**Hooks configured**:
+- `ansible-lint` - Lints Ansible files
+- `yamllint` - Lints YAML files
+- `ansible-playbook --syntax-check` - Validates playbook syntax
+
+**Note**: Pre-commit hooks require local installation. For containerized approach, just use the scripts directly.
+
+### Continuous Integration
+
+Add to your CI/CD pipeline (no setup required - containers are built automatically):
+
+```yaml
+# Example GitHub Actions workflow
+- name: Run linting
+  run: ./scripts/run-linting.sh
+
+- name: Validate playbooks
+  run: ./scripts/validate-playbooks.sh
+
+- name: Run Molecule tests
+  run: ./scripts/run-molecule-tests.sh
 ```
+
+**Note**: CI/CD systems typically have Docker pre-installed, so no additional setup is needed!
+
+### Testing Workflow
+
+**Before committing**:
+1. Run `./scripts/run-linting.sh` (containerized)
+2. Run `./scripts/validate-playbooks.sh` (containerized)
+3. Run `ansible-playbook --check` on changed playbooks (using existing Docker setup)
+
+**Before merging**:
+1. All linting passes
+2. All syntax checks pass
+3. Molecule tests pass (for changed roles, containerized)
+4. Manual testing on staging (if available)
+
+**In production**:
+1. Run Testinfra tests regularly (containerized)
+2. Monitor for configuration drift
+3. Verify idempotency periodically
+
+### Documentation
+
+- **`TESTING_STRATEGY.md`** - Detailed testing strategy and recommendations
+- **`TESTING_INSTALLATION.md`** - Containerized installation guide (no host installation needed!)
+- **`tests/testinfra/README.md`** - Testinfra test documentation
+- **`ansible/requirements-dev.txt`** - Development dependencies (for reference, not required for containerized approach)
+
+### Role Descriptions
+
+- **docker_deploy**: Sets up a `deploy` user for Docker container deployment. Creates user with SSH access (using same keys as `armand`), configures directory structure (`/home/deploy/docker`, `/home/deploy/srv`, `/home/deploy/logs`), sets up bind mounts, installs git, sets up passwordless sudo, and optionally configures Docker daemon DNS and environment variables. Enable with `enable_docker_deploy: true` in host_vars.
+- **LUKS**: Installs `cryptsetup` for mounting external LUKS-encrypted devices (USB drives, network storage). Internal partitions are not encrypted.
 
 ### Verify Inventory Users
 
@@ -712,6 +1192,44 @@ This verifies:
 - Production inventory: All hosts use `ansible_user: ansible`
 - All hosts are present in both inventories
 
+### Update Samba Configuration
+
+If you need to update Samba configuration without running the full playbook:
+
+```bash
+./scripts/update-samba.sh prod <hostname>
+```
+
+**What this does:**
+- Deploys updated Samba configuration from template (`ansible/roles/samba/templates/smb.conf.j2`)
+- Validates configuration syntax using `testparm`
+- Restarts Samba services (smbd, nmbd)
+
+**When to use:**
+- After modifying the Samba template (`ansible/roles/samba/templates/smb.conf.j2`)
+- After changing Samba-related variables in inventory
+- When Samba configuration needs to be refreshed without full deployment
+- Quick troubleshooting of Samba configuration issues
+
+**Requirements:**
+- Host must be accessible via Tailscale (uses `hosts-production.yml`)
+- Host must have Samba installed (via `samba` role)
+- Host must have `enable_samba: true` in host_vars
+
+**Example:**
+```bash
+# Update Samba config on rigel
+./scripts/update-samba.sh prod rigel
+
+# Update Samba config on vega
+./scripts/update-samba.sh prod vega
+```
+
+**Note**: This script only updates the Samba configuration file and restarts services. It does not:
+- Install Samba (use full playbook for that)
+- Add/remove Samba users (use full playbook for that)
+- Change Samba passwords (use full playbook for that)
+
 ---
 
 ## Re-configuring Existing Hosts
@@ -722,14 +1240,14 @@ If you have hosts that were previously configured with the old single-phase appr
 
 1. **If the host already has Tailscale:**
    - Get Tailscale hostname: `tailscale status | grep <hostname>`
-   - Update `hosts.yml` with Tailscale hostname
+   - Update `hosts-production.yml` with Tailscale hostname
    - Run production phase: `./scripts/run-ansible.sh prod <hostname> production`
 
 2. **If the host doesn't have Tailscale yet:**
    - Ensure host is accessible via local IP
    - Update `hosts-foundation.yml` with local IP and `ansible_user: ansible`
    - Run foundation phase: `./scripts/run-ansible.sh prod <hostname> foundation`
-   - Update `hosts.yml` with Tailscale hostname (from foundation output)
+   - Update `hosts-production.yml` with Tailscale hostname (from foundation output)
    - Run production phase: `./scripts/run-ansible.sh prod <hostname> production`
 
 **Note:** The three-phase playbooks are idempotent, so re-running them is safe and will ensure your hosts match the current configuration.
@@ -745,7 +1263,7 @@ Once your first Pi is set up:
    - Run Phase 1: `./scripts/run-ansible.sh prod <new-hostname> bootstrap`
    - Add the new Pi to `ansible/inventories/prod/hosts-foundation.yml` (with local IP, ansible user)
    - Run Phase 2: `./scripts/run-ansible.sh prod <new-hostname> foundation`
-   - Update `ansible/inventories/prod/hosts.yml` with Tailscale hostname (from foundation output)
+   - Update `ansible/inventories/prod/hosts-production.yml` with Tailscale hostname (from foundation output)
    - Run Phase 3: `./scripts/run-ansible.sh prod <new-hostname> production`
 
 2. **Customize**: Edit `ansible/inventories/prod/group_vars/all.yml` for global settings

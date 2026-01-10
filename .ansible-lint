@@ -1,0 +1,17 @@
+---
+# Ansible Lint configuration
+skip_list:
+  - yaml[line-length]  # Allow longer lines for readability
+  - name[casing]        # Allow lowercase names if preferred
+  - name[template]      # Allow template names
+
+exclude_paths:
+  - .cache/
+  - .git/
+  - molecule/
+  - .venv/
+  - venv/
+
+verbosity: 1
+parseable: false
+quiet: false

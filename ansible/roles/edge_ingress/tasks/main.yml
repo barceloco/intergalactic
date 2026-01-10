@@ -23,11 +23,47 @@
       ============================================================================
     success_msg: "✓ Hostinger API token is configured"
 
+- name: Validate edge_ingress_domain is configured
+  when: edge_ingress_enabled | default(false)
+  assert:
+    that:
+      - edge_ingress_domain is defined
+      - edge_ingress_domain | length > 0
+    fail_msg: |
+      ============================================================================
+      ERROR: edge_ingress_domain is not configured!
+      ============================================================================
+      The edge_ingress role requires edge_ingress_domain to be set.
+      
+      Please configure in host_vars or group_vars:
+        edge_ingress_domain: company.com
+      ============================================================================
+    success_msg: "✓ edge_ingress_domain is configured: {{ edge_ingress_domain }}"
+
+- name: Validate edge_ingress_acme_email is configured
+  when: edge_ingress_enabled | default(false)
+  assert:
+    that:
+      - edge_ingress_acme_email is defined
+      - edge_ingress_acme_email | length > 0
+      - '@' in edge_ingress_acme_email
+    fail_msg: |
+      ============================================================================
+      ERROR: edge_ingress_acme_email is not configured!
+      ============================================================================
+      The edge_ingress role requires a valid email for ACME registration.
+      
+      Please configure in host_vars or group_vars:
+        edge_ingress_acme_email: admin@company.com
+      ============================================================================
+    success_msg: "✓ edge_ingress_acme_email is configured: {{ edge_ingress_acme_email }}"
+
 - name: Validate routes are configured
   when: edge_ingress_enabled | default(false)
   assert:
     that:
       - edge_ingress_routes is defined
+      - edge_ingress_routes is iterable
       - edge_ingress_routes | length > 0
     fail_msg: |
       ============================================================================
@@ -35,9 +71,39 @@
       ============================================================================
       The edge_ingress role requires at least one route in edge_ingress_routes.
       
-      Please configure routes in host_vars or group_vars.
+      Please configure routes in host_vars or group_vars:
+        edge_ingress_routes:
+          - host: mpnas.company.com
+            backend: http://mpnas:5000
+            health_path: /health
       ============================================================================
     success_msg: "✓ {{ edge_ingress_routes | length }} route(s) configured"
+
+- name: Validate route structure
+  when: 
+    - edge_ingress_enabled | default(false)
+    - edge_ingress_routes is defined
+    - edge_ingress_routes | length > 0
+  assert:
+    that:
+      - item.host is defined
+      - item.backend is defined
+      - item.host | length > 0
+      - item.backend | length > 0
+      - item.backend is search('://')
+    fail_msg: |
+      ============================================================================
+      ERROR: Invalid route configuration!
+      ============================================================================
+      Route {{ item | default('unknown') }} is missing required fields.
+      
+      Each route must have:
+        - host: Hostname (e.g., "mpnas.company.com")
+        - backend: Backend URL (e.g., "http://mpnas:5000")
+        - health_path: Health check path (optional, defaults to "/health")
+      ============================================================================
+    success_msg: "✓ Route {{ item.host }} is valid"
+  loop: "{{ edge_ingress_routes }}"
 
 - name: Check if Tailscale is connected
   when: 

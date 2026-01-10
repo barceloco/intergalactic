@@ -1,0 +1,40 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify Traefik data directory exists
+      stat:
+        path: /opt/traefik
+      register: data_dir
+      failed_when: not data_dir.stat.exists
+
+    - name: Verify Traefik configuration files exist
+      stat:
+        path: "{{ item }}"
+      register: config_files
+      loop:
+        - /opt/traefik/traefik.yml
+        - /opt/traefik/dynamic.yml
+        - /opt/traefik/docker-compose.yml
+        - /opt/traefik/acme.json
+      failed_when: config_files.results | selectattr('stat.exists') | list | length != 4
+
+    - name: Verify ACME JSON file permissions
+      stat:
+        path: /opt/traefik/acme.json
+      register: acme_file
+      failed_when: acme_file.stat.mode != "0100600"
+
+    - name: Verify Traefik container is running
+      command: docker ps --filter name=traefik --format "{{ '{{' }}.Status{{ '}}' }}"
+      register: container_status
+      changed_when: false
+      failed_when: container_status.rc != 0 or 'Up' not in container_status.stdout
+
+    - name: Verify dynamic config contains routes
+      command: grep -E "mpnas.company.com" /opt/traefik/dynamic.yml
+      register: route_check
+      changed_when: false
+      failed_when: route_check.rc != 0

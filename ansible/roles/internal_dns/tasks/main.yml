@@ -4,6 +4,43 @@
   debug:
     msg: "Skipping internal_dns role (internal_dns_enabled is false)"
 
+- name: Validate internal_dns_domain is configured
+  when: internal_dns_enabled | default(false)
+  assert:
+    that:
+      - internal_dns_domain is defined
+      - internal_dns_domain | length > 0
+    fail_msg: |
+      ============================================================================
+      ERROR: internal_dns_domain is not configured!
+      ============================================================================
+      The internal_dns role requires internal_dns_domain to be set.
+      
+      Please configure in host_vars or group_vars:
+        internal_dns_domain: company.com
+      ============================================================================
+    success_msg: "✓ internal_dns_domain is configured: {{ internal_dns_domain }}"
+
+- name: Validate internal_dns_private_hosts is a list
+  when: internal_dns_enabled | default(false)
+  assert:
+    that:
+      - internal_dns_private_hosts is defined
+      - internal_dns_private_hosts is iterable
+    fail_msg: |
+      ============================================================================
+      ERROR: internal_dns_private_hosts must be a list!
+      ============================================================================
+      Current value: {{ internal_dns_private_hosts | default('NOT SET') }}
+      
+      Please configure as a list in host_vars or group_vars:
+        internal_dns_private_hosts:
+          - mpnas
+          - aispector
+          - dev
+      ============================================================================
+    success_msg: "✓ internal_dns_private_hosts is valid ({{ internal_dns_private_hosts | length }} host(s))"
+
 - name: Validate Tailscale is connected
   when: 
     - internal_dns_enabled | default(false)

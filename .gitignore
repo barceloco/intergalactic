@@ -54,6 +54,16 @@ Thumbs.db
 .cursor/
 crypthome/
 
+# Testing
+.molecule/
+.pytest_cache/
+.tox/
+__pycache__/
+*.pyc
+
+# Pre-commit
+.pre-commit/
+
 # -------------------------
 # Python
 # -------------------------

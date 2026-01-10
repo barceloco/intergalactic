@@ -5,10 +5,45 @@
     state: present
     update_cache: true
 
+- name: Validate firewall_allow_tcp_ports is a list
+  assert:
+    that:
+      - firewall_allow_tcp_ports is defined
+      - firewall_allow_tcp_ports is iterable
+    fail_msg: |
+      ============================================================================
+      ERROR: firewall_allow_tcp_ports must be a list!
+      ============================================================================
+      Current value: {{ firewall_allow_tcp_ports | default('NOT SET') }}
+      
+      Please configure firewall_allow_tcp_ports as a list in group_vars or host_vars:
+        firewall_allow_tcp_ports:
+          - "{{ ssh_port }}"
+          - 8000
+      ============================================================================
+    success_msg: "✓ firewall_allow_tcp_ports is valid"
+
+- name: Validate firewall_allow_udp_ports is a list
+  assert:
+    that:
+      - firewall_allow_udp_ports is defined
+      - firewall_allow_udp_ports is iterable
+    fail_msg: |
+      ============================================================================
+      ERROR: firewall_allow_udp_ports must be a list!
+      ============================================================================
+      Current value: {{ firewall_allow_udp_ports | default('NOT SET') }}
+      
+      Please configure firewall_allow_udp_ports as a list in group_vars or host_vars:
+        firewall_allow_udp_ports:
+          - 41641
+      ============================================================================
+    success_msg: "✓ firewall_allow_udp_ports is valid"
+
 - name: Merge docker_deploy_tcp_ports into firewall_allow_tcp_ports
   when: docker_deploy_tcp_ports is defined
   set_fact:
-    firewall_allow_tcp_ports: "{{ firewall_allow_tcp_ports | default([]) + (docker_deploy_tcp_ports | default([])) | unique }}"
+    firewall_allow_tcp_ports: "{{ (firewall_allow_tcp_ports | default([])) + (docker_deploy_tcp_ports | default([])) | unique }}"
 
 - name: Deploy nftables rules
   template:

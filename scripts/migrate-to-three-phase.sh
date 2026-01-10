@@ -3,7 +3,7 @@
 # Usage: ./scripts/migrate-to-three-phase.sh <host> [tailscale-hostname]
 #
 # This script helps when re-configuring existing hosts with the three-phase structure.
-# It detects the Tailscale hostname so you can update hosts.yml before running production phase.
+# It detects the Tailscale hostname so you can update hosts-production.yml before running production phase.
 
 set -euo pipefail
 
@@ -67,7 +67,7 @@ else
 fi
 
 echo ""
-echo "[5/5] Update hosts.yml manually:"
+echo "[5/5] Update hosts-production.yml manually:"
 echo "  ${HOST}:"
 echo "    ansible_host: ${TAILSCALE_HOSTNAME}"
 echo "    ansible_user: ansible"

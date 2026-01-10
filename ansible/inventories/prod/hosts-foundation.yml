@@ -6,8 +6,8 @@
 # 
 # After foundation phase completes:
 #   1. Get Tailscale hostname: tailscale status | grep <hostname>
-#   2. Update hosts.yml to use Tailscale hostname
-#   3. Switch to production phase using hosts.yml
+#   2. Update hosts-production.yml to use Tailscale hostname
+#   3. Switch to production phase using hosts-production.yml
 # 
 # RULE: When adding a new host, copy from hosts-bootstrap.yml and change:
 #       - ansible_user: armand → ansible_user: ansible

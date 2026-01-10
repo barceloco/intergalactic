@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BOOTSTRAP_INV="${SCRIPT_DIR}/ansible/inventories/prod/hosts-bootstrap.yml"
-PRODUCTION_INV="${SCRIPT_DIR}/ansible/inventories/prod/hosts.yml"
+PRODUCTION_INV="${SCRIPT_DIR}/ansible/inventories/prod/hosts-production.yml"
 
 if [[ ! -f "${BOOTSTRAP_INV}" ]] || [[ ! -f "${PRODUCTION_INV}" ]]; then
   echo "ERROR: Inventory files not found!"
@@ -43,7 +43,7 @@ except Exception as e:
 
 # Load production inventory
 try:
-    with open('ansible/inventories/prod/hosts.yml', 'r') as f:
+    with open('ansible/inventories/prod/hosts-production.yml', 'r') as f:
         production = yaml.safe_load(f)
 except Exception as e:
     print(f"ERROR: Failed to load production inventory: {e}")

@@ -16,8 +16,12 @@
       tags: [foundation, base]
     - role: ssh_hardening
       tags: [foundation, security]
+    - role: firewall_nftables
+      tags: [foundation, security]
     - role: tailscale
       tags: [foundation, network]
+    - role: monitoring_base
+      tags: [foundation, monitoring]
   post_tasks:
     - name: Get Tailscale hostname for next steps
       command: tailscale status --json
@@ -49,7 +53,7 @@
           {% endif %}
           
           Next steps:
-          1. Update hosts.yml to use Tailscale hostname:
+          1. Update hosts-production.yml to use Tailscale hostname:
              alpheratz:
                ansible_host: {{ tailscale_hostname | default('alpheratz.tailnet-name.ts.net') }}
                ansible_user: ansible

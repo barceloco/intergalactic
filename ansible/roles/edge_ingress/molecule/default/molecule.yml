@@ -1,0 +1,35 @@
+---
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: instance
+    image: debian:bookworm-slim
+    pre_build_image: true
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    command: "/lib/systemd/systemd"
+    tmpfs:
+      - /run
+      - /tmp
+    capabilities:
+      - SYS_ADMIN
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      instance:
+        ansible_python_interpreter: /usr/bin/python3
+        edge_ingress_enabled: true
+        edge_ingress_domain: company.com
+        edge_ingress_acme_email: admin@company.com
+        edge_ingress_routes:
+          - host: mpnas.company.com
+            backend: http://mpnas:5000
+            health_path: /health
+        enable_tailscale: true
+        hostinger_api_token: "test-token"
+verifier:
+  name: ansible

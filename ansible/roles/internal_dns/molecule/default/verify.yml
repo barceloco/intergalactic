@@ -1,0 +1,33 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify CoreDNS data directory exists
+      stat:
+        path: /opt/coredns
+      register: data_dir
+      failed_when: not data_dir.stat.exists
+
+    - name: Verify CoreDNS configuration files exist
+      stat:
+        path: "{{ item }}"
+      register: config_files
+      loop:
+        - /opt/coredns/Corefile
+        - /opt/coredns/db.company.com
+        - /opt/coredns/docker-compose.yml
+      failed_when: config_files.results | selectattr('stat.exists') | list | length != 3
+
+    - name: Verify CoreDNS container is running
+      command: docker ps --filter name=coredns --format "{{ '{{' }}.Status{{ '}}' }}"
+      register: container_status
+      changed_when: false
+      failed_when: container_status.rc != 0 or 'Up' not in container_status.stdout
+
+    - name: Verify DNS zone file contains private hosts
+      command: grep -E "(mpnas|aispector)" /opt/coredns/db.company.com
+      register: zone_check
+      changed_when: false
+      failed_when: zone_check.rc != 0
