@@ -1,0 +1,61 @@
+http:
+  middlewares:
+    security-headers:
+      headers:
+        sslRedirect: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customFrameOptionsValue: "SAMEORIGIN"
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+        customResponseHeaders:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "SAMEORIGIN"
+          X-XSS-Protection: "1; mode=block"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+
+    retry:
+      retry:
+        attempts: 3
+        initialInterval: 100ms
+
+{% for route in final_routes | default(edge_ingress_routes) %}
+    healthcheck-{{ route.host | regex_replace('\\.', '-') | regex_replace('^([^-]+)-.*', '\\1') }}:
+      healthCheck:
+        path: "{{ route.health_path | default('/health') }}"
+        interval: "{{ edge_ingress_health_check_interval }}"
+        timeout: "{{ edge_ingress_health_check_timeout }}"
+        scheme: http
+{% endfor %}
+
+  routers:
+{% for route in final_routes | default(edge_ingress_routes) %}
+    router-{{ route.host | regex_replace('\\.', '-') | regex_replace('^([^-]+)-.*', '\\1') }}:
+      rule: "Host(`{{ route.host }}`)"
+      entryPoints:
+        - websecure
+      service: service-{{ route.host | regex_replace('\\.', '-') | regex_replace('^([^-]+)-.*', '\\1') }}
+      middlewares:
+        - security-headers
+        - retry
+      tls:
+        certResolver: letsencrypt
+
+{% endfor %}
+
+  services:
+{% for route in final_routes | default(edge_ingress_routes) %}
+    service-{{ route.host | regex_replace('\\.', '-') | regex_replace('^([^-]+)-.*', '\\1') }}:
+      loadBalancer:
+        healthCheck:
+          path: "{{ route.health_path | default('/health') }}"
+          interval: "{{ edge_ingress_health_check_interval }}"
+          timeout: "{{ edge_ingress_health_check_timeout }}"
+          scheme: http
+        servers:
+          - url: "{{ route.backend_resolved | default(route.backend) }}"
+
+{% endfor %}

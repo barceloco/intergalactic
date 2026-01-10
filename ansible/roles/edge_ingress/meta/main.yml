@@ -1,0 +1,22 @@
+---
+galaxy_info:
+  author: intergalactic
+  description: HTTPS ingress routing using Traefik with ACME DNS-01 certificates
+  license: MIT
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Debian
+      versions:
+        - all
+  galaxy_tags:
+    - traefik
+    - reverse-proxy
+    - https
+    - acme
+    - tailscale
+
+dependencies:
+  - role: docker_host
+    when: enable_docker | default(false)
+  - role: internal_dns
+    when: internal_dns_enabled | default(false)

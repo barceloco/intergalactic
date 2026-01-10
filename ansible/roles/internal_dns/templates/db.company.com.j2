@@ -1,0 +1,15 @@
+$TTL 3600
+$ORIGIN {{ internal_dns_domain }}.
+@       IN      SOA     rigel.{{ internal_dns_domain }}. admin.{{ internal_dns_domain }}. (
+                        2025010101  ; Serial
+                        3600        ; Refresh
+                        1800        ; Retry
+                        604800      ; Expire
+                        3600        ; Minimum TTL
+                        )
+
+@       IN      NS      rigel.{{ internal_dns_domain }}.
+
+{% for host in internal_dns_private_hosts %}
+{{ host }}     IN      A       {{ tailscale_ip }}
+{% endfor %}

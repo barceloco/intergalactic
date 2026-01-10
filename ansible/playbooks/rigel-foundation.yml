@@ -1,0 +1,72 @@
+---
+- name: Rigel Foundation (Network + Security + Base Infrastructure)
+  hosts: rigel
+  become: true
+  gather_facts: false
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
+  tags:
+    - foundation
+    - always
+  pre_tasks:
+    - name: Import host key verification tasks
+      import_tasks: shared/host-key-verification.yml
+  roles:
+    - role: common
+      tags: [foundation, base]
+    - role: ssh_hardening
+      tags: [foundation, security]
+    - role: firewall_nftables
+      tags: [foundation, security]
+    - role: fail2ban
+      tags: [foundation, security]
+    - role: updates
+      tags: [foundation, base]
+    - role: tailscale
+      tags: [foundation, network]
+    - role: docker_host
+      tags: [foundation, infrastructure]
+    - role: monitoring_base
+      tags: [foundation, monitoring]
+  post_tasks:
+    - name: Get Tailscale hostname for next steps
+      command: tailscale status --json
+      register: tailscale_status_json
+      changed_when: false
+      failed_when: false
+      delegate_to: rigel
+      when: enable_tailscale | default(false)
+
+    - name: Extract Tailscale hostname
+      set_fact:
+        tailscale_hostname: "{{ (tailscale_status_json.stdout | from_json).Self.DNSName | default('') }}"
+      when: 
+        - enable_tailscale | default(false)
+        - tailscale_status_json.stdout is defined
+
+    - name: Display foundation completion and next steps
+      debug:
+        msg: |
+          ============================================================================
+          ✓ Foundation phase completed successfully!
+          ============================================================================
+          The host is now on the Tailscale network.
+          
+          {% if tailscale_hostname is defined and tailscale_hostname | length > 0 %}
+          Tailscale hostname: {{ tailscale_hostname }}
+          {% else %}
+          To get Tailscale hostname, run: tailscale status | grep {{ inventory_hostname }}
+          {% endif %}
+          
+          Next steps:
+          1. Update hosts.yml to use Tailscale hostname:
+             rigel:
+               ansible_host: {{ tailscale_hostname | default('rigel.tailnet-name.ts.net') }}
+               ansible_user: ansible
+          
+          2. Run production phase:
+             ./scripts/run-ansible.sh prod rigel production
+          
+          ============================================================================
+      delegate_to: localhost
+      run_once: true

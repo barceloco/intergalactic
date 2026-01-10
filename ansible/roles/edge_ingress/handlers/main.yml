@@ -1,0 +1,5 @@
+---
+- name: Restart traefik
+  command: docker compose -f {{ edge_ingress_data_dir }}/docker-compose.yml restart
+  args:
+    chdir: "{{ edge_ingress_data_dir }}"

@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: intergalactic
+  description: Deploy user setup for Docker container management
+  license: MIT
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Debian
+      versions:
+        - all
+  galaxy_tags:
+    - docker
+    - deploy
+    - user-management
+
+dependencies:
+  - role: docker_host
+    when: enable_docker | default(false)

@@ -1,0 +1,11 @@
+---
+internal_dns_domain: company.com
+internal_dns_private_hosts:
+  - mpnas
+  - aispector
+  - dev
+internal_dns_upstream_servers:
+  - 8.8.8.8
+  - 8.8.4.4
+internal_dns_container_name: coredns
+internal_dns_data_dir: /opt/coredns

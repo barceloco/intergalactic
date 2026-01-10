@@ -27,3 +27,29 @@ docker_deploy_tcp_ports:
   - 6379   # Redis
   - 9000   # MinIO
   - 9001   # MinIO
+
+# Internal DNS configuration
+internal_dns_enabled: true
+internal_dns_domain: company.com
+internal_dns_private_hosts:
+  - mpnas
+  - aispector
+  - dev
+
+# Edge ingress configuration
+edge_ingress_enabled: true
+edge_ingress_domain: company.com
+edge_ingress_acme_email: admin@company.com
+edge_ingress_use_tailscale_fqdn: true
+edge_ingress_backend_timeout_connect: 30s
+edge_ingress_backend_timeout_response: 60s
+edge_ingress_routes:
+  - host: mpnas.company.com
+    backend: http://mpnas:5000
+    health_path: /health
+  - host: aispector.company.com
+    backend: http://vega:8000
+    health_path: /health
+  - host: dev.company.com
+    backend: http://rigel:8000
+    health_path: /health

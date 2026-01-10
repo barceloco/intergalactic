@@ -1,0 +1,157 @@
+---
+- name: Skip internal_dns role if not enabled
+  when: not (internal_dns_enabled | default(false))
+  debug:
+    msg: "Skipping internal_dns role (internal_dns_enabled is false)"
+
+- name: Validate Tailscale is connected
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+  command: tailscale status
+  register: tailscale_status_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if Tailscale is not connected
+  when: internal_dns_enabled | default(false)
+  assert:
+    that:
+      - enable_tailscale | default(false)
+      - tailscale_status_check.rc == 0
+    fail_msg: |
+      ============================================================================
+      ERROR: Tailscale is not connected!
+      ============================================================================
+      The internal_dns role requires Tailscale to be connected to detect
+      the Tailscale IP address for DNS records.
+      
+      Please ensure:
+      1. The tailscale role has been applied
+      2. Tailscale is connected (run: tailscale status)
+      3. enable_tailscale is set to true
+      ============================================================================
+    success_msg: "✓ Tailscale is connected"
+
+- name: Get Tailscale IPv4 address
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+  command: tailscale ip -4
+  register: tailscale_ip_result
+  changed_when: false
+
+- name: Validate Tailscale IP was retrieved
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+  assert:
+    that:
+      - tailscale_ip_result.rc == 0
+      - tailscale_ip_result.stdout | length > 0
+      - tailscale_ip_result.stdout | regex_search('^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$')
+    fail_msg: |
+      ============================================================================
+      ERROR: Failed to retrieve valid Tailscale IPv4 address!
+      ============================================================================
+      The tailscale ip -4 command did not return a valid IPv4 address.
+      
+      Command output: {{ tailscale_ip_result.stdout | default('empty') }}
+      Command error: {{ tailscale_ip_result.stderr | default('none') }}
+      
+      Please check:
+      1. Tailscale is connected: tailscale status
+      2. Tailscale has an IPv4 address assigned
+      ============================================================================
+    success_msg: "✓ Tailscale IPv4 address detected: {{ tailscale_ip_result.stdout }}"
+
+- name: Set Tailscale IP fact
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+  set_fact:
+    tailscale_ip: "{{ tailscale_ip_result.stdout.strip() }}"
+
+- name: Ensure CoreDNS data directory exists
+  when: internal_dns_enabled | default(false)
+  file:
+    path: "{{ internal_dns_data_dir }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Deploy CoreDNS Corefile
+  when: internal_dns_enabled | default(false)
+  template:
+    src: Corefile.j2
+    dest: "{{ internal_dns_data_dir }}/Corefile"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Restart coredns
+
+- name: Deploy DNS zone file
+  when: internal_dns_enabled | default(false)
+  template:
+    src: db.company.com.j2
+    dest: "{{ internal_dns_data_dir }}/db.{{ internal_dns_domain }}"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Restart coredns
+
+- name: Deploy CoreDNS Docker Compose
+  when: internal_dns_enabled | default(false)
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ internal_dns_data_dir }}/docker-compose.yml"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Restart coredns
+
+- name: Check if CoreDNS container is running
+  when: internal_dns_enabled | default(false)
+  command: docker ps --filter name={{ internal_dns_container_name }} --format "{{ '{{' }}.Names{{ '}}' }}"
+  register: coredns_container_check
+  changed_when: false
+  failed_when: false
+
+- name: Start CoreDNS container
+  when: 
+    - internal_dns_enabled | default(false)
+    - internal_dns_container_name not in (coredns_container_check.stdout | default(''))
+  command: docker compose -f {{ internal_dns_data_dir }}/docker-compose.yml up -d
+  args:
+    chdir: "{{ internal_dns_data_dir }}"
+  register: coredns_start_result
+
+- name: Verify CoreDNS container is running
+  when: internal_dns_enabled | default(false)
+  command: docker ps --filter name={{ internal_dns_container_name }} --format "{{ '{{' }}.Status{{ '}}' }}"
+  register: coredns_status_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if CoreDNS container is not running
+  when: internal_dns_enabled | default(false)
+  assert:
+    that:
+      - coredns_status_check.rc == 0
+      - coredns_status_check.stdout | length > 0
+      - (coredns_status_check.stdout | default('')) is search('Up')
+    fail_msg: |
+      ============================================================================
+      ERROR: CoreDNS container is not running!
+      ============================================================================
+      The CoreDNS container failed to start or is not running.
+      
+      Status: {{ coredns_status_check.stdout | default('unknown') }}
+      
+      Please check:
+      1. Docker is running: systemctl status docker
+      2. CoreDNS logs: docker logs {{ internal_dns_container_name }}
+      3. Port 53 is not already in use: netstat -tuln | grep :53
+      ============================================================================
+    success_msg: "✓ CoreDNS container is running"

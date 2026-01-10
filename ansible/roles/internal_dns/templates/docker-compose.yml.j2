@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  coredns:
+    image: coredns/coredns:latest
+    container_name: {{ internal_dns_container_name }}
+    network_mode: host
+    volumes:
+      - {{ internal_dns_data_dir }}/Corefile:/Corefile:ro
+      - {{ internal_dns_data_dir }}/db.{{ internal_dns_domain }}:/db.{{ internal_dns_domain }}:ro
+    command: ["-conf", "/Corefile"]
+    restart: unless-stopped
+    cap_add:
+      - NET_BIND_SERVICE

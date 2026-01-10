@@ -1,0 +1,8 @@
+.:53 {
+    file db.{{ internal_dns_domain }} {
+        reload 30s
+    }
+    forward . {{ internal_dns_upstream_servers | join(' ') }}
+    log
+    errors
+}

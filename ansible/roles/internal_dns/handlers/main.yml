@@ -1,0 +1,5 @@
+---
+- name: Restart coredns
+  command: docker compose -f {{ internal_dns_data_dir }}/docker-compose.yml restart
+  args:
+    chdir: "{{ internal_dns_data_dir }}"

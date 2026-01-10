@@ -1,0 +1,32 @@
+api:
+  dashboard: true
+  insecure: false
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  websecure:
+    address: ":443"
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: {{ edge_ingress_acme_email }}
+      storage: /acme.json
+      dnsChallenge:
+        provider: hostinger
+        resolvers:
+          - "8.8.8.8:53"
+          - "8.8.4.4:53"
+
+providers:
+  file:
+    filename: /dynamic.yml
+    watch: true

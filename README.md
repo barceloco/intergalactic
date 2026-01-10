@@ -1,8 +1,67 @@
 # intergalactic
 
-Manage a Raspberry Pi fleet (Gen1–Gen5) on **Debian Stable (Trixie)** using:
-- **Bootstrap**: Create ansible user, disable password authentication, set up SSH keys
-- **Ansible**: Full configuration (firewall, SSH hardening, Tailscale, Docker, etc.)
+Manage a Raspberry Pi fleet (Gen1–Gen5) on **Debian Stable (Trixie)** using a three-phase deployment model:
+- **Phase 1: Bootstrap** - Establish secure automation access (local IP)
+- **Phase 2: Foundation** - Network connectivity and security foundation (local IP)
+- **Phase 3: Production** - Application services (Tailscale network only)
+
+## Three-Phase Deployment Model
+
+This project uses a clean three-phase deployment model that separates concerns and enables network transition from local IP to Tailscale.
+
+### Phase 1: Bootstrap
+**Purpose**: Establish secure automation access  
+**Connection**: Local IP address (192.168.1.x)  
+**User**: `armand` (initial user)  
+**Inventory**: `hosts-bootstrap.yml`  
+**Roles**: `common_bootstrap`  
+**What it does**:
+- Creates `ansible` automation user
+- Disables password authentication
+- Sets up SSH keys
+- Minimal, fast, idempotent
+
+### Phase 2: Foundation
+**Purpose**: Network connectivity and security foundation  
+**Connection**: Local IP address (may require local network)  
+**User**: `ansible` (automation user)  
+**Inventory**: `hosts-foundation.yml`  
+**Roles**: `common`, `ssh_hardening`, `firewall_nftables`, `fail2ban`, `updates`, `tailscale`, `docker_host`, `monitoring_base`  
+**What it does**:
+- Sets up Tailscale (enables network transition)
+- Hardens SSH configuration
+- Configures firewall (nftables)
+- Sets up fail2ban
+- Enables system updates
+- Installs Docker engine
+- Basic monitoring tools
+
+**Key Feature**: After this phase, the host is on the Tailscale network.
+
+### Phase 3: Production
+**Purpose**: Application services and advanced features  
+**Connection**: **Tailscale network ONLY** (rigel.tailnet-name.ts.net)  
+**User**: `ansible` (automation user)  
+**Inventory**: `hosts.yml` (Tailscale hostnames)  
+**Roles**: `docker_deploy`, `internal_dns`, `edge_ingress`, `monitoring_docker`, `luks`  
+**What it does**:
+- Docker deploy user setup
+- Internal DNS (CoreDNS)
+- Edge ingress (Traefik)
+- Advanced monitoring
+- LUKS encryption
+
+**Requirement**: MUST connect via Tailscale - fails if not on Tailscale network.
+
+### Network Transition
+
+The three-phase model enables a clean transition from local network to Tailscale:
+
+1. **Bootstrap** → Uses local IP, creates automation user
+2. **Foundation** → Uses local IP, sets up Tailscale
+3. **Production** → Uses Tailscale hostname, deploys services
+
+After Foundation completes, update `hosts.yml` with the Tailscale hostname, then run Production.
 
 ## Prerequisites
 
@@ -221,7 +280,7 @@ all:
 - You can also scan your network: `nmap -sn 192.168.1.0/24`
 - Or SSH into the Pi and run: `hostname -I`
 
-### Step 7: Run Ansible Bootstrap
+### Step 7: Phase 1 - Run Bootstrap
 
 **CRITICAL**: The bootstrap process will **immediately disable password-based SSH authentication**. Make sure:
 1. Your SSH key works for your existing user (you can SSH in without a password)
@@ -231,8 +290,8 @@ all:
 ```bash
 cd ~/Documents/GitHub/intergalactic
 
-# Run the bootstrap playbook (replace 'rigel' with your hostname)
-./scripts/run-ansible.sh prod rigel-bootstrap
+# Run Phase 1: Bootstrap (replace 'rigel' with your hostname)
+./scripts/run-ansible.sh prod rigel bootstrap
 ```
 
 **What this does:**
@@ -269,28 +328,48 @@ rigel                      : ok=10   changed=7    unreachable=0    failed=0
 - The bootstrap inventory (`hosts-bootstrap.yml`) uses your initial user
 - The production inventory (`hosts.yml`) uses the `ansible` user - make sure it's configured correctly
 
-### Step 8: Run Main Ansible Playbook
+### Step 8: Phase 2 - Run Foundation
 
-This applies the full configuration: firewall, SSH hardening, Tailscale, Docker, etc.
+This sets up network connectivity, security, and base infrastructure.
 
 ```bash
-# For a headless Pi (like rigel):
-./scripts/run-ansible.sh prod rigel
-
-# For a workstation Pi with desktop (like vega):
-./scripts/run-ansible.sh prod vega
+# Run Phase 2: Foundation (replace 'rigel' with your hostname)
+./scripts/run-ansible.sh prod rigel foundation
 ```
 
 **What this does:**
 - Applies complete SSH hardening configuration
 - Sets up firewall (nftables) with default-deny policy
-- Configures fail2ban (optional, enabled by default - provides security intelligence and bans after failed authentication attempts)
-- Installs and configures Tailscale (if enabled)
-- Installs Docker (if enabled)
-- Sets up Docker deployment host (if `enable_docker_deploy: true` - creates `deploy` user with SSH access, configures `/srv/` directory)
+- Configures fail2ban (optional, enabled by default)
+- Installs and configures Tailscale (enables network transition)
+- Installs Docker engine
 - Sets up automatic security updates
 - Configures system hardening (sysctl, etc.)
-- And more...
+- Basic monitoring tools
+
+**After Foundation completes:**
+The playbook will display the Tailscale hostname. Update `hosts.yml` with this hostname before running Production.
+
+### Step 9: Phase 3 - Run Production
+
+**CRITICAL**: Production phase **requires Tailscale connection**. Update `hosts.yml` with Tailscale hostname first.
+
+```bash
+# 1. Update hosts.yml with Tailscale hostname (from foundation output)
+#    rigel:
+#      ansible_host: rigel.tailnet-name.ts.net  # Or just "rigel" with MagicDNS
+#      ansible_user: ansible
+
+# 2. Run Phase 3: Production
+./scripts/run-ansible.sh prod rigel production
+```
+
+**What this does:**
+- Sets up Docker deploy user
+- Deploys internal DNS (CoreDNS)
+- Deploys edge ingress (Traefik)
+- Advanced monitoring tools
+- LUKS encryption (if configured)
 
 **Expected output:**
 ```
@@ -415,27 +494,31 @@ exit
 ### Common Commands
 
 ```bash
-# Run Ansible bootstrap (creates ansible user, disables password auth)
-./scripts/run-ansible.sh prod <hostname>-bootstrap
+# Phase 1: Bootstrap (initial access setup)
+./scripts/run-ansible.sh prod <hostname> bootstrap
 
-# Run main Ansible playbook (full configuration)
-./scripts/run-ansible.sh prod <hostname>
+# Phase 2: Foundation (network + security)
+./scripts/run-ansible.sh prod <hostname> foundation
 
-# Run desktop playbook (for workstations)
-./scripts/run-ansible.sh prod <hostname>-desktop
+# Phase 3: Production (application services)
+./scripts/run-ansible.sh prod <hostname> production
 
-# SSH into Pi with ansible user
-ssh ansible@<pi-ip-address>
+# Migrate existing host to three-phase structure
+./scripts/migrate-to-three-phase.sh <hostname> [tailscale-hostname]
 
-# SSH into Pi with your personal user
-ssh <your-username>@<pi-ip-address>
+# SSH into Pi with ansible user (local IP)
+ssh -i ~/.ssh/intergalactic_ansible ansible@<pi-ip-address>
+
+# SSH into Pi via Tailscale (after foundation)
+ssh -i ~/.ssh/intergalactic_ansible ansible@<hostname>.tailnet-name.ts.net
 ```
 
 ### File Locations
 
-- **Secrets**: `ansible/inventories/prod/group_vars/all_secrets.yml` (SSH keys, Tailscale key)
-- **Bootstrap inventory**: `ansible/inventories/prod/hosts-bootstrap.yml` (for initial setup, uses initial user)
-- **Production inventory**: `ansible/inventories/prod/hosts.yml` (for regular operations, uses ansible user)
+- **Secrets**: `ansible/inventories/prod/group_vars/all_secrets.yml` (SSH keys, Tailscale key, Hostinger API token)
+- **Bootstrap inventory**: `ansible/inventories/prod/hosts-bootstrap.yml` (Phase 1: local IP, armand user)
+- **Foundation inventory**: `ansible/inventories/prod/hosts-foundation.yml` (Phase 2: local IP, ansible user)
+- **Production inventory**: `ansible/inventories/prod/hosts.yml` (Phase 3: Tailscale hostname, ansible user)
 - **General config**: `ansible/inventories/prod/group_vars/all.yml` (global settings)
 - **Host-specific config**: `ansible/inventories/prod/host_vars/<hostname>.yml` (per-host overrides)
 
@@ -630,6 +713,44 @@ This verifies:
 - All hosts are present in both inventories
 
 ---
+
+## Migration Guide
+
+### Migrating Existing Hosts to Three-Phase Structure
+
+If you have hosts that were set up with the old single-phase approach (using `rigel.yml`, `vega.yml`, etc.), you can migrate them to the new three-phase structure.
+
+**Prerequisites:**
+- Host must have Tailscale installed and connected
+- Host must be accessible via SSH as `ansible` user
+
+**Migration Steps:**
+
+1. **Run the migration helper script:**
+   ```bash
+   ./scripts/migrate-to-three-phase.sh <hostname> [tailscale-hostname]
+   ```
+   
+   The script will:
+   - Check host accessibility
+   - Verify Tailscale is installed and connected
+   - Detect or accept Tailscale hostname
+   - Test Tailscale connectivity
+   - Provide instructions for updating `hosts.yml`
+
+2. **Update `hosts.yml` with Tailscale hostname:**
+   ```yaml
+   rigel:
+     ansible_host: rigel.tailnet-name.ts.net  # Or just "rigel" with MagicDNS
+     ansible_user: ansible
+   ```
+
+3. **Run production phase:**
+   ```bash
+   ./scripts/run-ansible.sh prod <hostname> production
+   ```
+
+**Note:** The old playbooks (`rigel.yml`, `vega.yml`, etc.) are deprecated but still functional. They will be removed in a future version. Please migrate to the three-phase structure.
 
 ## Next Steps
 

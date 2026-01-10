@@ -72,6 +72,8 @@
     - tailscale
     - docker_host
     - docker_deploy
+    - internal_dns
+    - edge_ingress
     - monitoring_base
     - monitoring_docker
     - luks

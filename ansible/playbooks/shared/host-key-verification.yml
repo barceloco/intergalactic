@@ -1,0 +1,58 @@
+---
+# Shared host key verification tasks
+# Include this file in playbook pre_tasks to avoid duplication
+# Usage: import_tasks: ../shared/host-key-verification.yml
+
+- name: Ensure .ssh directory exists for known_hosts
+  file:
+    path: "/root/.ssh"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  run_once: true
+
+- name: Fetch host key using ssh-keyscan (secure host key verification)
+  command: >
+    ssh-keyscan
+    -T 5
+    -t ecdsa,ed25519,rsa
+    {{ ansible_host | default(inventory_hostname) }}
+  register: ssh_keyscan_output
+  delegate_to: localhost
+  run_once: true
+  changed_when: false
+  failed_when: false
+
+- name: Warn if ssh-keyscan failed (host key will be verified on first connection)
+  assert:
+    that:
+      - ssh_keyscan_output.rc == 0
+      - ssh_keyscan_output.stdout_lines | length > 0
+    fail_msg: |
+      WARNING: ssh-keyscan failed - host key will be verified on first connection
+      This is non-fatal. Ansible will prompt to accept the host key when connecting.
+      Host key checking is ENABLED for security (prevents MITM attacks).
+    success_msg: "✓ Host key fetched successfully - will add to known_hosts"
+  failed_when: false
+
+- name: Add fetched host keys to known_hosts (one key per line, skip comments)
+  lineinfile:
+    path: "{{ ansible_ssh_known_hosts_file | default('~/.ssh/known_hosts') }}"
+    line: "{{ item }}"
+    create: true
+    mode: '0600'
+    regexp: "^{{ item.split()[0] if item.split() | length > 0 else '' }} "
+    state: present
+  delegate_to: localhost
+  run_once: true
+  loop: "{{ ssh_keyscan_output.stdout_lines }}"
+  when:
+    - ssh_keyscan_output.rc == 0
+    - ssh_keyscan_output.stdout_lines is defined
+    - item is defined
+    - item | length > 0
+    - not item.startswith('#')
+    - item.split() | length >= 3
+
+- name: Gather facts after host key verification
+  setup:
