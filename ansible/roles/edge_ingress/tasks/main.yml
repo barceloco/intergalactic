@@ -46,7 +46,7 @@
     that:
       - edge_ingress_acme_email is defined
       - edge_ingress_acme_email | length > 0
-      - '@' in edge_ingress_acme_email
+      - (edge_ingress_acme_email | default('')) is search('@')
     fail_msg: |
       ============================================================================
       ERROR: edge_ingress_acme_email is not configured!
