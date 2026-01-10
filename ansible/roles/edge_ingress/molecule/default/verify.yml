@@ -34,7 +34,7 @@
       failed_when: container_status.rc != 0 or 'Up' not in container_status.stdout
 
     - name: Verify dynamic config contains routes
-      command: grep -E "mpnas.company.com" /opt/traefik/dynamic.yml
+      command: grep -E "mpnas.exnada.com" /opt/traefik/dynamic.yml
       register: route_check
       changed_when: false
       failed_when: route_check.rc != 0

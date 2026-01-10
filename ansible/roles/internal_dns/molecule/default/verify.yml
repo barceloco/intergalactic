@@ -16,7 +16,7 @@
       register: config_files
       loop:
         - /opt/coredns/Corefile
-        - /opt/coredns/db.company.com
+        - /opt/coredns/db.exnada.com
         - /opt/coredns/docker-compose.yml
       failed_when: config_files.results | selectattr('stat.exists') | list | length != 3
 
@@ -27,7 +27,7 @@
       failed_when: container_status.rc != 0 or 'Up' not in container_status.stdout
 
     - name: Verify DNS zone file contains private hosts
-      command: grep -E "(mpnas|aispector)" /opt/coredns/db.company.com
+      command: grep -E "(mpnas|aispector)" /opt/coredns/db.exnada.com
       register: zone_check
       changed_when: false
       failed_when: zone_check.rc != 0

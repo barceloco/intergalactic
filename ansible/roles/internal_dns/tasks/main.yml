@@ -17,7 +17,7 @@
       The internal_dns role requires internal_dns_domain to be set.
       
       Please configure in host_vars or group_vars:
-        internal_dns_domain: company.com
+        internal_dns_domain: exnada.com
       ============================================================================
     success_msg: "✓ internal_dns_domain is configured: {{ internal_dns_domain }}"
 

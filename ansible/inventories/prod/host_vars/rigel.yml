@@ -24,7 +24,7 @@ docker_deploy_tcp_ports:
 
 # Internal DNS configuration
 internal_dns_enabled: true
-internal_dns_domain: company.com
+internal_dns_domain: exnada.com
 internal_dns_private_hosts:
   - mpnas
   - aispector
@@ -32,18 +32,18 @@ internal_dns_private_hosts:
 
 # Edge ingress configuration
 edge_ingress_enabled: true
-edge_ingress_domain: company.com
-edge_ingress_acme_email: admin@company.com
+edge_ingress_domain: exnada.com
+edge_ingress_acme_email: admin@exnada.com
 edge_ingress_use_tailscale_fqdn: true
 edge_ingress_backend_timeout_connect: 30s
 edge_ingress_backend_timeout_response: 60s
 edge_ingress_routes:
-  - host: mpnas.company.com
+  - host: mpnas.exnada.com
     backend: http://mpnas:5000
     health_path: /health
-  - host: aispector.company.com
+  - host: aispector.exnada.com
     backend: http://vega:8000
     health_path: /health
-  - host: dev.company.com
+  - host: dev.exnada.com
     backend: http://rigel:8000
     health_path: /health

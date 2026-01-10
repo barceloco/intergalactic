@@ -28,30 +28,30 @@ all:
             vega:
               # TODO: Update with Tailscale hostname after foundation phase
               # Format: vega.tailnet-name.ts.net OR just "vega" (if MagicDNS enabled)
-              ansible_host: vega.tailnet-name.ts.net
+              ansible_host: vega.tailb821ac.ts.net
               ansible_user: ansible
         rpi4:
           hosts:
             rigel:
               # TODO: Update with Tailscale hostname after foundation phase
               # Format: rigel.tailnet-name.ts.net OR just "rigel" (if MagicDNS enabled)
-              ansible_host: rigel.tailnet-name.ts.net
+              ansible_host: rigel.tailb821ac.ts.net
               ansible_user: ansible
         rpi3:
           hosts:
             alpheratz:
               # TODO: Update with Tailscale hostname after foundation phase
-              ansible_host: alpheratz.tailnet-name.ts.net
+              ansible_host: alpheratz.tailb821ac.ts.net
               ansible_user: ansible
         rpi1:
           hosts:
             deneb:
               # TODO: Update with Tailscale hostname after foundation phase
-              ansible_host: deneb.tailnet-name.ts.net
+              ansible_host: deneb.tailb821ac.ts.net
               ansible_user: ansible
             saiph:
               # TODO: Update with Tailscale hostname after foundation phase
-              ansible_host: saiph.tailnet-name.ts.net
+              ansible_host: saiph.tailb821ac.ts.net
               ansible_user: ansible
     andromeda_m31:
       children:
@@ -59,7 +59,7 @@ all:
           hosts:
             g1:
               # TODO: Update with Tailscale hostname after foundation phase
-              ansible_host: g1.tailnet-name.ts.net
+              ansible_host: g1.tailb821ac.ts.net
               ansible_user: ansible
     triangulum_m33:
       children:
@@ -67,5 +67,5 @@ all:
           hosts:
             ngc604:
               # TODO: Update with Tailscale hostname after foundation phase
-              ansible_host: ngc604.tailnet-name.ts.net
+              ansible_host: ngc604.tailb821ac.ts.net
               ansible_user: ansible

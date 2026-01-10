@@ -704,7 +704,7 @@ cat ~/.ssh/known_hosts | grep 192.168.1.40
 #### DNS issues
 - **DNS not resolving**: Check CoreDNS is running: `docker ps | grep coredns`
 - **Wrong IP**: Check Tailscale IP: `tailscale ip -4`
-- **Zone file errors**: Check zone file: `sudo cat /opt/coredns/db.company.com`
+- **Zone file errors**: Check zone file: `sudo cat /opt/coredns/db.exnada.com`
 
 #### Traefik issues
 - **SSL certificate not issued**: Check ACME logs: `docker logs traefik | grep -i acme`
@@ -778,8 +778,8 @@ tailscale ping <hostname>
 **Check DNS resolution**:
 ```bash
 # Test DNS
-dig @127.0.0.1 mpnas.company.com
-nslookup mpnas.company.com
+dig @127.0.0.1 mpnas.exnada.com
+nslookup mpnas.exnada.com
 ```
 
 **Check firewall rules**:

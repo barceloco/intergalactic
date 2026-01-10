@@ -29,8 +29,8 @@ Deploys Traefik as an HTTPS ingress router for private services via Tailscale, p
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `edge_ingress_enabled` | `false` | Enable this role (set to `true` in host_vars) |
-| `edge_ingress_domain` | `company.com` | Base domain for routing |
-| `edge_ingress_acme_email` | `admin@company.com` | Email for Let's Encrypt ACME registration |
+| `edge_ingress_domain` | `exnada.com` | Base domain for routing |
+| `edge_ingress_acme_email` | `admin@exnada.com` | Email for Let's Encrypt ACME registration |
 | `edge_ingress_use_tailscale_fqdn` | `true` | Use Tailscale FQDNs for backend services (e.g., `http://rigel.tailnet-name.ts.net:8000`) |
 | `edge_ingress_tailnet_name` | `""` | Tailscale tailnet name (auto-detected if empty) |
 | `edge_ingress_backend_timeout_connect` | `30s` | Backend connection timeout |
@@ -47,7 +47,7 @@ Deploys Traefik as an HTTPS ingress router for private services via Tailscale, p
 
 Each route in `edge_ingress_routes` must have:
 
-- `host`: Hostname to route (e.g., `mpnas.company.com`)
+- `host`: Hostname to route (e.g., `mpnas.exnada.com`)
 - `backend`: Backend service URL (e.g., `http://mpnas:5000` or `http://vega:8000`)
 - `health_path`: Health check path (e.g., `/health`)
 
@@ -75,16 +75,16 @@ If `edge_ingress_use_tailscale_fqdn: false`:
 ```yaml
 # In host_vars/rigel.yml
 edge_ingress_enabled: true
-edge_ingress_domain: company.com
-edge_ingress_acme_email: admin@company.com
+edge_ingress_domain: exnada.com
+edge_ingress_acme_email: admin@exnada.com
 edge_ingress_routes:
-  - host: mpnas.company.com
+  - host: mpnas.exnada.com
     backend: http://mpnas:5000
     health_path: /health
-  - host: aispector.company.com
+  - host: aispector.exnada.com
     backend: http://vega:8000
     health_path: /health
-  - host: dev.company.com
+  - host: dev.exnada.com
     backend: http://rigel:8000
     health_path: /health
 ```
@@ -93,11 +93,11 @@ edge_ingress_routes:
 
 ```yaml
 edge_ingress_enabled: true
-edge_ingress_domain: company.com
+edge_ingress_domain: exnada.com
 edge_ingress_backend_timeout_connect: 60s
 edge_ingress_backend_timeout_response: 120s
 edge_ingress_routes:
-  - host: slow-service.company.com
+  - host: slow-service.exnada.com
     backend: http://slow-host:8080
     health_path: /health
 ```
@@ -108,7 +108,7 @@ edge_ingress_routes:
 edge_ingress_enabled: true
 edge_ingress_use_tailscale_fqdn: false
 edge_ingress_routes:
-  - host: local.company.com
+  - host: local.exnada.com
     backend: http://127.0.0.1:3000
     health_path: /health
 ```
@@ -205,7 +205,7 @@ When `edge_ingress_enabled: true`, the `firewall_nftables` role automatically op
 
 3. **Check DNS propagation**:
    ```bash
-   dig _acme-challenge.company.com TXT
+   dig _acme-challenge.exnada.com TXT
    ```
 
 4. **Verify domain is managed by Hostinger**:
@@ -247,7 +247,7 @@ When `edge_ingress_enabled: true`, the `firewall_nftables` role automatically op
 
 3. **Test HTTP request**:
    ```bash
-   curl -I http://mpnas.company.com
+   curl -I http://mpnas.exnada.com
    # Should return 301 or 308 redirect
    ```
 

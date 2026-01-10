@@ -23,7 +23,7 @@ provisioner:
       instance:
         ansible_python_interpreter: /usr/bin/python3
         internal_dns_enabled: true
-        internal_dns_domain: company.com
+internal_dns_domain: exnada.com
         internal_dns_private_hosts:
           - mpnas
           - aispector

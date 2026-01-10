@@ -6,7 +6,7 @@ Deploys CoreDNS as an internal DNS server for private subdomains via Tailscale S
 
 - Installs and configures CoreDNS in Docker
 - Detects Tailscale IPv4 address automatically
-- Serves authoritative DNS for private subdomains (e.g., `mpnas.company.com`, `aispector.company.com`)
+- Serves authoritative DNS for private subdomains (e.g., `mpnas.exnada.com`, `aispector.exnada.com`)
 - Forwards all other queries to upstream DNS servers
 - Listens on UDP/TCP port 53
 - Integrates with firewall (opens DNS ports on `tailscale0` interface)
@@ -25,7 +25,7 @@ Deploys CoreDNS as an internal DNS server for private subdomains via Tailscale S
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `internal_dns_enabled` | `false` | Enable this role (set to `true` in host_vars) |
-| `internal_dns_domain` | `company.com` | Base domain for private subdomains |
+| `internal_dns_domain` | `exnada.com` | Base domain for private subdomains |
 | `internal_dns_private_hosts` | `[]` | List of hostnames to create A records for (e.g., `[mpnas, aispector, dev]`) |
 | `internal_dns_upstream_servers` | `["8.8.8.8", "8.8.4.4"]` | Upstream DNS servers for forwarding queries |
 | `internal_dns_container_name` | `coredns` | Docker container name for CoreDNS |
@@ -57,7 +57,7 @@ All queries not in the authoritative zone are forwarded to `internal_dns_upstrea
 ```yaml
 # In host_vars/rigel.yml
 internal_dns_enabled: true
-internal_dns_domain: company.com
+internal_dns_domain: exnada.com
 internal_dns_private_hosts:
   - mpnas
   - aispector
@@ -65,15 +65,15 @@ internal_dns_private_hosts:
 ```
 
 This creates:
-- `mpnas.company.com` → Tailscale IP
-- `aispector.company.com` → Tailscale IP
-- `dev.company.com` → Tailscale IP
+- `mpnas.exnada.com` → Tailscale IP
+- `aispector.exnada.com` → Tailscale IP
+- `dev.exnada.com` → Tailscale IP
 
 ### Custom Upstream Servers
 
 ```yaml
 internal_dns_enabled: true
-internal_dns_domain: company.com
+internal_dns_domain: exnada.com
 internal_dns_private_hosts:
   - mpnas
 internal_dns_upstream_servers:
@@ -98,8 +98,8 @@ For each host in `internal_dns_private_hosts`, the role creates:
 
 Example with `internal_dns_private_hosts: [mpnas, aispector]`:
 ```
-mpnas.company.com.    IN  A  100.x.x.x
-aispector.company.com. IN  A  100.x.x.x
+mpnas.exnada.com.    IN  A  100.x.x.x
+aispector.exnada.com. IN  A  100.x.x.x
 ```
 
 ## Tailscale Split DNS
@@ -139,7 +139,7 @@ When `internal_dns_enabled: true`, the `firewall_nftables` role automatically op
 4. **Check configuration files**:
    ```bash
    sudo cat /opt/coredns/Corefile
-   sudo cat /opt/coredns/db.company.com
+   sudo cat /opt/coredns/db.exnada.com
    ```
 
 ### DNS Not Resolving
@@ -151,7 +151,7 @@ When `internal_dns_enabled: true`, the `firewall_nftables` role automatically op
 
 2. **Test DNS resolution locally**:
    ```bash
-   dig @127.0.0.1 mpnas.company.com
+   dig @127.0.0.1 mpnas.exnada.com
    ```
 
 3. **Check Tailscale IP detection**:
@@ -161,7 +161,7 @@ When `internal_dns_enabled: true`, the `firewall_nftables` role automatically op
 
 4. **Verify zone file**:
    ```bash
-   sudo cat /opt/coredns/db.company.com
+   sudo cat /opt/coredns/db.exnada.com
    ```
 
 ### Tailscale IP Detection Failed

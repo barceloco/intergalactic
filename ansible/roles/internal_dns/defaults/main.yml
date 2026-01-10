@@ -1,5 +1,5 @@
 ---
-internal_dns_domain: company.com
+internal_dns_domain: exnada.com
 internal_dns_private_hosts:
   - mpnas
   - aispector

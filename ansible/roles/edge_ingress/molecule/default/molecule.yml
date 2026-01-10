@@ -23,10 +23,10 @@ provisioner:
       instance:
         ansible_python_interpreter: /usr/bin/python3
         edge_ingress_enabled: true
-        edge_ingress_domain: company.com
-        edge_ingress_acme_email: admin@company.com
+        edge_ingress_domain: exnada.com
+        edge_ingress_acme_email: admin@exnada.com
         edge_ingress_routes:
-          - host: mpnas.company.com
+          - host: mpnas.exnada.com
             backend: http://mpnas:5000
             health_path: /health
         enable_tailscale: true

@@ -1,6 +1,6 @@
 ---
-edge_ingress_domain: company.com
-edge_ingress_acme_email: admin@company.com
+edge_ingress_domain: exnada.com
+edge_ingress_acme_email: admin@exnada.com
 edge_ingress_use_tailscale_fqdn: true
 edge_ingress_tailnet_name: ""
 edge_ingress_backend_timeout_connect: 30s
@@ -12,6 +12,6 @@ edge_ingress_container_name: traefik
 edge_ingress_data_dir: /opt/traefik
 edge_ingress_routes: []
   # Example:
-  # - host: mpnas.company.com
+  # - host: mpnas.exnada.com
   #   backend: http://mpnas:5000
   #   health_path: /health

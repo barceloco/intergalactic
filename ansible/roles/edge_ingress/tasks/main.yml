@@ -36,7 +36,7 @@
       The edge_ingress role requires edge_ingress_domain to be set.
       
       Please configure in host_vars or group_vars:
-        edge_ingress_domain: company.com
+        edge_ingress_domain: exnada.com
       ============================================================================
     success_msg: "✓ edge_ingress_domain is configured: {{ edge_ingress_domain }}"
 
@@ -54,7 +54,7 @@
       The edge_ingress role requires a valid email for ACME registration.
       
       Please configure in host_vars or group_vars:
-        edge_ingress_acme_email: admin@company.com
+        edge_ingress_acme_email: admin@exnada.com
       ============================================================================
     success_msg: "✓ edge_ingress_acme_email is configured: {{ edge_ingress_acme_email }}"
 
@@ -73,7 +73,7 @@
       
       Please configure routes in host_vars or group_vars:
         edge_ingress_routes:
-          - host: mpnas.company.com
+          - host: mpnas.exnada.com
             backend: http://mpnas:5000
             health_path: /health
       ============================================================================
@@ -98,7 +98,7 @@
       Route {{ item | default('unknown') }} is missing required fields.
       
       Each route must have:
-        - host: Hostname (e.g., "mpnas.company.com")
+        - host: Hostname (e.g., "mpnas.exnada.com")
         - backend: Backend URL (e.g., "http://mpnas:5000")
         - health_path: Health check path (optional, defaults to "/health")
       ============================================================================
