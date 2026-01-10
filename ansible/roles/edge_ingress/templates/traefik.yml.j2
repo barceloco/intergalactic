@@ -5,26 +5,22 @@ api:
 entryPoints:
   web:
     address: ":80"
+{% if not (edge_ingress_disable_tls | default(false)) %}
     http:
       redirections:
         entryPoint:
           to: websecure
           scheme: https
           permanent: true
+{% endif %}
 
   websecure:
     address: ":443"
 
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      email: {{ edge_ingress_acme_email }}
-      storage: /acme.json
-      dnsChallenge:
-        provider: hostinger
-        resolvers:
-          - "8.8.8.8:53"
-          - "8.8.4.4:53"
+tls:
+  certificates:
+    - certFile: /certs/{{ edge_ingress_domain }}.crt
+      keyFile: /certs/{{ edge_ingress_domain }}.key
 
 providers:
   file:

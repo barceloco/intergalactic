@@ -4,25 +4,6 @@
   debug:
     msg: "Skipping edge_ingress role (edge_ingress_enabled is false)"
 
-- name: Validate Hostinger API token is set
-  when: edge_ingress_enabled | default(false)
-  assert:
-    that:
-      - hostinger_api_token is defined
-      - hostinger_api_token | length > 0
-      - hostinger_api_token != "Hostinger_API_Key_here"
-      - not hostinger_api_token.startswith("Hostinger_API_Key")
-    fail_msg: |
-      ============================================================================
-      ERROR: Hostinger API token is not configured!
-      ============================================================================
-      The edge_ingress role requires a Hostinger API token for ACME DNS-01 challenge.
-      
-      Please set hostinger_api_token in all_secrets.yml
-      See all_secrets.yml.example for template.
-      ============================================================================
-    success_msg: "✓ Hostinger API token is configured"
-
 - name: Validate edge_ingress_domain is configured
   when: edge_ingress_enabled | default(false)
   assert:
@@ -143,7 +124,7 @@
     - final_tailnet_name is defined
     - final_tailnet_name | length > 0
   set_fact:
-    resolved_routes: "{{ resolved_routes | default([]) + [item | combine({'backend_resolved': (item.backend | regex_replace('://([^:/]+)(:.*)?$', '://\\1.' + final_tailnet_name + '\\2'))})] }}"
+    resolved_routes: "{{ resolved_routes | default([]) + [item | combine({'backend_resolved': (item.backend | regex_replace('://([^:/]+)(:.*)?$', '://\\1.' + (final_tailnet_name | trim) + '\\2') | regex_replace('\\.+', '.') | regex_replace(':\\.', ':'))})] }}"
   loop: "{{ edge_ingress_routes }}"
 
 - name: Use original backend URLs if FQDN resolution not needed
@@ -151,19 +132,23 @@
     - edge_ingress_enabled | default(false)
     - not (edge_ingress_use_tailscale_fqdn | default(true)) or final_tailnet_name is not defined or final_tailnet_name | length == 0
   set_fact:
-    resolved_routes: "{{ edge_ingress_routes | map('combine', {'backend_resolved': item.backend}) | list }}"
+    resolved_routes: "{{ resolved_routes | default([]) + [item | combine({'backend_resolved': item.backend})] }}"
+  loop: "{{ edge_ingress_routes }}"
 
 - name: Set final resolved routes (fallback to original if resolution failed)
-  when: edge_ingress_enabled | default(false)
+  when: 
+    - edge_ingress_enabled | default(false)
+    - resolved_routes is defined
   set_fact:
-    final_routes: "{{ resolved_routes | default(edge_ingress_routes | map('combine', {'backend_resolved': item.backend}) | list) }}"
+    final_routes: "{{ resolved_routes }}"
   
 - name: Ensure final_routes is always set (fallback)
   when: 
     - edge_ingress_enabled | default(false)
     - final_routes is not defined
   set_fact:
-    final_routes: "{{ edge_ingress_routes | map('combine', {'backend_resolved': item.backend}) | list }}"
+    final_routes: "{{ final_routes | default([]) + [item | combine({'backend_resolved': item.backend})] }}"
+  loop: "{{ edge_ingress_routes }}"
 
 - name: Ensure Traefik data directory exists
   when: edge_ingress_enabled | default(false)
@@ -174,12 +159,12 @@
     owner: root
     group: root
 
-- name: Ensure ACME JSON file exists with correct permissions
+- name: Ensure certificate directory exists
   when: edge_ingress_enabled | default(false)
   file:
-    path: "{{ edge_ingress_data_dir }}/acme.json"
-    state: touch
-    mode: '0600'
+    path: "{{ edge_ingress_data_dir }}/certs"
+    state: directory
+    mode: '0755'
     owner: root
     group: root
 
