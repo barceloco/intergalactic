@@ -9,6 +9,10 @@
     - production
     - always
   pre_tasks:
+    # Host key verification MUST be first - before any connection attempts
+    - name: Import host key verification tasks
+      import_tasks: shared/host-key-verification.yml
+
     - name: Verify Tailscale is installed
       command: which tailscale
       register: tailscale_which
@@ -62,9 +66,6 @@
           ============================================================================
         success_msg: "✓ Connected via Tailscale network ({{ ansible_host }})"
       when: tailscale_which.rc == 0
-
-    - name: Import host key verification tasks
-      import_tasks: shared/host-key-verification.yml
   roles:
     - role: luks
       tags: [production, security]
