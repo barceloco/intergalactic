@@ -24,6 +24,18 @@ http:
         attempts: 3
         initialInterval: 100ms
 
+    # Middleware to set Content-Type for HTML responses (for services that don't send it)
+    content-type-html:
+      headers:
+        customResponseHeaders:
+          Content-Type: "text/html; charset=utf-8"
+
+    # Middleware to remove CSP header (for services behind reverse proxy that have restrictive CSP)
+    remove-csp:
+      headers:
+        customResponseHeaders:
+          Content-Security-Policy: ""
+
   routers:
 {% for route in final_routes | default(edge_ingress_routes) %}
     router-{{ route.host | regex_replace('\\.', '-') | regex_replace('^([^-]+)-.*', '\\1') }}:
@@ -38,6 +50,10 @@ http:
       middlewares:
         - security-headers
         - retry
+{% if route.force_html_content_type | default(false) %}
+        - remove-csp
+        - content-type-html
+{% endif %}
 {% if not (edge_ingress_disable_tls | default(false)) %}
       tls:
         certResolver: letsencrypt

@@ -41,6 +41,7 @@ edge_ingress_backend_timeout_response: 60s
 edge_ingress_routes:
   - host: mpnas.exnada.com
     backend: http://mpnas:5000
+    force_html_content_type: true  # Synology doesn't send Content-Type header
     # No health_path - Synology doesn't provide a health endpoint
   - host: aispector.exnada.com
     backend: http://vega:8000
