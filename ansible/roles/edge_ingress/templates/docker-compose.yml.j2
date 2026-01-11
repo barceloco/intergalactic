@@ -8,7 +8,7 @@ services:
     volumes:
       - {{ edge_ingress_data_dir }}/traefik.yml:/traefik.yml:ro
       - {{ edge_ingress_data_dir }}/dynamic.yml:/dynamic.yml:ro
-      - {{ edge_ingress_data_dir }}/acme.json:/acme.json:rw
+      - {{ edge_ingress_data_dir }}/acme.json:{{ edge_ingress_data_dir }}/acme.json:rw
     command:
       - "--api.insecure=false"
       - "--providers.file.filename=/traefik.yml"
@@ -16,13 +16,9 @@ services:
       - "--providers.docker=false"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.letsencrypt.acme.dnschallenge=true"
-      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=hostinger"
-      - "--certificatesresolvers.letsencrypt.acme.email={{ edge_ingress_acme_email }}"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=8.8.8.8:53,8.8.4.4:53"
     environment:
-      - HOSTINGER_API_TOKEN={{ hostinger_api_token }}
+      - GODADDY_API_KEY={{ godaddy_api_key }}
+      - GODADDY_API_SECRET={{ godaddy_api_secret }}
     restart: unless-stopped
     cap_add:
       - NET_BIND_SERVICE

@@ -168,6 +168,15 @@
     owner: root
     group: root
 
+- name: Ensure ACME storage file exists with correct permissions
+  when: edge_ingress_enabled | default(false)
+  file:
+    path: "{{ edge_ingress_data_dir }}/acme.json"
+    state: touch
+    mode: '0600'
+    owner: root
+    group: root
+
 - name: Deploy Traefik static configuration
   when: edge_ingress_enabled | default(false)
   template:

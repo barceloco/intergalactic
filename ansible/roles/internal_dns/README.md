@@ -33,9 +33,11 @@ Deploys CoreDNS as an internal DNS server for private subdomains via Tailscale S
 
 ## Dependencies
 
-- **tailscale**: Must run before this role (Tailscale must be connected)
+- **tailscale**: Must be installed and connected BEFORE this role runs (typically installed in foundation phase)
 - **docker_host**: Docker must be installed
 - **firewall_nftables**: Should run after this role to open DNS ports (or set `internal_dns_enabled: true` before firewall)
+
+**Note**: This role does NOT install Tailscale. Tailscale must be installed in the foundation phase before running production.
 
 ## DNS Configuration
 
@@ -243,4 +245,4 @@ Defines:
 
 ## License
 
-MIT
+Proprietary - All Rights Reserved, ExNada Inc.

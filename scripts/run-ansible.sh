@@ -13,8 +13,26 @@ PHASE="${3:-production}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="intergalactic-ansible-runner:latest"
+DOCKERFILE="${ROOT_DIR}/docker/ansible-runner/Dockerfile"
 
-docker build -t "${IMAGE}" "${ROOT_DIR}/docker/ansible-runner"
+# Only rebuild Docker image if Dockerfile changed (or if forced)
+FORCE_REBUILD="${FORCE_REBUILD:-false}"
+if [[ "${FORCE_REBUILD}" == "true" ]] || ! docker image inspect "${IMAGE}" &> /dev/null; then
+  echo "Building Docker image..."
+  docker build -t "${IMAGE}" "${ROOT_DIR}/docker/ansible-runner"
+else
+  # Check if Dockerfile is newer than image
+  IMAGE_CREATED=$(docker image inspect "${IMAGE}" --format '{{.Created}}' 2>/dev/null || echo "1970-01-01T00:00:00Z")
+  DOCKERFILE_MTIME=$(stat -f "%Sm" -t "%Y-%m-%dT%H:%M:%SZ" "${DOCKERFILE}" 2>/dev/null || stat -c "%y" "${DOCKERFILE}" 2>/dev/null | cut -d. -f1 | tr ' ' 'T' || echo "1970-01-01T00:00:00Z")
+  
+  # Simple check: if Dockerfile modified more recently, rebuild
+  if [[ "${DOCKERFILE_MTIME}" > "${IMAGE_CREATED}" ]] 2>/dev/null || [[ ! -f "${DOCKERFILE}" ]]; then
+    echo "Dockerfile changed, rebuilding image..."
+    docker build -t "${IMAGE}" "${ROOT_DIR}/docker/ansible-runner"
+  else
+    echo "Using cached Docker image (use FORCE_REBUILD=true to rebuild)"
+  fi
+fi
 
 # Determine inventory, playbook, and SSH user based on phase
 case "${PHASE}" in
@@ -111,16 +129,33 @@ if [[ -n "${SSH_KEY_NAME:-}" ]]; then
   export ANSIBLE_SSH_ARGS="-o IdentitiesOnly=yes -i /root/.ssh/${SSH_KEY_NAME}"
 fi
 
-# Run the playbook
-docker run --rm -i \
-  -v "${ROOT_DIR}:/repo" \
-  ${SSH_KEY_MOUNT} \
-  ${SSH_AUTH_SOCK_MOUNT} \
-  -e ANSIBLE_SSH_ARGS="${ANSIBLE_SSH_ARGS:-}" \
-  "${IMAGE}" \
-  ansible-playbook -i "${INVENTORY_FILE}" "playbooks/${PLAYBOOK}.yml"
+# Parse additional arguments (tags, start-at-task, etc.)
+ANSIBLE_ARGS=()
+if [[ $# -gt 3 ]]; then
+  # Pass remaining arguments to ansible-playbook
+  shift 3
+  ANSIBLE_ARGS=("$@")
+fi
 
-EXIT_CODE=$?
+# Run the playbook
+EXIT_CODE=0
+if [[ ${#ANSIBLE_ARGS[@]} -gt 0 ]]; then
+  docker run --rm -i \
+    -v "${ROOT_DIR}:/repo" \
+    ${SSH_KEY_MOUNT} \
+    ${SSH_AUTH_SOCK_MOUNT} \
+    -e ANSIBLE_SSH_ARGS="${ANSIBLE_SSH_ARGS:-}" \
+    "${IMAGE}" \
+    ansible-playbook -i "${INVENTORY_FILE}" "playbooks/${PLAYBOOK}.yml" "${ANSIBLE_ARGS[@]}" || EXIT_CODE=$?
+else
+  docker run --rm -i \
+    -v "${ROOT_DIR}:/repo" \
+    ${SSH_KEY_MOUNT} \
+    ${SSH_AUTH_SOCK_MOUNT} \
+    -e ANSIBLE_SSH_ARGS="${ANSIBLE_SSH_ARGS:-}" \
+    "${IMAGE}" \
+    ansible-playbook -i "${INVENTORY_FILE}" "playbooks/${PLAYBOOK}.yml" || EXIT_CODE=$?
+fi
 
 # Phase-specific post-execution messages
 if [[ "${PHASE}" == "bootstrap" ]]; then
@@ -154,7 +189,7 @@ elif [[ "${PHASE}" == "foundation" ]]; then
     echo ""
     echo "  2. Update hosts-production.yml with Tailscale hostname:"
     echo "     ${HOST}:"
-    echo "       ansible_host: ${HOST}.tailnet-name.ts.net  # Or just '${HOST}' with MagicDNS"
+    echo "       ansible_host: ${HOST}.tailb821ac.ts.net  # Or just '${HOST}' with MagicDNS"
     echo "       ansible_user: ansible"
     echo ""
     echo "  3. Run production phase:"

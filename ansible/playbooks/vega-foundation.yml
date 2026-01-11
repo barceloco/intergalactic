@@ -61,7 +61,7 @@
           Next steps:
           1. Update hosts-production.yml to use Tailscale hostname:
              vega:
-               ansible_host: {{ tailscale_hostname | default('vega.tailnet-name.ts.net') }}
+               ansible_host: {{ tailscale_hostname | default('vega.tailb821ac.ts.net') }}
                ansible_user: ansible
           
           2. Run production phase:

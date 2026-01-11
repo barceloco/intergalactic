@@ -42,7 +42,7 @@ This project uses a clean three-phase deployment model that separates concerns a
 
 ### Phase 3: Production
 **Purpose**: Application services and advanced features  
-**Connection**: **Tailscale network ONLY** (rigel.tailnet-name.ts.net)  
+**Connection**: **Tailscale network ONLY** (rigel.tailb821ac.ts.net)  
 **User**: `ansible` (automation user)  
 **Inventory**: `hosts-production.yml` (Tailscale hostnames)  
 **Roles**: `docker_deploy`, `internal_dns`, `edge_ingress`, `monitoring_docker`, `luks`  
@@ -378,7 +378,7 @@ The playbook will display the Tailscale hostname. Update `hosts-production.yml` 
 ```bash
 # 1. Update hosts-production.yml with Tailscale hostname (from foundation output)
 #    rigel:
-#      ansible_host: rigel.tailnet-name.ts.net  # Or just "rigel" with MagicDNS
+#      ansible_host: rigel.tailb821ac.ts.net  # Or just "rigel" with MagicDNS
 #      ansible_user: ansible
 
 # 2. Run Phase 3: Production
@@ -817,8 +817,43 @@ sudo nft list ruleset | grep :8000
 ssh -i ~/.ssh/intergalactic_ansible ansible@<pi-ip-address>
 
 # SSH into Pi via Tailscale (after foundation)
-ssh -i ~/.ssh/intergalactic_ansible ansible@<hostname>.tailnet-name.ts.net
+ssh -i ~/.ssh/intergalactic_ansible ansible@<hostname>.tailb821ac.ts.net
 ```
+
+### Running Only Specific Parts
+
+Ansible is **idempotent by default** - it only runs tasks that need to run. However, you can also target specific roles or resume from failures:
+
+```bash
+# Run only monitoring role (skip everything else)
+./scripts/run-ansible.sh prod rigel production --tags monitoring
+
+# Run only services (DNS, ingress, docker_deploy)
+./scripts/run-ansible.sh prod rigel production --tags services
+
+# Run only security roles
+./scripts/run-ansible.sh prod rigel production --tags security
+
+# Skip monitoring (run everything except monitoring)
+./scripts/run-ansible.sh prod rigel production --skip-tags monitoring
+
+# Resume from a failed task
+./scripts/run-ansible.sh prod rigel production --start-at-task "Install ctop"
+
+# Dry-run (check mode) - see what would change
+./scripts/run-ansible.sh prod rigel production --check
+
+# Verbose output to see what's being skipped
+./scripts/run-ansible.sh prod rigel production -v
+```
+
+**Available tags:**
+- `services` - docker_deploy, internal_dns, edge_ingress
+- `monitoring` - monitoring_docker
+- `security` - luks, firewall, fail2ban, ssh_hardening
+- `base` - common, updates
+- `network` - tailscale
+- `infrastructure` - docker_host
 
 ### File Locations
 

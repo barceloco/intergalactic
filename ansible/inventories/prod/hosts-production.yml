@@ -5,7 +5,7 @@
 # User: ansible (automation user)
 # 
 # CRITICAL: All hosts MUST use Tailscale hostnames
-# Format: hostname.tailnet-name.ts.net OR just hostname (if MagicDNS enabled)
+# Format: hostname.tailb821ac.ts.net OR just hostname (if MagicDNS enabled)
 # 
 # To get Tailscale hostname: tailscale status | grep <hostname>
 # 
@@ -27,14 +27,14 @@ all:
           hosts:
             vega:
               # TODO: Update with Tailscale hostname after foundation phase
-              # Format: vega.tailnet-name.ts.net OR just "vega" (if MagicDNS enabled)
+              # Format: vega.tailb821ac.ts.net OR just "vega" (if MagicDNS enabled)
               ansible_host: vega.tailb821ac.ts.net
               ansible_user: ansible
         rpi4:
           hosts:
             rigel:
               # TODO: Update with Tailscale hostname after foundation phase
-              # Format: rigel.tailnet-name.ts.net OR just "rigel" (if MagicDNS enabled)
+              # Format: rigel.tailb821ac.ts.net OR just "rigel" (if MagicDNS enabled)
               ansible_host: rigel.tailb821ac.ts.net
               ansible_user: ansible
         rpi3:

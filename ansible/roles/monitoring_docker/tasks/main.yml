@@ -1,17 +1,34 @@
 ---
+- name: Gather facts (required for this role)
+  setup:
+  register: facts_result
+
+- name: Set ansible_facts from gathered facts
+  set_fact:
+    ansible_facts: "{{ facts_result.ansible_facts }}"
+
+- name: Set architecture variable from facts
+  set_fact:
+    detected_architecture: "{{ ansible_facts['architecture'] | default(ansible_architecture | default('unknown')) }}"
+
+- name: Fail if architecture cannot be determined
+  fail:
+    msg: "Cannot determine system architecture. Architecture: {{ detected_architecture }}"
+  when: detected_architecture is not defined or detected_architecture == 'unknown'
+
 - name: Fail if not Debian distribution
   fail:
-    msg: "monitoring_docker role only supports Debian distribution. Detected distribution: {{ ansible_facts['distribution'] }}"
-  when: ansible_facts['distribution'] != 'Debian'
+    msg: "monitoring_docker role only supports Debian distribution. Detected distribution: {{ ansible_facts['distribution'] | default('unknown') }}"
+  when: ansible_facts is defined and ansible_facts['distribution'] is defined and ansible_facts['distribution'] != 'Debian'
 
 - name: Warn if not Debian trixie
   debug:
-    msg: "Warning: This role is tested on Debian trixie (testing). Detected release: {{ ansible_facts['distribution_release'] }}. Proceeding with caution."
-  when: ansible_facts['distribution_release'] != 'trixie'
+    msg: "Warning: This role is tested on Debian trixie (testing). Detected release: {{ ansible_facts['distribution_release'] | default('unknown') }}. Proceeding with caution."
+  when: ansible_facts is defined and ansible_facts['distribution_release'] is defined and ansible_facts['distribution_release'] != 'trixie'
 
 - name: Set ctop architecture
   set_fact:
-    ctop_arch: "{{ monitoring_docker_ctop_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+    ctop_arch: "{{ monitoring_docker_ctop_arch_map[detected_architecture] | default(detected_architecture) }}"
 
 - name: Attempt to install ctop from apt (if method is auto or apt)
   apt:
@@ -26,12 +43,40 @@
   when:
     - monitoring_docker_ctop_install_method in ['auto', 'apt']
 
-- name: Check if ctop was installed via apt
-  set_fact:
-    ctop_installed_via_apt: "{{ not (ctop_apt_install.failed | default(false)) }}"
+- name: Verify ctop package was actually installed
+  command: dpkg -l ctop
+  register: ctop_dpkg_check
+  changed_when: false
+  failed_when: false
   when:
     - monitoring_docker_ctop_install_method in ['auto', 'apt']
     - ctop_apt_install is defined
+
+- name: Check if ctop was installed via apt
+  set_fact:
+    ctop_installed_via_apt: "{{ ctop_dpkg_check.rc == 0 and 'ctop' in ctop_dpkg_check.stdout }}"
+  when:
+    - monitoring_docker_ctop_install_method in ['auto', 'apt']
+    - ctop_apt_install is defined
+    - ctop_dpkg_check is defined
+
+- name: Verify ctop binary location after apt install
+  command: dpkg -L ctop
+  register: ctop_apt_files
+  changed_when: false
+  failed_when: false
+  when:
+    - monitoring_docker_ctop_install_method in ['auto', 'apt']
+    - ctop_installed_via_apt | default(false)
+    - ctop_dpkg_check.rc == 0
+
+- name: Find ctop binary in apt package
+  set_fact:
+    ctop_apt_binary_path: "{{ ctop_apt_files.stdout_lines | select('match', '.*/bin/.*ctop.*') | list | first | default('') }}"
+  when:
+    - monitoring_docker_ctop_install_method in ['auto', 'apt']
+    - ctop_installed_via_apt | default(false)
+    - ctop_apt_files.rc == 0
 
 - name: Fail if apt install failed and method is apt
   fail:
@@ -107,10 +152,91 @@
   changed_when: false
   failed_when: false
 
+- name: Check if ctop binary exists at expected location (binary install)
+  stat:
+    path: /usr/local/bin/ctop
+  register: ctop_binary_stat
+  when: ctop_check.rc != 0
+
+- name: Check if ctop binary exists from apt package
+  stat:
+    path: "{{ ctop_apt_binary_path }}"
+  register: ctop_apt_binary_stat
+  when:
+    - ctop_check.rc != 0
+    - ctop_apt_binary_path is defined
+    - ctop_apt_binary_path | length > 0
+
+- name: Create symlink if ctop installed via apt but not in PATH
+  file:
+    src: "{{ ctop_apt_binary_path }}"
+    dest: /usr/local/bin/ctop
+    state: link
+  become: true
+  when:
+    - ctop_check.rc != 0
+    - ctop_apt_binary_stat.stat.exists | default(false)
+    - ctop_apt_binary_path is defined
+    - ctop_apt_binary_path | length > 0
+
+- name: Re-verify ctop is available after symlink creation
+  command: which ctop
+  register: ctop_check_after_symlink
+  changed_when: false
+  failed_when: false
+  when:
+    - ctop_check.rc != 0
+    - ctop_apt_binary_stat.stat.exists | default(false)
+    - ctop_apt_binary_path is defined
+    - ctop_apt_binary_path | length > 0
+
+- name: Set final ctop check result
+  set_fact:
+    ctop_final_check: "{{ ctop_check_after_symlink if (ctop_check_after_symlink is defined and ctop_check_after_symlink.rc is defined) else ctop_check }}"
+  when: ctop_check is defined
+
 - name: Fail if ctop is not available
   fail:
-    msg: "ctop installation failed. Check network connectivity and installation method settings."
-  when: ctop_check.rc != 0
+    msg: |
+      ============================================================================
+      ERROR: ctop installation failed!
+      ============================================================================
+      ctop is not available in PATH.
+      
+      Installation method: {{ monitoring_docker_ctop_install_method }}
+      Version: {{ monitoring_docker_ctop_version }}
+      Architecture: {{ ctop_arch | default('unknown') }}
+      
+      {% if monitoring_docker_ctop_install_method in ['auto', 'apt'] %}
+      Apt installation: {{ 'SUCCEEDED' if (ctop_installed_via_apt | default(false)) else 'FAILED (package not available)' }}
+      {% if ctop_apt_binary_path is defined and ctop_apt_binary_path | length > 0 %}
+      Apt binary location: {{ ctop_apt_binary_path }}
+      {% endif %}
+      {% endif %}
+      
+      {% if monitoring_docker_ctop_install_method in ['auto', 'binary'] and not (ctop_installed_via_apt | default(false)) %}
+      Binary download: {{ 'SUCCEEDED' if (ctop_binary_stat.stat.exists | default(false)) else 'FAILED' }}
+      {% if ctop_latest_release is defined %}
+      GitHub API: {{ 'SUCCEEDED' if (ctop_latest_release.status == 200) else 'FAILED (status: ' + (ctop_latest_release.status | string) + ')' }}
+      {% endif %}
+      {% endif %}
+      
+      Solutions:
+      1. Pin a specific version (recommended for production):
+         monitoring_docker_ctop_version: "0.7.7"
+      
+      2. Use binary method directly:
+         monitoring_docker_ctop_install_method: "binary"
+      
+      3. Check network connectivity to GitHub (for binary downloads)
+      
+      4. Check if apt package is available in your Debian release
+      ============================================================================
+  when: 
+    - ctop_check is defined
+    - (ctop_final_check is defined and ctop_final_check.rc != 0) or (ctop_final_check is not defined and ctop_check.rc != 0)
+    - not (ctop_binary_stat.stat.exists | default(false))
+    - not (ctop_apt_binary_stat.stat.exists | default(false))
 
 - name: Ensure docker group exists
   group:

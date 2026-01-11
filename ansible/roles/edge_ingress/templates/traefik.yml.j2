@@ -17,10 +17,22 @@ entryPoints:
   websecure:
     address: ":443"
 
-tls:
-  certificates:
-    - certFile: /certs/{{ edge_ingress_domain }}.crt
-      keyFile: /certs/{{ edge_ingress_domain }}.key
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "{{ edge_ingress_acme_email }}"
+      storage: "{{ edge_ingress_data_dir }}/acme.json"
+      dnsChallenge:
+        provider: godaddy
+        delayBeforeCheck: 120
+        resolvers:
+          - "8.8.8.8:53"
+          - "8.8.4.4:53"
+{% if cert_issuer_ca_server is defined and cert_issuer_ca_server == 'staging' %}
+      caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
+{% else %}
+      caServer: "https://acme-v02.api.letsencrypt.org/directory"
+{% endif %}
 
 providers:
   file:

@@ -1,4 +1,12 @@
 ---
+- name: Install dnsutils for DNS testing (dig, nslookup)
+  when: internal_dns_enabled | default(false)
+  apt:
+    name: dnsutils
+    state: present
+    update_cache: true
+  become: true
+
 - name: Skip internal_dns role if not enabled
   when: not (internal_dns_enabled | default(false))
   debug:

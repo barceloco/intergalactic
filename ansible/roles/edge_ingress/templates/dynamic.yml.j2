@@ -39,7 +39,8 @@ http:
         - security-headers
         - retry
 {% if not (edge_ingress_disable_tls | default(false)) %}
-      tls: {}
+      tls:
+        certResolver: letsencrypt
 {% endif %}
 
 {% endfor %}

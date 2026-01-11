@@ -2,7 +2,7 @@
 galaxy_info:
   author: intergalactic
   description: HTTPS ingress routing using Traefik with ACME DNS-01 certificates
-  license: MIT
+  license: Proprietary - All Rights Reserved, ExNada Inc.
   min_ansible_version: "2.9"
   platforms:
     - name: Debian

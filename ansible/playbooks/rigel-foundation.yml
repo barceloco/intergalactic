@@ -61,7 +61,7 @@
           Next steps:
           1. Update hosts-production.yml to use Tailscale hostname:
              rigel:
-               ansible_host: {{ tailscale_hostname | default('rigel.tailnet-name.ts.net') }}
+               ansible_host: {{ tailscale_hostname | default('rigel.tailb821ac.ts.net') }}
                ansible_user: ansible
           
           2. Run production phase:

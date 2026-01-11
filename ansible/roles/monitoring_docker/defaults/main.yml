@@ -4,7 +4,9 @@ monitoring_docker_ctop_install_method: "auto"
 
 # ctop version: "latest" (resolve via GitHub API) or specific version (e.g., "0.7.7")
 # Note: "latest" requires network access to GitHub API
-monitoring_docker_ctop_version: "latest"
+# Recommended for production: Pin a specific version to avoid API dependency
+# Latest stable as of 2024: "0.7.7"
+monitoring_docker_ctop_version: "0.7.7"
 
 # Architecture mapping for ctop binary downloads
 # Maps Ansible ansible_architecture to ctop release architecture

@@ -10,6 +10,7 @@ edge_ingress_health_check_timeout: 3s
 edge_ingress_health_check_failure_threshold: 3
 edge_ingress_container_name: traefik
 edge_ingress_data_dir: /opt/traefik
+edge_ingress_disable_tls: false  # Set to true to disable TLS (for testing only - not recommended for production)
 edge_ingress_routes: []
   # Example:
   # - host: mpnas.exnada.com

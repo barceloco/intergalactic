@@ -12,12 +12,14 @@
     # Host key verification MUST be first - before any connection attempts
     - name: Import host key verification tasks
       import_tasks: shared/host-key-verification.yml
+      tags: always
 
     - name: Verify Tailscale is installed
       command: which tailscale
       register: tailscale_which
       changed_when: false
       failed_when: false
+      tags: always
 
     - name: Verify Tailscale connection
       command: tailscale status
@@ -25,6 +27,7 @@
       changed_when: false
       failed_when: false
       when: tailscale_which.rc == 0
+      tags: always
 
     - name: Fail if Tailscale is not installed
       assert:
@@ -41,6 +44,7 @@
           ============================================================================
         success_msg: "✓ Tailscale is installed"
       when: tailscale_which.rc != 0
+      tags: always
 
     - name: Fail if not connected via Tailscale
       assert:
@@ -60,17 +64,20 @@
           
           Please:
           1. Ensure foundation phase completed successfully
-          2. Update hosts-production.yml to use Tailscale hostname (rigel.tailnet-name.ts.net or just 'rigel' with MagicDNS)
+          2. Update hosts-production.yml to use Tailscale hostname (rigel.tailb821ac.ts.net or just 'rigel' with MagicDNS)
           3. Verify Tailscale connectivity: tailscale status
           4. Re-run production phase
           ============================================================================
         success_msg: "✓ Connected via Tailscale network ({{ ansible_host }})"
       when: tailscale_which.rc == 0
+      tags: always
   roles:
     - role: docker_deploy
       tags: [production, services]
     - role: internal_dns
       tags: [production, services]
+    - role: cert_issuer
+      tags: [production, services, certificates]
     - role: edge_ingress
       tags: [production, services]
     - role: monitoring_docker

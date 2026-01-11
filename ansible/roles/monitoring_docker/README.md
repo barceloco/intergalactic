@@ -191,4 +191,4 @@ None (Docker must be installed separately).
 
 ## License
 
-MIT
+Proprietary - All Rights Reserved, ExNada Inc.

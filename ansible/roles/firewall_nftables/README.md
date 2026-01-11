@@ -240,4 +240,4 @@ Example custom rule:
 
 ## License
 
-MIT
+Proprietary - All Rights Reserved, ExNada Inc.

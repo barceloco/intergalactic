@@ -30,6 +30,6 @@ provisioner:
             backend: http://mpnas:5000
             health_path: /health
         enable_tailscale: true
-        hostinger_api_token: "test-token"
+        # Certificates managed by cert_issuer role (not needed for edge_ingress)
 verifier:
   name: ansible

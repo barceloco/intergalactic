@@ -1,13 +1,12 @@
 # edge_ingress Role
 
-Deploys Traefik as an HTTPS ingress router for private services via Tailscale, providing automatic SSL certificate management via ACME DNS-01 challenge with Hostinger DNS provider.
+Deploys Traefik as an HTTPS ingress router for private services via Tailscale, using Traefik's built-in ACME resolver with GoDaddy DNS-01 challenge for automatic Let's Encrypt certificate management.
 
 ## What This Role Does
 
 - Installs and configures Traefik in Docker
 - Configures HTTP→HTTPS redirect
-- Sets up ACME DNS-01 challenge with Let's Encrypt
-- Uses Hostinger DNS provider for wildcard certificate management
+- Uses Traefik's built-in ACME resolver with GoDaddy DNS-01 challenge for automatic certificate issuance and renewal
 - Configures host-based routing for private services
 - Adds security headers middleware
 - Integrates with firewall (opens HTTP/HTTPS ports on `tailscale0` interface)
@@ -20,9 +19,9 @@ Deploys Traefik as an HTTPS ingress router for private services via Tailscale, p
 - Root/sudo access (role uses `become: true`)
 - **Tailscale must be installed and connected** (via `tailscale` role)
 - Docker must be installed (via `docker_host` role)
-- **Hostinger API token** must be configured in `all_secrets.yml`
+- **GoDaddy API credentials** must be configured in `all_secrets.yml` (`godaddy_api_key` and `godaddy_api_secret`)
+- Domain must be managed by GoDaddy DNS
 - Ports 80 and 443 must be available
-- Domain must be managed by Hostinger DNS
 
 ## Role Variables
 
@@ -31,7 +30,7 @@ Deploys Traefik as an HTTPS ingress router for private services via Tailscale, p
 | `edge_ingress_enabled` | `false` | Enable this role (set to `true` in host_vars) |
 | `edge_ingress_domain` | `exnada.com` | Base domain for routing |
 | `edge_ingress_acme_email` | `admin@exnada.com` | Email for Let's Encrypt ACME registration |
-| `edge_ingress_use_tailscale_fqdn` | `true` | Use Tailscale FQDNs for backend services (e.g., `http://rigel.tailnet-name.ts.net:8000`) |
+| `edge_ingress_use_tailscale_fqdn` | `true` | Use Tailscale FQDNs for backend services (e.g., `http://rigel.tailb821ac.ts.net:8000`) |
 | `edge_ingress_tailnet_name` | `""` | Tailscale tailnet name (auto-detected if empty) |
 | `edge_ingress_backend_timeout_connect` | `30s` | Backend connection timeout |
 | `edge_ingress_backend_timeout_response` | `60s` | Backend response timeout |
@@ -41,7 +40,7 @@ Deploys Traefik as an HTTPS ingress router for private services via Tailscale, p
 | `edge_ingress_container_name` | `traefik` | Docker container name for Traefik |
 | `edge_ingress_data_dir` | `/opt/traefik` | Directory for Traefik configuration and data |
 | `edge_ingress_routes` | `[]` | List of route configurations (see examples below) |
-| `hostinger_api_token` | (required) | Hostinger DNS API token (from `all_secrets.yml`) |
+| `edge_ingress_disable_tls` | `false` | Disable TLS (for testing only) |
 
 ## Route Configuration
 
@@ -49,13 +48,13 @@ Each route in `edge_ingress_routes` must have:
 
 - `host`: Hostname to route (e.g., `mpnas.exnada.com`)
 - `backend`: Backend service URL (e.g., `http://mpnas:5000` or `http://vega:8000`)
-- `health_path`: Health check path (e.g., `/health`)
+- `health_path`: Health check path (optional, e.g., `/health`). If omitted, health checks are disabled for this route.
 
 ### Backend URL Resolution
 
 If `edge_ingress_use_tailscale_fqdn: true` (default):
 - Backend hostnames are resolved to Tailscale FQDNs
-- Example: `http://rigel:8000` → `http://rigel.tailnet-name.ts.net:8000`
+- Example: `http://rigel:8000` → `http://rigel.tailb821ac.ts.net:8000`
 
 If `edge_ingress_use_tailscale_fqdn: false`:
 - Backend URLs are used as-is
@@ -80,7 +79,7 @@ edge_ingress_acme_email: admin@exnada.com
 edge_ingress_routes:
   - host: mpnas.exnada.com
     backend: http://mpnas:5000
-    health_path: /health
+    # No health_path - service doesn't provide health endpoint
   - host: aispector.exnada.com
     backend: http://vega:8000
     health_path: /health
@@ -113,34 +112,46 @@ edge_ingress_routes:
     health_path: /health
 ```
 
-## Secrets Configuration
+## Certificate Management
 
-The Hostinger API token must be configured in `all_secrets.yml`:
+This role uses **Traefik's built-in ACME resolver** with GoDaddy DNS-01 challenge for automatic Let's Encrypt certificate management.
 
-```yaml
-# In ansible/inventories/prod/group_vars/all_secrets.yml
-hostinger_api_token: "your-actual-api-token-here"
-```
+### Automatic Certificate Issuance and Renewal
 
-Get your API token from: https://hpanel.hostinger.com/api
+- Traefik automatically obtains certificates from Let's Encrypt when routes are first accessed
+- Certificates are automatically renewed before expiration (30 days before expiry)
+- Certificates are stored in `/opt/traefik/acme.json` (600 permissions, root:root)
+- Uses DNS-01 challenge via GoDaddy DNS API (no need to expose ports 80/443 to the internet)
+- Supports both staging and production Let's Encrypt environments (controlled by `cert_issuer_ca_server`)
+
+### Configuration
+
+- **GoDaddy API Credentials**: Set `godaddy_api_key` and `godaddy_api_secret` in `all_secrets.yml`
+- **CA Server**: Set `cert_issuer_ca_server: staging` for testing or `cert_issuer_ca_server: production` for real certificates
+- **Email**: Set `edge_ingress_acme_email` for Let's Encrypt account registration
+
+### Certificate Storage
+
+- ACME account and certificates are stored in `/opt/traefik/acme.json`
+- File permissions: 600 (root:root)
+- Automatically created by the role if it doesn't exist
 
 ## How It Works
 
 1. **Tailnet Detection**: Automatically detects Tailscale tailnet name from `tailscale status --json`
 2. **Backend Resolution**: Converts backend hostnames to Tailscale FQDNs (if enabled)
-3. **ACME Configuration**: Configures Let's Encrypt with Hostinger DNS-01 challenge
-4. **Certificate Management**: Requests wildcard certificate for `{{ domain }}` and `*.{{ domain }}`
-5. **Traefik Deployment**: Runs Traefik in Docker container with `network_mode: host`
-6. **Firewall Integration**: Sets `edge_ingress_enabled: true` which opens HTTP/HTTPS ports on `tailscale0` interface
+3. **ACME Certificate Management**: Traefik automatically obtains and renews Let's Encrypt certificates via GoDaddy DNS-01 challenge
+4. **Traefik Deployment**: Runs Traefik in Docker container with `network_mode: host`
+5. **Firewall Integration**: Sets `edge_ingress_enabled: true` which opens HTTP/HTTPS ports on `tailscale0` interface
 
 ## Features
 
 ### Automatic HTTPS
 
 - HTTP requests are automatically redirected to HTTPS
-- Wildcard SSL certificates via Let's Encrypt
-- Automatic certificate renewal
-- DNS-01 challenge (no need to expose ports publicly)
+- Automatic Let's Encrypt certificate issuance via Traefik's built-in ACME resolver
+- GoDaddy DNS-01 challenge (no need to expose ports to internet)
+- Automatic certificate renewal before expiration
 
 ### Security Headers
 
@@ -199,17 +210,17 @@ When `edge_ingress_enabled: true`, the `firewall_nftables` role automatically op
    docker logs traefik | grep -i acme
    ```
 
-2. **Verify Hostinger API token**:
-   - Check `all_secrets.yml` has valid token
-   - Test token: https://hpanel.hostinger.com/api
-
-3. **Check DNS propagation**:
+2. **Verify certificates are present**:
    ```bash
-   dig _acme-challenge.exnada.com TXT
+   ls -la /opt/traefik/certs/
+   # Should show exnada.com.crt and exnada.com.key
    ```
 
-4. **Verify domain is managed by Hostinger**:
-   - Check Hostinger DNS panel
+3. **Check certificate issuer status**:
+   ```bash
+   sudo systemctl status lego-renew.timer
+   sudo journalctl -u lego-renew.service -n 50
+   ```
 
 ### Backend Not Reachable
 
@@ -225,7 +236,7 @@ When `edge_ingress_enabled: true`, the `firewall_nftables` role automatically op
    ```
 
 3. **Verify backend URL resolution**:
-   - If using Tailscale FQDNs, check `rigel.tailnet-name.ts.net` resolves
+   - If using Tailscale FQDNs, check `rigel.tailb821ac.ts.net` resolves
    - If not, check backend hostname resolves
 
 4. **Check Traefik routing**:
@@ -259,7 +270,7 @@ Location: `{{ edge_ingress_data_dir }}/traefik.yml`
 
 Contains:
 - Entrypoints (HTTP/HTTPS)
-- ACME configuration
+- ACME certificate resolver configuration (GoDaddy DNS-01 challenge)
 - File provider configuration
 
 ### Dynamic Configuration
@@ -267,7 +278,7 @@ Contains:
 Location: `{{ edge_ingress_data_dir }}/dynamic.yml`
 
 Contains:
-- Routers (host-based routing)
+- Routers (host-based routing with `certResolver: letsencrypt`)
 - Services (backend URLs)
 - Middlewares (security headers, retry)
 
@@ -279,32 +290,36 @@ Defines:
 - Traefik container
 - Network mode: `host` (required for ports 80/443)
 - Volume mounts for configuration and ACME storage
+- GoDaddy API credentials as environment variables
 
 ### ACME Storage
 
 Location: `{{ edge_ingress_data_dir }}/acme.json`
 
 Stores:
-- SSL certificates
+- Let's Encrypt SSL certificates
 - ACME account information
 - Permissions: 600 (root:root)
+- Automatically created by the role if it doesn't exist
 
 ## Security Considerations
 
 - **Tailscale Only**: HTTP/HTTPS are only accessible on `tailscale0` interface (via firewall)
 - **ACME Storage**: `acme.json` has 600 permissions (only root can read)
+- **GoDaddy API Credentials**: Stored securely in `all_secrets.yml` and passed as environment variables to Traefik container
 - **Security Headers**: Automatically added to all responses
 - **No Dashboard**: Traefik dashboard is not exposed (insecure: false)
-- **Wildcard Certificates**: Single certificate for domain and all subdomains
+- **DNS-01 Challenge**: No need to expose ports 80/443 to the internet (certificates obtained via DNS)
 
 ## Notes
 
 - The role is idempotent: running it multiple times produces no changes
 - Tailnet name is detected automatically on each run
 - Backend URLs are resolved to Tailscale FQDNs if enabled
-- ACME certificates are automatically renewed by Traefik
-- The role validates Hostinger API token and routes before proceeding
-- Health checks are configured for all routes
+- Traefik's built-in ACME resolver automatically obtains and renews Let's Encrypt certificates
+- Certificates are obtained on-demand when routes are first accessed
+- Certificates are automatically renewed 30 days before expiration
+- Health checks are configured for all routes (if `health_path` is specified)
 - Retry middleware is enabled for all routes
 
 ## Integration with Other Roles
@@ -313,7 +328,8 @@ Stores:
 - **docker_host**: Docker must be installed
 - **firewall_nftables**: Opens HTTP/HTTPS ports when `edge_ingress_enabled: true`
 - **internal_dns**: Recommended for DNS resolution of private hosts
+- **cert_issuer**: Optional - can be disabled if using Traefik's built-in ACME resolver (current approach)
 
 ## License
 
-MIT
+Proprietary - All Rights Reserved, ExNada Inc.

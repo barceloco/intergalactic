@@ -2,7 +2,7 @@
 galaxy_info:
   author: intergalactic
   description: Internal DNS server using CoreDNS for private subdomain resolution
-  license: MIT
+  license: Proprietary - All Rights Reserved, ExNada Inc.
   min_ansible_version: "2.9"
   platforms:
     - name: Debian
@@ -15,7 +15,7 @@ galaxy_info:
     - network
 
 dependencies:
-  - role: tailscale
-    when: enable_tailscale | default(false)
+  # Note: Tailscale must be installed BEFORE this role (typically in foundation phase)
+  # We don't declare it as a dependency to avoid redundant installation in production
   - role: docker_host
     when: enable_docker | default(false)

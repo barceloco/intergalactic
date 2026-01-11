@@ -252,4 +252,4 @@ If you're locked out, you may need physical access or console access:
 
 ## License
 
-MIT
+Proprietary - All Rights Reserved, ExNada Inc.

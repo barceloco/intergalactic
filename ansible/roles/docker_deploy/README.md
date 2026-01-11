@@ -217,4 +217,4 @@ The role sets `docker_deploy_tcp_ports` fact which is automatically merged into 
 
 ## License
 
-MIT
+Proprietary - All Rights Reserved, ExNada Inc.

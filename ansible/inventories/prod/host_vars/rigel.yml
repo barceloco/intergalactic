@@ -35,15 +35,24 @@ edge_ingress_enabled: true
 edge_ingress_domain: exnada.com
 edge_ingress_acme_email: admin@exnada.com
 edge_ingress_use_tailscale_fqdn: true
+edge_ingress_disable_tls: false  # TLS enabled - certificates managed by cert_issuer role
 edge_ingress_backend_timeout_connect: 30s
 edge_ingress_backend_timeout_response: 60s
 edge_ingress_routes:
   - host: mpnas.exnada.com
     backend: http://mpnas:5000
-    health_path: /health
+    # No health_path - Synology doesn't provide a health endpoint
   - host: aispector.exnada.com
     backend: http://vega:8000
     health_path: /health
   - host: dev.exnada.com
     backend: http://rigel:8000
     health_path: /health
+
+# Certificate issuer configuration (lego with GoDaddy DNS-01)
+cert_issuer_enabled: true
+cert_issuer_domain: exnada.com
+cert_issuer_wildcard: true  # *.exnada.com + exnada.com
+cert_issuer_email: admin@exnada.com
+  cert_issuer_ca_server: production  # Production Let's Encrypt certificates
+cert_issuer_renew_days: 30

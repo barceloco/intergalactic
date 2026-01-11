@@ -2,6 +2,7 @@
 # Shared host key verification tasks
 # Include this file in playbook pre_tasks to avoid duplication
 # Usage: import_tasks: ../shared/host-key-verification.yml
+# Note: Tasks in this file inherit tags from the import_tasks statement
 
 - name: Ensure .ssh directory exists for known_hosts
   file:
@@ -10,6 +11,7 @@
     mode: '0700'
   delegate_to: localhost
   run_once: true
+  tags: always
 
 - name: Fetch host key using ssh-keyscan (secure host key verification)
   command: >
@@ -22,6 +24,7 @@
   run_once: true
   changed_when: false
   failed_when: false
+  tags: always
 
 - name: Warn if ssh-keyscan failed (host key will be verified on first connection)
   assert:
@@ -34,6 +37,7 @@
       Host key checking is ENABLED for security (prevents MITM attacks).
     success_msg: "✓ Host key fetched successfully - will add to known_hosts"
   failed_when: false
+  tags: always
 
 - name: Add fetched host keys to known_hosts (one key per line, skip comments)
   lineinfile:
@@ -53,6 +57,8 @@
     - item | length > 0
     - not item.startswith('#')
     - item.split() | length >= 3
+  tags: always
 
 - name: Gather facts after host key verification
   setup:
+  tags: always
