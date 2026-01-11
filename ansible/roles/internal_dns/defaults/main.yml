@@ -9,3 +9,8 @@ internal_dns_upstream_servers:
   - 8.8.4.4
 internal_dns_container_name: coredns
 internal_dns_data_dir: /opt/coredns
+internal_dns_cache_ttl: 3600
+internal_dns_health_port: 8080
+internal_dns_ready_port: 8181
+internal_dns_prometheus_port: 9153
+internal_dns_reload_port: 8182
