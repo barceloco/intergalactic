@@ -1,0 +1,17 @@
+services:
+  lego:
+    image: goacme/lego:{{ cert_issuer_lego_version }}
+    container_name: {{ cert_issuer_container_name }}
+    volumes:
+      - {{ cert_issuer_data_dir }}/data:/data:rw  # Host directory for lego state (/lego is the binary!)
+      - {{ cert_issuer_config_dir }}:/etc/lego:ro
+      - {{ edge_ingress_data_dir }}/certs:/certs:rw
+    environment:
+      # Note: GoDaddy credentials are passed directly via docker run command in lego-renew.sh
+      # This compose file is for reference only (container runs on-demand via systemd timer)
+      - GODADDY_PROPAGATION_TIMEOUT={{ cert_issuer_godaddy_propagation_timeout }}
+      - GODADDY_POLLING_INTERVAL={{ cert_issuer_godaddy_polling_interval }}
+      - GODADDY_TTL={{ cert_issuer_godaddy_ttl }}
+    restart: unless-stopped
+    # Container runs on-demand via systemd timer, not continuously
+    # Use 'docker compose run' to execute renewal commands

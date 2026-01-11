@@ -1,0 +1,15 @@
+---
+cert_issuer_enabled: false
+cert_issuer_domain: exnada.com
+cert_issuer_wildcard: true  # *.exnada.com + exnada.com
+cert_issuer_email: admin@exnada.com
+cert_issuer_ca_server: staging  # or production
+cert_issuer_lego_version: "v4.31.0"  # Latest version (fixes GoDaddy PUT/PATCH issue)
+cert_issuer_renew_days: 30
+cert_issuer_data_dir: /opt/lego
+cert_issuer_container_name: lego
+cert_issuer_config_dir: /etc/lego
+# GoDaddy DNS propagation settings
+cert_issuer_godaddy_propagation_timeout: 60  # 1 minute (short timeout - fail fast)
+cert_issuer_godaddy_polling_interval: 10     # Check every 10 seconds
+cert_issuer_godaddy_ttl: 600

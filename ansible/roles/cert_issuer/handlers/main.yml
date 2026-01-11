@@ -1,0 +1,10 @@
+---
+- name: Restart lego container
+  command: docker restart {{ cert_issuer_container_name }}
+  become: true
+  when: cert_issuer_enabled | default(false)
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: true
+  become: true

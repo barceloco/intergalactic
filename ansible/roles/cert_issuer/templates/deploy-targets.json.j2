@@ -1,0 +1,15 @@
+{
+  "cert_name": "{{ cert_issuer_domain }}",
+  "targets": [
+    {
+      "host": "localhost",
+      "method": "local_copy",
+      "dest_dir": "{{ edge_ingress_data_dir }}/certs",
+      "owner": "root",
+      "group": "root",
+      "mode_cert": "0644",
+      "mode_key": "0600",
+      "reload": "docker restart {{ edge_ingress_container_name }}"
+    }
+  ]
+}

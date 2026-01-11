@@ -1,0 +1,323 @@
+---
+- name: Skip cert_issuer role if not enabled
+  when: not (cert_issuer_enabled | default(false))
+  debug:
+    msg: "Skipping cert_issuer role (cert_issuer_enabled is false)"
+
+- name: Validate cert_issuer_domain is configured
+  when: cert_issuer_enabled | default(false)
+  assert:
+    that:
+      - cert_issuer_domain is defined
+      - cert_issuer_domain | length > 0
+    fail_msg: |
+      ============================================================================
+      ERROR: cert_issuer_domain is not configured!
+      ============================================================================
+      The cert_issuer role requires cert_issuer_domain to be set.
+      
+      Please configure in host_vars or group_vars:
+        cert_issuer_domain: exnada.com
+      ============================================================================
+    success_msg: "✓ cert_issuer_domain is configured: {{ cert_issuer_domain }}"
+
+- name: Validate cert_issuer_email is configured
+  when: cert_issuer_enabled | default(false)
+  assert:
+    that:
+      - cert_issuer_email is defined
+      - cert_issuer_email | length > 0
+      - (cert_issuer_email | default('')) is search('@')
+    fail_msg: |
+      ============================================================================
+      ERROR: cert_issuer_email is not configured!
+      ============================================================================
+      The cert_issuer role requires a valid email for ACME registration.
+      
+      Please configure in host_vars or group_vars:
+        cert_issuer_email: admin@exnada.com
+      ============================================================================
+    success_msg: "✓ cert_issuer_email is configured: {{ cert_issuer_email }}"
+
+- name: Validate GoDaddy API credentials are set
+  when: cert_issuer_enabled | default(false)
+  assert:
+    that:
+      - godaddy_api_key is defined
+      - godaddy_api_key | length > 0
+      - godaddy_api_key != "GoDaddy_API_Key_here"
+      - not godaddy_api_key.startswith("GoDaddy_API_Key")
+      - godaddy_api_secret is defined
+      - godaddy_api_secret | length > 0
+      - godaddy_api_secret != "GoDaddy_API_Secret_here"
+      - not godaddy_api_secret.startswith("GoDaddy_API_Secret")
+    fail_msg: |
+      ============================================================================
+      ERROR: GoDaddy API credentials are not configured!
+      ============================================================================
+      The cert_issuer role requires GoDaddy API key and secret for ACME DNS-01 challenge.
+      
+      Please set both in all_secrets.yml:
+        godaddy_api_key: "your-api-key"
+        godaddy_api_secret: "your-api-secret"
+      
+      Get your credentials from: https://developer.godaddy.com/keys
+      See all_secrets.yml.example for template.
+      ============================================================================
+    success_msg: "✓ GoDaddy API credentials are configured"
+
+- name: Validate Docker is installed
+  when: cert_issuer_enabled | default(false)
+  command: which docker
+  register: docker_which
+  changed_when: false
+  failed_when: false
+
+- name: Fail if Docker is not installed
+  when: cert_issuer_enabled | default(false)
+  assert:
+    that:
+      - docker_which.rc == 0
+    fail_msg: |
+      ============================================================================
+      ERROR: Docker is not installed!
+      ============================================================================
+      The cert_issuer role requires Docker to be installed.
+      
+      Please ensure the docker_host role has been applied.
+      ============================================================================
+    success_msg: "✓ Docker is installed"
+
+- name: Ensure lego config directory exists
+  when: cert_issuer_enabled | default(false)
+  file:
+    path: "{{ cert_issuer_config_dir }}"
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+
+- name: Ensure lego data directory exists
+  when: cert_issuer_enabled | default(false)
+  file:
+    path: "{{ cert_issuer_data_dir }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Ensure lego state directory exists (for certificates)
+  when: cert_issuer_enabled | default(false)
+  file:
+    path: "{{ cert_issuer_data_dir }}/data"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Store GoDaddy API key securely
+  when: cert_issuer_enabled | default(false)
+  copy:
+    dest: "{{ cert_issuer_config_dir }}/godaddy_api_key"
+    content: "{{ godaddy_api_key }}\n"
+    mode: '0600'
+    owner: root
+    group: root
+  no_log: true
+
+- name: Store GoDaddy API secret securely
+  when: cert_issuer_enabled | default(false)
+  copy:
+    dest: "{{ cert_issuer_config_dir }}/godaddy_api_secret"
+    content: "{{ godaddy_api_secret }}\n"
+    mode: '0600'
+    owner: root
+    group: root
+  no_log: true
+
+- name: Deploy lego environment configuration
+  when: cert_issuer_enabled | default(false)
+  template:
+    src: lego.env.j2
+    dest: "{{ cert_issuer_config_dir }}/lego.env"
+    mode: '0600'
+    owner: root
+    group: root
+
+- name: Deploy deploy targets configuration
+  when: cert_issuer_enabled | default(false)
+  template:
+    src: deploy-targets.json.j2
+    dest: "{{ cert_issuer_config_dir }}/deploy-targets.json"
+    mode: '0600'
+    owner: root
+    group: root
+
+- name: Deploy lego renewal script
+  when: cert_issuer_enabled | default(false)
+  template:
+    src: lego-renew.sh.j2
+    dest: "{{ cert_issuer_config_dir }}/lego-renew.sh"
+    mode: '0750'
+    owner: root
+    group: root
+
+- name: Deploy certificate deployment script
+  when: cert_issuer_enabled | default(false)
+  template:
+    src: deploy-internal-certs.sh.j2
+    dest: "{{ cert_issuer_config_dir }}/deploy-internal-certs.sh"
+    mode: '0750'
+    owner: root
+    group: root
+
+- name: Deploy preflight check script
+  when: cert_issuer_enabled | default(false)
+  template:
+    src: lego-preflight.sh.j2
+    dest: "{{ cert_issuer_config_dir }}/lego-preflight.sh"
+    mode: '0750'
+    owner: root
+    group: root
+
+- name: Deploy lego Docker Compose
+  when: cert_issuer_enabled | default(false)
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ cert_issuer_data_dir }}/docker-compose.yml"
+    mode: '0644'
+    owner: root
+    group: root
+
+
+- name: Deploy lego renewal systemd service
+  when: cert_issuer_enabled | default(false)
+  template:
+    src: lego-renew.service.j2
+    dest: /etc/systemd/system/lego-renew.service
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Reload systemd daemon
+
+- name: Deploy lego renewal systemd timer
+  when: cert_issuer_enabled | default(false)
+  template:
+    src: lego-renew.timer.j2
+    dest: /etc/systemd/system/lego-renew.timer
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Reload systemd daemon
+
+- name: Enable and start lego renewal timer
+  when: cert_issuer_enabled | default(false)
+  systemd:
+    name: lego-renew.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+
+- name: Verify lego renewal timer is active
+  when: cert_issuer_enabled | default(false)
+  command: systemctl is-active lego-renew.timer
+  register: timer_status
+  changed_when: false
+  failed_when: false
+
+- name: Check if certificates already exist in Traefik cert directory
+  when: cert_issuer_enabled | default(false)
+  stat:
+    path: "{{ edge_ingress_data_dir }}/certs/{{ cert_issuer_domain }}.crt"
+  register: cert_file_check
+  changed_when: false
+  failed_when: false
+
+- name: Run preflight checks (if certificates don't exist)
+  when:
+    - cert_issuer_enabled | default(false)
+    - not cert_file_check.stat.exists
+  command: "{{ cert_issuer_config_dir }}/lego-preflight.sh"
+  register: preflight_result
+  changed_when: false
+  failed_when: preflight_result.rc != 0
+
+- name: Issue initial certificates (if they don't exist)
+  when:
+    - cert_issuer_enabled | default(false)
+    - not cert_file_check.stat.exists
+    - preflight_result.rc == 0
+  command: "{{ cert_issuer_config_dir }}/lego-renew.sh"
+  register: initial_issuance
+  async: 600  # Increase timeout to 10 minutes (DNS propagation can take time)
+  poll: 15   # Poll every 15 seconds
+  ignore_errors: true  # Don't fail immediately, check result below
+
+- name: Check async result for certificate issuance
+  when:
+    - cert_issuer_enabled | default(false)
+    - not cert_file_check.stat.exists
+    - preflight_result.rc == 0
+    - initial_issuance.ansible_job_id is defined
+  async_status:
+    jid: "{{ initial_issuance.ansible_job_id }}"
+  register: issuance_result
+  until: issuance_result.finished
+  retries: 40  # 40 retries * 15 seconds = 10 minutes total
+  delay: 15
+  failed_when: issuance_result.failed | default(false) or (issuance_result.rc | default(1) != 0)
+  changed_when: issuance_result.rc | default(1) == 0
+
+- name: Verify certificates were issued and deployed
+  when:
+    - cert_issuer_enabled | default(false)
+    - not cert_file_check.stat.exists
+    - issuance_result.finished | default(false)
+    - not (issuance_result.failed | default(false))
+  stat:
+    path: "{{ edge_ingress_data_dir }}/certs/{{ cert_issuer_domain }}.crt"
+  register: cert_issued_check
+  changed_when: false
+  failed_when: not cert_issued_check.stat.exists
+
+- name: Warn if certificate issuance failed or timed out
+  when:
+    - cert_issuer_enabled | default(false)
+    - not cert_file_check.stat.exists
+    - issuance_result.failed | default(false) or (issuance_result.rc | default(1) != 0)
+  debug:
+    msg: |
+      ============================================================================
+      ⚠ Certificate issuance failed or timed out
+      ============================================================================
+      You can manually run the certificate issuance script:
+        sudo /etc/lego/lego-renew.sh
+      
+      Or use the diagnostic script:
+        sudo /path/to/diagnose-cert-issuer.sh
+      ============================================================================
+
+- name: Display timer status and certificate status
+  when: cert_issuer_enabled | default(false)
+  debug:
+    msg: |
+      ============================================================================
+      ✓ Cert issuer role configured successfully!
+      ============================================================================
+      Lego renewal timer: {{ 'active' if timer_status.rc == 0 else 'inactive' }}
+      Certificates: {{ 'Issued and deployed' if (cert_file_check.stat.exists or (cert_issued_check.stat.exists | default(false))) else 'Not yet issued' }}
+      
+      {% if cert_file_check.stat.exists or (cert_issued_check.stat.exists | default(false)) %}
+      ✓ Certificates are in place at: {{ edge_ingress_data_dir }}/certs/
+      {% else %}
+      ⚠ Certificates not yet issued. They will be issued automatically on next run.
+      {% endif %}
+      
+      {% if cert_issuer_ca_server == 'staging' %}
+      ⚠ Using Let's Encrypt STAGING (test certificates)
+      To switch to production, set cert_issuer_ca_server: production
+      {% else %}
+      ✓ Using Let's Encrypt PRODUCTION certificates
+      {% endif %}
+      ============================================================================
