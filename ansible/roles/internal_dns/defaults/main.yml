@@ -14,3 +14,7 @@ internal_dns_health_port: 8080
 internal_dns_ready_port: 8181
 internal_dns_prometheus_port: 9153
 internal_dns_reload_port: 8182
+# Optional: Manual IP mappings (overrides auto-detection)
+# Format: {hostname: ip_address}
+# Example: {mpnas: "100.120.170.43", vega: "100.116.12.30"}
+internal_dns_manual_host_ips: {}

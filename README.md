@@ -1287,6 +1287,735 @@ If you have hosts that were previously configured with the old single-phase appr
 
 **Note:** The three-phase playbooks are idempotent, so re-running them is safe and will ensure your hosts match the current configuration.
 
+## Lessons Learned
+
+This section documents critical issues, solutions, and insights discovered through extensive troubleshooting and deployment. These lessons will save significant time in future deployments and troubleshooting.
+
+### DNS Provider Limitations: Hostinger vs GoDaddy
+
+**Issue**: Traefik's built-in ACME resolver failed to obtain Let's Encrypt certificates using Hostinger DNS API.
+
+**Root Cause**: Hostinger's API keys (obtained from hPanel) do **not** provide write access to DNS records. They only have read permissions, which is insufficient for ACME DNS-01 challenges that require creating and deleting `_acme-challenge` TXT records.
+
+**Solution**: Migrated DNS management to GoDaddy, which provides full DNS API access with write permissions.
+
+**Key Learnings**:
+- **Always verify API permissions** before choosing a DNS provider for ACME
+- Hostinger API keys are read-only for DNS operations
+- GoDaddy API keys provide full DNS management capabilities
+- Traefik's ACME resolver requires DNS provider write access for DNS-01 challenges
+
+**Migration Notes**:
+- GoDaddy API uses `PUT` for creating new records (not `PATCH`)
+- GoDaddy requires domain verification before API access
+- API keys must be created with explicit DNS management permissions
+
+### CoreDNS Failthrough/Forwarding for External Domains
+
+**Issue**: Internal hosts (e.g., `mpnas.exnada.com`, `aispector.exnada.com`) resolved correctly, but external subdomains like `www.exnada.com` returned NXDOMAIN or failed to resolve.
+
+**Root Cause**: CoreDNS was configured to serve the `exnada.com` zone authoritatively, but only had A records for private hosts. Queries for unknown subdomains (like `www.exnada.com`) were not being forwarded to upstream DNS servers.
+
+**Solution**: Implemented CoreDNS forwarding using the `forward` plugin within the zone block. The configuration now:
+1. Serves specific private hosts authoritatively using the `template` plugin
+2. Forwards all other queries (including `www.exnada.com`) upstream using `forward . 8.8.8.8 8.8.4.4`
+
+**Key Configuration**:
+```corefile
+exnada.com:53 {
+    # Serve private hosts authoritatively
+    template IN A mpnas.exnada.com {
+        answer "mpnas.exnada.com 3600 IN A 100.72.27.93"
+    }
+    # ... more templates ...
+    
+    # Forward all other queries upstream
+    forward . 8.8.8.8 8.8.4.4
+}
+```
+
+**Key Learnings**:
+- CoreDNS can serve a zone authoritatively while forwarding unknown queries
+- The `forward` directive must be inside the zone block to work correctly
+- Use `forward .` (with dot) to forward all non-matching queries
+- This enables split-horizon DNS: internal hosts resolve to Tailscale IPs, external hosts resolve via public DNS
+
+### DNS Resolution for Reverse-Proxy Routing
+
+**Issue**: HTTP requests to `mpnas.exnada.com` were going directly to mpnas (bypassing Traefik), resulting in no HTTPS redirect and direct HTTP access.
+
+**Root Cause**: `mpnas.exnada.com` was resolving to mpnas's Tailscale IP (`100.120.170.43`), so browsers connected directly to mpnas instead of rigel (where Traefik runs).
+
+**Solution**: Modified DNS resolution so reverse-proxied hosts resolve to rigel's IP (where Traefik runs):
+- `mpnas.exnada.com` → `100.72.27.93` (rigel/Traefik) - for HTTP/HTTPS
+- `aispector.exnada.com` → `100.72.27.93` (rigel/Traefik) - for HTTP/HTTPS
+- `dev.exnada.com` → `100.72.27.93` (rigel/Traefik) - for HTTP/HTTPS
+
+**Implementation**: Added logic in `internal_dns` role to override DNS IPs for hosts that are configured in `edge_ingress_routes`, forcing them to resolve to the Traefik host (rigel).
+
+**Key Learnings**:
+- **DNS resolution determines routing**: If a hostname resolves to a backend server, requests bypass the reverse proxy
+- Reverse-proxied hosts must resolve to the proxy server's IP, not the backend's IP
+- SMB/CIFS access can still work using Tailscale FQDNs directly: `mpnas.tailb821ac.ts.net`
+- This is a fundamental principle: DNS resolution and reverse proxy routing are tightly coupled
+
+**For SMB Access**:
+- Use Tailscale FQDNs directly: `smb://mpnas.tailb821ac.ts.net/armand`
+- Or create separate DNS names: `smb-mpnas.exnada.com` → mpnas's IP
+
+### HTTP→HTTPS Redirect: Entrypoint-Level vs Router-Level
+
+**Issue**: HTTP requests to `mpnas.exnada.com` were not redirecting to HTTPS, even though Traefik was configured with redirect middleware.
+
+**Root Cause**: Router-level redirect middleware (`redirectScheme`) was not working reliably. The entrypoint-level redirect (configured in Traefik's static configuration) was removed, leaving no redirect mechanism.
+
+**Solution**: Restored entrypoint-level HTTP→HTTPS redirect in Traefik's static configuration (`traefik.yml`):
+
+```yaml
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+```
+
+**Key Learnings**:
+- **Entrypoint-level redirects are more reliable** than router-level redirects for global HTTP→HTTPS
+- Entrypoint redirects happen before routing, ensuring all HTTP traffic is redirected
+- Router-level redirects require matching routers, which can fail if configuration is incomplete
+- Use entrypoint redirects for global policies, router redirects for specific routes
+
+**Best Practice**: Always configure entrypoint-level redirects for production HTTPS deployments.
+
+### Content Security Policy (CSP) Headers Blocking JavaScript
+
+**Issue**: `mpnas.exnada.com` (Synology NAS) displayed HTML correctly but JavaScript failed to load, resulting in a blank white screen.
+
+**Root Cause**: The Synology backend was sending a restrictive `Content-Security-Policy` header that blocked JavaScript execution. The CSP policy was designed for direct access, not for reverse proxy scenarios.
+
+**Solution**: Created a Traefik middleware (`remove-csp`) that removes the `Content-Security-Policy` header:
+
+```yaml
+remove-csp:
+  headers:
+    customResponseHeaders:
+      Content-Security-Policy: ""
+```
+
+Applied this middleware to the `mpnas.exnada.com` route before other security headers.
+
+**Key Learnings**:
+- **CSP headers can break reverse-proxied applications** that weren't designed for proxy scenarios
+- Backend services may send headers that conflict with reverse proxy security policies
+- Removing problematic headers is sometimes necessary for compatibility
+- Always test JavaScript functionality, not just HTML rendering
+
+**Implementation Details**:
+- Middleware order matters: `remove-csp` must be applied before `security-headers`
+- Only remove CSP for specific routes that need it (not globally)
+- Consider adding custom CSP policies if needed, rather than removing entirely
+
+### X-Content-Type-Options: nosniff Blocking CSS and JavaScript
+
+**Issue**: CSS and JavaScript files on `mpnas.exnada.com` failed to load with errors:
+- `Did not parse stylesheet at '...' because non CSS MIME types are not allowed in strict mode`
+- `Refused to execute ... as script because "X-Content-Type-Options: nosniff" was given and its Content-Type is not a script MIME type`
+
+**Root Cause**: 
+1. The Synology backend sends `Content-Type: text/html` for CSS and JavaScript files (incorrect MIME types)
+2. Our security headers include `X-Content-Type-Options: nosniff` (correct security practice)
+3. Browsers enforce strict MIME type checking when `nosniff` is present, refusing to parse CSS/JS with incorrect Content-Type
+
+**Solution**: Created a separate security headers middleware (`security-headers-no-nosniff`) that includes all security headers except `X-Content-Type-Options: nosniff`. This middleware is applied to routes with `force_html_content_type: true` instead of the standard `security-headers` middleware:
+
+```yaml
+security-headers-no-nosniff:
+  headers:
+    sslRedirect: true
+    forceSTSHeader: true
+    stsIncludeSubdomains: true
+    stsPreload: true
+    stsSeconds: 31536000
+    customFrameOptionsValue: "SAMEORIGIN"
+    customRequestHeaders:
+      X-Forwarded-Proto: "https"
+    customResponseHeaders:
+      # Note: X-Content-Type-Options: nosniff is intentionally omitted
+      X-Frame-Options: "SAMEORIGIN"
+      X-XSS-Protection: "1; mode=block"
+      Referrer-Policy: "strict-origin-when-cross-origin"
+      Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+```
+
+**Why a separate middleware instead of removing the header?**
+- Traefik doesn't allow removing headers that were set by earlier middlewares
+- Creating a separate middleware without `nosniff` is the only way to exclude it
+- This approach maintains all other security headers while allowing MIME type sniffing
+
+Applied this middleware to the `mpnas.exnada.com` route (via `force_html_content_type: true` flag) instead of the standard `security-headers` middleware.
+
+**Key Learnings**:
+- **X-Content-Type-Options: nosniff is a security feature** that prevents MIME type sniffing attacks
+- **Backend services may send incorrect Content-Type headers** (e.g., `text/html` for CSS/JS)
+- **Browsers strictly enforce MIME types** when `nosniff` is present
+- **Removing nosniff is a security trade-off** but necessary for compatibility with misconfigured backends
+- **Only remove nosniff for specific routes** that need it, not globally
+
+**Security Considerations**:
+- Removing `nosniff` allows browsers to perform MIME type sniffing, which can be a security risk
+- However, for internal services behind a reverse proxy, this risk is acceptable
+- The alternative (fixing backend Content-Type headers) is not always possible with third-party services
+- Consider this a compatibility workaround, not a security best practice
+
+**Implementation Details**:
+- Created separate middleware `security-headers-no-nosniff` (all headers except `nosniff`)
+- Applied to routes with `force_html_content_type: true` flag instead of standard `security-headers`
+- Middleware order: `security-headers-no-nosniff` → `retry` → `remove-csp`
+- **Important**: Removed `content-type-html` middleware - Synology sends correct Content-Type headers (`text/css` for CSS, `application/javascript` for JS)
+- The `content-type-html` middleware was forcing `text/html` on ALL responses, breaking CSS/JS files
+- Other routes still use standard `security-headers` with `nosniff` protection
+- **Why separate middleware?** Traefik doesn't allow removing headers that were set by earlier middlewares, so we must use a different middleware that never sets `nosniff` in the first place
+
+**What Synology Should Send (and Does Send)**:
+- CSS files: `Content-Type: text/css` ✅
+- JavaScript files: `Content-Type: application/javascript` ✅
+- HTML files: `Content-Type: text/html; charset=utf-8` ✅
+
+**The Real Problem**:
+- Synology sends correct Content-Type headers when accessed directly
+- Our `content-type-html` middleware was overriding ALL responses with `text/html`
+- Combined with `nosniff`, this caused browsers to reject CSS/JS files
+- Solution: Remove `content-type-html` middleware and use `security-headers-no-nosniff` to allow MIME type sniffing
+- **Why separate middleware?** Traefik doesn't allow removing headers set by earlier middlewares, so we must use a different middleware that never sets `nosniff` in the first place
+
+### Content-Type Headers and File Downloads
+
+**Issue**: Initially, `mpnas.exnada.com` was prompting file downloads instead of displaying HTML pages.
+
+**Root Cause**: The Synology backend was not sending proper `Content-Type: text/html` headers for HTML responses.
+
+**Initial Solution**: Created a middleware to force `Content-Type: text/html` for HTML responses.
+
+**Final Solution**: Discovered the backend was actually sending correct `Content-Type` headers. The real issue was the CSP header blocking JavaScript. Removed the `content-type-html` middleware as it was unnecessary.
+
+**Key Learnings**:
+- **Test thoroughly before adding workarounds**: The initial diagnosis was incorrect
+- Backend services may send correct headers, but other headers (like CSP) can cause issues
+- Browser behavior (download vs display) depends on multiple factors, not just Content-Type
+- Always verify the actual HTTP headers being sent before implementing fixes
+
+### X-Forwarded-Host Header for Backend Routing
+
+**Issue**: Backend services (especially Synology) were not receiving the correct Host header, causing routing issues.
+
+**Root Cause**: Traefik was forwarding requests but the backend needed to know the original hostname for proper routing.
+
+**Solution**: Added `X-Forwarded-Host` to the `customRequestHeaders` in the `security-headers` middleware:
+
+```yaml
+security-headers:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-Proto: "https"
+      X-Forwarded-Host: "{{ route.host }}"  # Added this
+```
+
+**Key Learnings**:
+- Backend services often use the Host header for routing decisions
+- Reverse proxies must forward the original hostname via `X-Forwarded-Host`
+- Some services require both `X-Forwarded-Proto` and `X-Forwarded-Host` for proper HTTPS handling
+- Always include standard proxy headers: `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-For`
+
+### CoreDNS Health Endpoints and Zone Parsing
+
+**Issue**: CoreDNS container was restarting with errors: `error inspecting server blocks: zone is not a valid domain name`.
+
+**Root Cause**: Health, ready, prometheus, and reload endpoint blocks were placed outside zone blocks or in incorrect locations, causing CoreDNS configuration parsing errors.
+
+**Solution**: Removed health/ready/prometheus/reload endpoint blocks entirely. These endpoints require separate server blocks which conflict with zone-based configuration.
+
+**Key Learnings**:
+- CoreDNS configuration syntax is strict about server block placement
+- Health endpoints require dedicated server blocks (e.g., `:8080 { health }`)
+- Mixing zone blocks and endpoint blocks can cause parsing errors
+- For production, use external monitoring instead of built-in health endpoints
+- Docker healthchecks can monitor CoreDNS without built-in endpoints
+
+**Alternative**: If health endpoints are needed, use separate top-level server blocks:
+```corefile
+.:53 {
+    # Main DNS handling
+}
+
+:8080 {
+    health
+}
+```
+
+### CoreDNS Template Plugin and Empty IP Fallback
+
+**Issue**: CoreDNS was failing with empty IP addresses for some hosts, causing zone parsing errors.
+
+**Root Cause**: The template plugin was receiving empty strings for IP addresses when a host's Tailscale IP couldn't be detected.
+
+**Solution**: Implemented a ternary fallback in the Corefile template:
+```jinja2
+{{ (internal_dns_host_ips[host] | default('') | length > 0) | ternary(internal_dns_host_ips[host], tailscale_ip) }}
+```
+
+This ensures that if a host's IP is empty or not found, it falls back to the current host's Tailscale IP (rigel).
+
+**Key Learnings**:
+- **Always validate and provide fallbacks** for dynamic DNS configurations
+- Empty strings in DNS records cause parsing errors
+- Template plugins require valid data, so fallback logic is essential
+- Test DNS resolution for all configured hosts to catch empty IP issues early
+
+### Docker Volume Mounts: Binary vs Directory
+
+**Issue**: Lego container failed with mount error: `error mounting "/opt/lego/data" to rootfs at "/lego": not a directory`.
+
+**Root Cause**: The `goacme/lego` Docker image has `/lego` as a **binary executable**, not a directory. Docker cannot mount a directory over a file.
+
+**Solution**: Changed the internal container mount point from `/lego` to `/data`:
+- Host: `/opt/lego/data` (directory)
+- Container: `/data` (mount point)
+- Binary: `/lego` (executable, not a mount point)
+
+**Key Learnings**:
+- **Always inspect Docker images** before mounting volumes: `docker inspect <image>`
+- Executable files and directories cannot be interchanged in mount points
+- Use `docker run --rm <image> ls -la /` to see image structure
+- Mount points must target directories, not files
+
+**Diagnostic Commands**:
+```bash
+# Inspect image structure
+docker inspect goacme/lego:v4.31.0 | grep -A 10 "Env\|Cmd"
+
+# Check what /lego is
+docker run --rm goacme/lego:v4.31.0 ls -la /lego
+
+# Verify mount point is a directory
+docker run --rm -v /opt/lego/data:/data goacme/lego:v4.31.0 ls -la /data
+```
+
+### GoDaddy DNS API: PUT vs PATCH for Record Creation
+
+**Issue**: Creating DNS records via GoDaddy API failed with HTTP 404 "Not Found" when using `PATCH`.
+
+**Root Cause**: GoDaddy's API requires `PUT` for creating new records for subdomains that don't exist yet. `PATCH` only works for updating existing records.
+
+**Solution**: Implemented a fallback mechanism:
+1. Try `PATCH` first (for updates)
+2. If `PATCH` returns 404, try `PUT` (for creation)
+
+**Key Learnings**:
+- **Different HTTP methods for different operations**: PUT for creation, PATCH for updates
+- Always check API documentation for method requirements
+- Implement fallback logic when API behavior is inconsistent
+- Test both creation and update scenarios
+
+**API Pattern**:
+```bash
+# Update existing record
+PATCH /v1/domains/{domain}/records/{type}/{name}
+
+# Create new record
+PUT /v1/domains/{domain}/records/{type}/{name}
+```
+
+### Duplicate ACME Challenge Records
+
+**Issue**: ACME certificate issuance failed with `DUPLICATE_RECORD` errors for `_acme-challenge` TXT records.
+
+**Root Cause**: Previous failed ACME attempts left `_acme-challenge` TXT records in DNS. New attempts tried to create duplicate records, causing conflicts.
+
+**Solution**: Created cleanup script (`scripts/cleanup-acme-dns-records.sh`) to delete all `_acme-challenge` records before certificate issuance.
+
+**Key Learnings**:
+- **ACME challenges leave records behind** if they fail or are interrupted
+- Always clean up ACME challenge records before retrying
+- Implement cleanup as part of certificate renewal process
+- Monitor DNS for orphaned challenge records
+
+**Prevention**: Consider implementing automatic cleanup in certificate renewal scripts.
+
+### Traefik Router Configuration: Services Required for Redirects
+
+**Issue**: HTTP routers configured with only redirect middleware failed with "the service is missing on the router" error.
+
+**Root Cause**: Traefik requires a service to be defined on every router, even if the router only performs redirects. The redirect middleware doesn't eliminate the service requirement.
+
+**Solution**: Added services to HTTP redirect routers, even though they're only used for redirects.
+
+**Key Learnings**:
+- **Traefik routers always need services**, even for redirect-only routes
+- Redirect middleware doesn't replace the service requirement
+- Use entrypoint-level redirects to avoid this complexity
+- If using router-level redirects, always include a service (even if unused)
+
+### Traefik Static Configuration Not Updating
+
+**Issue**: Template file (`traefik.yml.j2`) was correct, but deployed file on host had old content.
+
+**Root Cause**: Ansible template task was not being executed, or file was manually edited and not tracked.
+
+**Solution**: Verified template content, ensured playbook runs template task, and manually updated file to test.
+
+**Key Learnings**:
+- **Always verify deployed files match templates** after playbook runs
+- Use `ansible-playbook --check` to see what would change
+- Manually verify critical configuration files after deployment
+- Consider using `validate` parameter in template tasks to catch syntax errors early
+
+**Verification**:
+```bash
+# Check what Ansible would change
+ansible-playbook --check playbooks/rigel-production.yml --tags services
+
+# Verify deployed file
+ssh rigel "cat /opt/traefik/traefik.yml"
+
+# Compare with template
+diff <(ssh rigel "cat /opt/traefik/traefik.yml") <(ansible localhost -m template -a "src=ansible/roles/edge_ingress/templates/traefik.yml.j2 dest=/tmp/test.yml" --extra-vars="@ansible/inventories/prod/host_vars/rigel.yml")
+```
+
+### Multiple CoreDNS Containers Running
+
+**Issue**: DNS resolution was inconsistent, sometimes working and sometimes failing.
+
+**Root Cause**: Multiple CoreDNS containers were running simultaneously, causing port conflicts and inconsistent resolution.
+
+**Solution**: Ensured only one CoreDNS container runs by:
+1. Stopping all CoreDNS containers: `docker stop $(docker ps -q --filter name=coredns)`
+2. Removing old containers: `docker rm $(docker ps -aq --filter name=coredns)`
+3. Starting fresh container via Docker Compose
+
+**Key Learnings**:
+- **Always check for duplicate containers** when troubleshooting
+- Use `docker ps -a --filter name=<container>` to find all instances
+- Docker Compose should manage container lifecycle, but manual cleanup may be needed
+- Port conflicts can cause silent failures
+
+**Prevention**: Add container cleanup tasks to Ansible playbooks.
+
+### Traefik ACME DNS Resolution Issues
+
+**Issue**: Traefik's ACME resolver failed with "lookup rigel.exnada.com. on 100.100.100.100:53: no such host" errors.
+
+**Root Cause**: Traefik was trying to use Tailscale DNS (`100.100.100.100`) to verify ACME challenge records, but `rigel.exnada.com` doesn't exist in Tailscale DNS (it's an internal hostname).
+
+**Solution**: Configured Traefik's ACME resolver to use Google DNS servers explicitly:
+
+```yaml
+dnsChallenge:
+  provider: godaddy
+  resolvers:
+    - "8.8.8.8:53"
+    - "8.8.4.4:53"
+```
+
+**Key Learnings**:
+- **ACME verification must use public DNS**, not internal DNS
+- Tailscale DNS doesn't resolve public domain names
+- Always configure explicit DNS resolvers for ACME challenges
+- Internal DNS and ACME verification DNS must be separate
+
+### Certificate System Conflict: Traefik ACME vs Lego
+
+**Issue**: Two certificate systems were running in parallel, causing confusion and potential conflicts:
+- Traefik's built-in ACME resolver (configured in `traefik.yml.j2`)
+- Lego cert_issuer role (deploying certificates to `/opt/traefik/certs/`)
+
+**Root Cause**: Both systems were enabled simultaneously:
+- `edge_ingress` role configured Traefik with `certificatesResolvers: letsencrypt` (built-in ACME)
+- `cert_issuer` role was enabled and issuing certificates via lego
+- Traefik routers used `certResolver: letsencrypt` (not file-based certificates)
+- Lego certificates in `/opt/traefik/certs/` were not being used by Traefik
+
+**Investigation**:
+- Traefik's ACME was configured but failing (DNS resolution errors in logs)
+- Lego certificates existed in `/opt/traefik/certs/` but Traefik wasn't configured to use them
+- Actual certificates being served were from Traefik's built-in ACME (working correctly)
+- Certificate management was inconsistent and confusing
+
+**Solution**: Standardized on **Traefik's built-in ACME resolver** exclusively:
+1. Disabled `cert_issuer` role in `rigel.yml` (`cert_issuer_enabled: false`)
+2. Commented out `cert_issuer` role in production playbook
+3. Updated configuration comments to reflect Traefik ACME usage
+4. Kept Traefik's built-in ACME configuration (simpler, more integrated)
+
+**Why Traefik ACME Over Lego**:
+- **Simpler**: Integrated directly into Traefik, no separate container
+- **Automatic**: Certificates obtained on-demand when routes are accessed
+- **Reliable**: Traefik handles renewal automatically
+- **Less complexity**: No need for separate deployment scripts or systemd timers
+- **Better integration**: Certificates stored in `acme.json`, managed by Traefik
+
+**When to Use Lego Instead**:
+- Need certificates for services other than Traefik
+- Require more control over certificate issuance process
+- Need to share certificates across multiple reverse proxies
+- Prefer file-based certificate management
+
+**Key Learnings**:
+- **Choose ONE certificate system**: Don't run multiple certificate management systems in parallel
+- **Traefik's built-in ACME is simpler** for Traefik-only deployments
+- **Lego provides more control** but adds complexity
+- **Verify which system is actually serving certificates**: Check what Traefik is using
+- **Update configuration comments** to reflect actual certificate management approach
+- **Document certificate management strategy** clearly in host_vars and README
+
+**Configuration Pattern**:
+```yaml
+# Option A: Traefik's built-in ACME (recommended for Traefik-only)
+edge_ingress_enabled: true
+edge_ingress_disable_tls: false
+cert_issuer_enabled: false  # Disabled - using Traefik ACME
+
+# Option B: Lego (for multi-service or advanced control)
+edge_ingress_enabled: true
+edge_ingress_disable_tls: false
+# Configure Traefik for file-based certificates (not certResolver)
+cert_issuer_enabled: true
+```
+
+### General Principles and Best Practices
+
+#### 1. DNS Resolution Determines Routing
+- Where a hostname resolves determines where requests go
+- Reverse-proxied hosts must resolve to the proxy server
+- Direct access hosts can resolve to their own IPs
+
+#### 2. Test Incrementally
+- Test DNS resolution first: `dig @<dns-server> <hostname>`
+- Test HTTP connectivity: `curl -I http://<hostname>`
+- Test HTTPS connectivity: `curl -k -I https://<hostname>`
+- Test full application functionality (not just initial page load)
+
+#### 3. Verify Actual Behavior, Not Assumptions
+- Check actual HTTP headers: `curl -v <url>`
+- Verify DNS resolution: `dig <hostname>`
+- Inspect container logs: `docker logs <container>`
+- Don't assume configuration matches reality
+
+#### 4. Container Image Inspection
+- Always inspect Docker images before mounting volumes
+- Check file structure: `docker run --rm <image> ls -la /`
+- Verify mount points are directories, not files
+- Test mount operations before deploying
+
+#### 5. API Permissions Matter
+- Verify API keys have required permissions (read vs write)
+- Test API operations before integrating
+- Implement fallback logic for inconsistent APIs
+- Document API limitations and requirements
+
+#### 6. Middleware Order Matters
+- Traefik processes middlewares in order
+- Security headers should come after content modifications
+- Redirect middlewares should be early in the chain
+- Test middleware interactions, not just individual middlewares
+
+#### 7. Configuration File Validation
+- Always validate configuration syntax before deploying
+- Use `--check` mode to preview changes
+- Verify deployed files match templates
+- Test configuration reloads, not just initial deployment
+
+### Current State and Remaining Work
+
+#### What's Working
+- ✅ Three-phase deployment model (Bootstrap → Foundation → Production)
+- ✅ Tailscale network connectivity
+- ✅ Internal DNS (CoreDNS) with failthrough for external domains
+- ✅ Edge ingress (Traefik) with HTTPS and HTTP→HTTPS redirect
+- ✅ Certificate issuance (Traefik's built-in ACME with GoDaddy DNS-01)
+- ✅ Reverse proxy routing for internal services
+- ✅ Security headers and middleware configuration
+- ✅ DNS resolution for reverse-proxied hosts
+- ✅ HSTS headers with preload flag
+- ✅ All production scripts integrated in Ansible playbooks
+- ✅ Role execution order optimized for dependencies
+
+#### What Needs Testing
+- ⚠️ **Certificate renewal automation**: Traefik's built-in ACME handles renewal automatically, but should verify it works
+- ⚠️ **Multi-host routing**: Verify all routes work across different hosts (vega, mpnas, rigel)
+- ⚠️ **DNS propagation**: Test DNS changes propagate correctly
+- ⚠️ **Failover scenarios**: What happens if rigel (Traefik) goes down?
+- ⚠️ **Certificate expiration monitoring**: Add alerts for certificates expiring soon
+
+#### What Needs Consideration
+
+##### 1. HTTP→HTTPS Enforcement
+**Current State**: HTTP requests redirect to HTTPS, but HTTP is still accessible.
+
+**Considerations**:
+- Should we block HTTP entirely at the firewall level?
+- Should we add HSTS headers (already configured, but verify enforcement)?
+- Should we configure browsers to only use HTTPS for internal domains?
+
+**Recommendations**:
+- Keep HTTP→HTTPS redirect (current approach is correct)
+- HSTS headers are already configured (31536000 seconds = 1 year)
+- Consider firewall rules to block HTTP on public interfaces (but allow on Tailscale)
+- Monitor for any HTTP-only access attempts
+
+##### 2. SMB/CIFS Access via Reverse Proxy
+**Current State**: SMB access uses Tailscale FQDNs directly (`mpnas.tailb821ac.ts.net`).
+
+**Considerations**:
+- Can SMB be proxied through Traefik? (No - SMB uses port 445, not HTTP/HTTPS)
+- Should we create separate DNS names for SMB? (e.g., `smb-mpnas.exnada.com`)
+- Should we document SMB access patterns?
+
+**Recommendations**:
+- **SMB cannot be proxied**: SMB/CIFS is not HTTP-based, so Traefik cannot proxy it
+- Keep current approach: Use Tailscale FQDNs for SMB access
+- Document SMB access patterns in README
+- Consider creating `smb-*.exnada.com` DNS names if users prefer domain names
+
+##### 3. Certificate Management
+**Current State**: Certificates are issued via Traefik's built-in ACME resolver with GoDaddy DNS-01 challenge. Automatic renewal is handled by Traefik.
+
+**Considerations**:
+- Should we monitor certificate expiration?
+- Should we add certificate expiration alerts?
+- Should we verify automatic renewal is working?
+
+**Recommendations**:
+- **Current approach (Traefik ACME) is correct**: Simpler, more integrated, automatic renewal
+- Add monitoring: Alert on certificate expiration (30 days before expiry)
+- Verify renewal: Test certificate renewal before expiration
+- Consider wildcard certificates: Traefik can obtain per-domain or wildcard certificates
+
+##### 4. DNS Split-Horizon Complexity
+**Current State**: CoreDNS serves internal hosts, forwards external hosts.
+
+**Considerations**:
+- Should we serve all `exnada.com` subdomains internally?
+- Should we have separate internal/external DNS views?
+- How do we handle new subdomains?
+
+**Recommendations**:
+- **Current approach is correct**: Internal hosts resolve to Tailscale IPs, external hosts resolve via public DNS
+- Document DNS resolution patterns clearly
+- Consider DNS views if internal/external split becomes complex
+- Monitor for DNS resolution issues
+
+##### 5. High Availability
+**Current State**: Single Traefik instance on rigel, single CoreDNS instance on rigel.
+
+**Considerations**:
+- What happens if rigel goes down?
+- Should we run Traefik on multiple hosts?
+- Should we run CoreDNS on multiple hosts?
+
+**Recommendations**:
+- **Current approach is acceptable** for small deployments
+- Consider Traefik redundancy if uptime is critical
+- Consider CoreDNS redundancy if DNS is critical
+- Document failover procedures
+
+##### 6. Monitoring and Alerting
+**Current State**: Basic monitoring (sysstat, docker stats), no alerting.
+
+**Considerations**:
+- Should we add Prometheus/Grafana?
+- Should we monitor certificate expiration?
+- Should we monitor DNS resolution?
+- Should we monitor Traefik routing?
+
+**Recommendations**:
+- Add certificate expiration monitoring (critical)
+- Add DNS resolution monitoring (important)
+- Consider Prometheus/Grafana for comprehensive monitoring
+- Document monitoring setup
+
+### Safari Browser HTTPS Warning: "Does Not Support HTTPS"
+
+**Issue**: Safari browser reports that `https://mpnas.exnada.com` "does not support https" and suggests using HTTP instead, despite valid Let's Encrypt certificates and proper HTTPS configuration.
+
+**Root Cause**: Safari detects that HTTP is still accessible (even though it redirects to HTTPS) and may interpret this as the site preferring HTTP over HTTPS. Additionally, Safari may not have cached the HSTS header yet, or there may be mixed content issues.
+
+**Investigation Findings**:
+- ✅ HTTPS is working correctly: Valid Let's Encrypt certificate (CN=mpnas.exnada.com, issuer=Let's Encrypt R13)
+- ✅ Certificate chain is valid: `Verify return code: 0 (ok)`
+- ✅ HTTP→HTTPS redirect is working: `HTTP/1.1 301 Moved Permanently` → `Location: https://mpnas.exnada.com/`
+- ✅ HSTS header is being sent: `strict-transport-security: max-age=31536000; includeSubDomains; preload`
+- ✅ TLS 1.3 is being used: Modern encryption protocol
+- ⚠️ HTTP is still accessible (redirects, but Safari may detect this as "HTTP support")
+
+**Solution**: The configuration is correct. Safari's warning may be due to:
+1. **HSTS not yet cached**: Safari needs to see the HSTS header at least once before it remembers HTTPS-only
+2. **HTTP accessibility**: Safari detects HTTP is accessible (even with redirect) and may warn
+3. **Browser cache**: Safari may have cached an old HTTP-only state
+
+**Immediate Actions Taken**:
+1. Verified HSTS header is being sent with `preload` flag
+2. Verified HTTP redirects are permanent (301) to HTTPS
+3. Verified certificate is valid and trusted
+4. Ensured all security headers are properly configured
+
+**Resolution Steps for Users**:
+1. **Clear Safari cache and HSTS data**:
+   - Safari → Settings → Privacy → Manage Website Data → Remove all data for `mpnas.exnada.com`
+   - Or: Safari → Develop → Empty Caches
+2. **Visit HTTPS directly**: Navigate to `https://mpnas.exnada.com` (not HTTP)
+3. **Wait for HSTS to cache**: After first HTTPS visit, Safari will cache HSTS for 1 year
+4. **Verify certificate**: Click the padlock icon → Show Certificate → Verify it's from Let's Encrypt
+
+**Configuration Verification**:
+```bash
+# Verify HTTPS is working
+curl -I https://mpnas.exnada.com
+
+# Verify HSTS header is sent
+curl -I https://mpnas.exnada.com | grep -i strict-transport
+
+# Verify certificate is valid
+openssl s_client -connect mpnas.exnada.com:443 -servername mpnas.exnada.com < /dev/null | grep "Verify return code"
+
+# Verify HTTP redirects
+curl -I http://mpnas.exnada.com | grep -E '(HTTP|Location)'
+```
+
+**Key Learnings**:
+- **HSTS requires first visit**: Browsers must see HSTS header at least once before enforcing HTTPS-only
+- **Safari is strict**: Safari may warn if HTTP is accessible, even with redirects
+- **Certificate validity is not enough**: Browsers also check for HSTS and proper redirects
+- **Browser cache matters**: Old HTTP-only states may be cached
+- **Preload flag helps**: HSTS preload ensures browsers never attempt HTTP connections
+
+**Future Considerations**:
+- Consider submitting to HSTS preload list (requires `preload` flag, which we have)
+- Monitor for any mixed content issues (HTTP resources on HTTPS pages)
+- Consider firewall-level HTTP blocking (but this would break redirects)
+
+**Status**: ✅ Configuration is correct. Safari warning should resolve after:
+1. Clearing browser cache/HSTS data
+2. Visiting HTTPS directly
+3. Allowing HSTS to cache (automatic after first visit)
+
+---
+
+### Future Improvements
+
+1. **Automated Testing**: Add integration tests for DNS resolution, Traefik routing, certificate renewal
+2. **Documentation**: Add architecture diagrams, network flow diagrams
+3. **Monitoring**: Implement comprehensive monitoring and alerting
+4. **High Availability**: Consider redundant Traefik and CoreDNS instances
+5. **Security Hardening**: Review and enhance security headers, firewall rules
+6. **Performance Optimization**: Optimize DNS caching, Traefik routing performance
+7. **HSTS Preload Submission**: Submit domains to HSTS preload list for maximum security
+
+---
+
 ## Next Steps
 
 Once your first Pi is set up:

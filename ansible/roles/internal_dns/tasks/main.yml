@@ -110,12 +110,100 @@
       ============================================================================
     success_msg: "✓ Tailscale IPv4 address detected: {{ tailscale_ip_result.stdout }}"
 
-- name: Set Tailscale IP fact
+- name: Set Tailscale IP fact for current host
   when: 
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
   set_fact:
     tailscale_ip: "{{ tailscale_ip_result.stdout.strip() }}"
+
+- name: Get Tailscale status for all peers
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+  command: tailscale status
+  register: tailscale_status_all
+  changed_when: false
+
+- name: Initialize host IPs dictionary
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+  set_fact:
+    internal_dns_host_ips: "{{ dict() }}"
+
+- name: Extract Tailscale IP for each host using shell script
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+  shell: |
+    tailscale status | grep -E "^\s*[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\s+{{ item }}\s" | awk '{print $1}'
+  register: host_ip_result
+  loop: "{{ internal_dns_private_hosts }}"
+  changed_when: false
+  failed_when: false
+
+- name: Build host IPs dictionary from extracted IPs
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+  set_fact:
+    internal_dns_host_ips: >-
+      {{
+        internal_dns_host_ips | combine({
+          item.item: (item.stdout | default('') | trim)
+        })
+      }}
+  loop: "{{ host_ip_result.results | default([]) }}"
+  vars:
+    internal_dns_host_ips: "{{ internal_dns_host_ips | default({}) }}"
+
+- name: Override DNS IPs for reverse-proxied hosts (resolve to rigel for HTTP/HTTPS)
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+    - edge_ingress_enabled | default(false)
+  set_fact:
+    internal_dns_host_ips: >-
+      {{
+        internal_dns_host_ips | combine({
+          item: tailscale_ip
+        })
+      }}
+  loop: "{{ edge_ingress_routes | map(attribute='host') | map('regex_replace', '^([^.]+)\\..*', '\\1') | list | unique }}"
+  vars:
+    internal_dns_host_ips: "{{ internal_dns_host_ips | default({}) }}"
+
+- name: Merge manual IP mappings if provided
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+    - internal_dns_manual_host_ips is defined
+  set_fact:
+    internal_dns_host_ips: "{{ internal_dns_host_ips | combine(internal_dns_manual_host_ips) }}"
+
+- name: Use current host IP as fallback for hosts not found
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+  set_fact:
+    internal_dns_host_ips: >-
+      {{
+        internal_dns_host_ips | combine({
+          item: ((internal_dns_host_ips[item] | default('') | length > 0) | ternary(internal_dns_host_ips[item], tailscale_ip))
+        })
+      }}
+  loop: "{{ internal_dns_private_hosts }}"
+  vars:
+    internal_dns_host_ips: "{{ internal_dns_host_ips | default({}) }}"
+
+- name: Display resolved host IPs
+  when: 
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
+  debug:
+    msg: "Resolved DNS IPs: {{ internal_dns_host_ips }}"
+
 
 - name: Ensure CoreDNS data directory exists
   when: internal_dns_enabled | default(false)

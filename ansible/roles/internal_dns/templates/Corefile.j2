@@ -1,9 +1,10 @@
 {{ internal_dns_domain }}:53 {
     # Serve only specific private hosts authoritatively using template
     # This allows www.exnada.com and other external subdomains to be forwarded upstream
+    # Each host resolves to its own Tailscale IP (not all to rigel's IP)
 {% for host in internal_dns_private_hosts %}
     template IN A {{ host }}.{{ internal_dns_domain }} {
-        answer "{{ host }}.{{ internal_dns_domain }} 3600 IN A {{ tailscale_ip }}"
+        answer "{{ host }}.{{ internal_dns_domain }} 3600 IN A {{ (internal_dns_host_ips[host] | default('') | length > 0) | ternary(internal_dns_host_ips[host], tailscale_ip) }}"
     }
 {% endfor %}
     # Cache responses with configurable TTL
@@ -19,36 +20,6 @@
     errors
 }
 
-.:53 {
-    # Cache responses
-    cache {
-        success {{ internal_dns_cache_ttl | default(3600) }}
-        denial {{ internal_dns_cache_ttl | default(3600) }}
-    }
-    # Prevent forwarding loops
-    loop
-    # Forward all queries to upstream DNS servers
-    forward . {{ internal_dns_upstream_servers | join(' ') }}
-    log
-    errors
-}
-
-# Health check endpoint
-:{{ internal_dns_health_port | default(8080) }} {
-    health
-}
-
-# Readiness check endpoint
-:{{ internal_dns_ready_port | default(8181) }} {
-    ready
-}
-
-# Prometheus metrics endpoint
-:{{ internal_dns_prometheus_port | default(9153) }} {
-    prometheus
-}
-
-# Reload endpoint for config hot-reload
-:{{ internal_dns_reload_port | default(8182) }} {
-    reload
-}
+# Health, ready, prometheus, and reload endpoints are disabled
+# They require separate server blocks which cause zone parsing errors
+# Use docker healthchecks or external monitoring instead

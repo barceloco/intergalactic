@@ -26,22 +26,26 @@ docker_deploy_tcp_ports:
 internal_dns_enabled: true
 internal_dns_domain: exnada.com
 internal_dns_private_hosts:
-  - mpnas
-  - aispector
-  - dev
+  # HTTP/HTTPS hosts resolve to rigel (Traefik) for reverse proxy routing
+  - mpnas      # Resolves to rigel for HTTP/HTTPS (Traefik), use mpnas.tailb821ac.ts.net for SMB
+  - aispector  # Resolves to rigel for HTTP/HTTPS (Traefik)
+  - dev        # Resolves to rigel for HTTP/HTTPS (Traefik)
+  # Direct access hosts resolve to their own IPs
+  - vega       # Resolves to vega's IP (direct access)
+  - rigel      # Resolves to rigel's IP (direct access)
 
 # Edge ingress configuration
 edge_ingress_enabled: true
 edge_ingress_domain: exnada.com
 edge_ingress_acme_email: admin@exnada.com
 edge_ingress_use_tailscale_fqdn: true
-edge_ingress_disable_tls: false  # TLS enabled - certificates managed by cert_issuer role
+edge_ingress_disable_tls: false  # TLS enabled - certificates managed by Traefik's built-in ACME resolver
 edge_ingress_backend_timeout_connect: 30s
 edge_ingress_backend_timeout_response: 60s
 edge_ingress_routes:
   - host: mpnas.exnada.com
     backend: http://mpnas:5000
-    force_html_content_type: true  # Synology doesn't send Content-Type header
+    force_html_content_type: true  # Use security-headers-no-nosniff (Synology sends correct Content-Type, but nosniff blocks CSS/JS)
     # No health_path - Synology doesn't provide a health endpoint
   - host: aispector.exnada.com
     backend: http://vega:8000
@@ -51,9 +55,12 @@ edge_ingress_routes:
     health_path: /health
 
 # Certificate issuer configuration (lego with GoDaddy DNS-01)
-cert_issuer_enabled: true
-cert_issuer_domain: exnada.com
-cert_issuer_wildcard: true  # *.exnada.com + exnada.com
-cert_issuer_email: admin@exnada.com
-  cert_issuer_ca_server: production  # Production Let's Encrypt certificates
-cert_issuer_renew_days: 30
+# DISABLED: Using Traefik's built-in ACME resolver instead (simpler, more integrated)
+# Traefik automatically obtains and renews certificates via GoDaddy DNS-01 challenge
+# Certificates are stored in /opt/traefik/acme.json
+cert_issuer_enabled: false  # Disabled - using Traefik's built-in ACME
+# cert_issuer_domain: exnada.com
+# cert_issuer_wildcard: true  # *.exnada.com + exnada.com
+# cert_issuer_email: admin@exnada.com
+# cert_issuer_ca_server: production  # Production Let's Encrypt certificates
+# cert_issuer_renew_days: 30

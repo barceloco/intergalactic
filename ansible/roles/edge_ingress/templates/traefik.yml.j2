@@ -12,10 +12,13 @@ entryPoints:
           to: websecure
           scheme: https
           permanent: true
+    # Force HTTPS-only: reject HTTP connections after redirect
+    # This ensures browsers understand the site ONLY supports HTTPS
 {% endif %}
 
   websecure:
     address: ":443"
+    # HTTPS-only entrypoint - all traffic must use this
 
 certificatesResolvers:
   letsencrypt:
