@@ -1291,6 +1291,37 @@ If you have hosts that were previously configured with the old single-phase appr
 
 This section documents critical issues, solutions, and insights discovered through extensive troubleshooting and deployment. These lessons will save significant time in future deployments and troubleshooting.
 
+### SMB/NetBIOS Protocol Limitations with FQDNs
+
+**Issue**: `smb://mpnas.exnada.com` fails with "Connection refused" or "The specified netbios name [mpnas.exnada.com] is too long!" error, while `smb://mpnas` works correctly.
+
+**Root Cause**: The SMB/CIFS protocol uses NetBIOS name resolution, which has a **hard 15-character limit** for NetBIOS names. FQDNs like `mpnas.exnada.com` (17 characters) exceed this limit and cannot be used as NetBIOS names.
+
+**Symptoms**:
+- `smbclient -L //mpnas.exnada.com` → "Connection refused" or "netbios name too long"
+- `smbclient -L //mpnas` → Works (prompts for password)
+- `smbclient -L //100.120.170.43` → Works (with IP override)
+- Finder cannot connect to `smb://mpnas.exnada.com`
+- Finder can connect to `smb://mpnas` or `smb://100.120.170.43`
+
+**Technical Details**:
+- SMB client uses NetBIOS name resolution by default
+- NetBIOS names are limited to 15 characters (plus null terminator = 16 bytes total)
+- The server's NetBIOS name is `MPNAS` (5 characters), which works
+- FQDNs like `mpnas.exnada.com` cannot be used as NetBIOS names
+- DNS resolution works correctly (`mpnas.exnada.com` → `100.120.170.43`), but SMB protocol limitation prevents usage
+
+**Solution**: Use one of these alternatives:
+1. **Short hostname** (recommended): `smb://mpnas` - Works because it matches the NetBIOS name
+2. **IP address**: `smb://100.120.170.43` - Bypasses NetBIOS name resolution
+3. **Tailscale FQDN**: `smb://mpnas.tailb821ac.ts.net` - Uses Tailscale MagicDNS (may work depending on client)
+
+**Key Insight**: This is a **protocol limitation**, not a configuration issue. The SMB/NetBIOS protocol was designed in the 1980s when FQDNs were not common, and the 15-character limit is hardcoded in the protocol specification.
+
+**Prevention**: When designing DNS names for SMB-accessible services, ensure the short hostname (first label) is 15 characters or less, or use IP addresses/Tailscale hostnames for SMB access.
+
+**Related Configuration**: `mpnas.exnada.com` was removed from Traefik reverse proxy routing and is now **DNS-only** (resolves directly to mpnas's IP: `100.120.170.43`). This allows direct SMB access while maintaining DNS resolution for HTTP/HTTPS (which bypass Traefik and go directly to mpnas).
+
 ### DNS Provider Limitations: Hostinger vs GoDaddy
 
 **Issue**: Traefik's built-in ACME resolver failed to obtain Let's Encrypt certificates using Hostinger DNS API.
