@@ -1342,26 +1342,29 @@ exnada.com:53 {
 
 ### DNS Resolution for Reverse-Proxy Routing
 
-**Issue**: HTTP requests to `mpnas.exnada.com` were going directly to mpnas (bypassing Traefik), resulting in no HTTPS redirect and direct HTTP access.
+**Issue**: `mpnas.exnada.com` was initially configured for Traefik reverse proxy routing, but this conflicted with SMB/CIFS access requirements.
 
-**Root Cause**: `mpnas.exnada.com` was resolving to mpnas's Tailscale IP (`100.120.170.43`), so browsers connected directly to mpnas instead of rigel (where Traefik runs).
+**Root Cause**: 
+1. Traefik routing requires `mpnas.exnada.com` to resolve to rigel's IP for HTTP/HTTPS routing
+2. SMB/CIFS access requires direct connection to mpnas's IP
+3. SMB/NetBIOS protocol has a 15-character limit, so `mpnas.exnada.com` (17 chars) cannot be used as a NetBIOS name
 
-**Solution**: Modified DNS resolution so reverse-proxied hosts resolve to rigel's IP (where Traefik runs):
-- `mpnas.exnada.com` → `100.72.27.93` (rigel/Traefik) - for HTTP/HTTPS
-- `aispector.exnada.com` → `100.72.27.93` (rigel/Traefik) - for HTTP/HTTPS
-- `dev.exnada.com` → `100.72.27.93` (rigel/Traefik) - for HTTP/HTTPS
-
-**Implementation**: Added logic in `internal_dns` role to override DNS IPs for hosts that are configured in `edge_ingress_routes`, forcing them to resolve to the Traefik host (rigel).
+**Solution**: Removed `mpnas.exnada.com` from Traefik routing. It now resolves directly to mpnas's IP via DNS only:
+- `mpnas.exnada.com` → `100.120.170.43` (mpnas's Tailscale IP) - DNS-only, no Traefik
+- HTTP/HTTPS requests go directly to mpnas (bypass Traefik)
+- SMB/CIFS access works with short hostname: `smb://mpnas`
 
 **Key Learnings**:
 - **DNS resolution determines routing**: If a hostname resolves to a backend server, requests bypass the reverse proxy
-- Reverse-proxied hosts must resolve to the proxy server's IP, not the backend's IP
-- SMB/CIFS access can still work using Tailscale FQDNs directly: `mpnas.tailb821ac.ts.net`
-- This is a fundamental principle: DNS resolution and reverse proxy routing are tightly coupled
+- **SMB/NetBIOS has protocol limitations**: FQDNs cannot be used for SMB due to 15-character NetBIOS name limit
+- **Not all services need reverse proxy**: Some services (like SMB) work better with direct access
+- **DNS-only resolution is valid**: Not all hostnames need Traefik routing
 
 **For SMB Access**:
-- Use Tailscale FQDNs directly: `smb://mpnas.tailb821ac.ts.net/armand`
-- Or create separate DNS names: `smb-mpnas.exnada.com` → mpnas's IP
+- **Use short hostname**: `smb://mpnas` (recommended - works with NetBIOS name `MPNAS`)
+- **Use Tailscale FQDN**: `smb://mpnas.tailb821ac.ts.net` (alternative)
+- **Use IP address**: `smb://100.120.170.43` (direct, bypasses DNS)
+- **Cannot use FQDN**: `smb://mpnas.exnada.com` does NOT work due to NetBIOS 15-character limit
 
 ### HTTP→HTTPS Redirect: Entrypoint-Level vs Router-Level
 
@@ -1866,19 +1869,26 @@ cert_issuer_enabled: true
 - Consider firewall rules to block HTTP on public interfaces (but allow on Tailscale)
 - Monitor for any HTTP-only access attempts
 
-##### 2. SMB/CIFS Access via Reverse Proxy
-**Current State**: SMB access uses Tailscale FQDNs directly (`mpnas.tailb821ac.ts.net`).
+##### 2. SMB/CIFS Access Limitations
+**Current State**: `mpnas.exnada.com` is DNS-only (no Traefik routing). SMB access uses direct connection to mpnas.
 
-**Considerations**:
-- Can SMB be proxied through Traefik? (No - SMB uses port 445, not HTTP/HTTPS)
-- Should we create separate DNS names for SMB? (e.g., `smb-mpnas.exnada.com`)
-- Should we document SMB access patterns?
+**Key Limitation**: SMB/NetBIOS protocol has a **15-character limit** for NetBIOS names. FQDNs like `mpnas.exnada.com` (17 characters) cannot be used as NetBIOS names.
+
+**Working Solutions**:
+- **Short hostname**: `smb://mpnas` (recommended - matches NetBIOS name `MPNAS`)
+- **Tailscale FQDN**: `smb://mpnas.tailb821ac.ts.net` (uses Tailscale MagicDNS)
+- **IP address**: `smb://100.120.170.43` (direct, bypasses DNS/NetBIOS)
+
+**Why `smb://mpnas.exnada.com` doesn't work**:
+- SMB client uses NetBIOS name resolution by default
+- NetBIOS names are limited to 15 characters
+- `mpnas.exnada.com` (17 chars) exceeds this limit
+- Error: "The specified netbios name [mpnas.exnada.com] is too long!"
 
 **Recommendations**:
-- **SMB cannot be proxied**: SMB/CIFS is not HTTP-based, so Traefik cannot proxy it
-- Keep current approach: Use Tailscale FQDNs for SMB access
-- Document SMB access patterns in README
-- Consider creating `smb-*.exnada.com` DNS names if users prefer domain names
+- **SMB cannot be proxied**: SMB/CIFS uses port 445, not HTTP/HTTPS, so Traefik cannot proxy it
+- **FQDNs don't work for SMB**: Use short hostname or IP address instead
+- **DNS resolution works**: `mpnas.exnada.com` resolves correctly, but SMB protocol limitation prevents usage
 
 ##### 3. Certificate Management
 **Current State**: Certificates are issued via Traefik's built-in ACME resolver with GoDaddy DNS-01 challenge. Automatic renewal is handled by Traefik.

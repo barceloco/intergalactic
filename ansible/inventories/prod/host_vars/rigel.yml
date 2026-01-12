@@ -43,10 +43,8 @@ edge_ingress_disable_tls: false  # TLS enabled - certificates managed by Traefik
 edge_ingress_backend_timeout_connect: 30s
 edge_ingress_backend_timeout_response: 60s
 edge_ingress_routes:
-  - host: mpnas.exnada.com
-    backend: https://mpnas:5001  # Port 5001 is HTTPS, not HTTP
-    # force_html_content_type: false  # TEMPORARILY DISABLED - using standard security headers only (no special middlewares)
-    # No health_path - Synology doesn't provide a health endpoint
+  # mpnas.exnada.com REMOVED - DNS only, no Traefik routing
+  # mpnas.exnada.com resolves directly to mpnas's IP for SMB and direct access
   - host: aispector.exnada.com
     backend: http://vega:8000
     health_path: /health
