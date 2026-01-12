@@ -60,10 +60,13 @@ CoreDNS uses a **split-horizon** approach:
 - This ensures `www.exnada.com` and other external subdomains resolve via public DNS while internal hosts resolve to Tailscale IPs
 
 **Example**:
-- `aispector.exnada.com` → Returns Tailscale IP (authoritative, AA flag)
+- `mpnas.exnada.com` → Returns mpnas's Tailscale IP (authoritative, AA flag) - DNS-only, no reverse proxy
+- `aispector.exnada.com` → Returns rigel's Tailscale IP (authoritative, AA flag) - routed via Traefik
 - `www.exnada.com` → Forwards to public DNS (recursive, no AA flag)
 - `mail.exnada.com` → Forwards to public DNS (recursive, no AA flag)
 - `foo.exnada.com` → Forwards to public DNS (recursive, no AA flag)
+
+**Note**: Hosts in `internal_dns_private_hosts` that are NOT in `edge_ingress_routes` resolve directly to their own Tailscale IPs (DNS-only, no reverse proxy). Hosts that ARE in `edge_ingress_routes` resolve to the Traefik host's IP for reverse proxy routing.
 
 ### Authoritative Zone
 

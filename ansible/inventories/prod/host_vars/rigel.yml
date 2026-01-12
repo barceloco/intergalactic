@@ -26,8 +26,9 @@ docker_deploy_tcp_ports:
 internal_dns_enabled: true
 internal_dns_domain: exnada.com
 internal_dns_private_hosts:
+  # DNS-only hosts (no Traefik routing) - resolve directly to their own IPs
+  - mpnas      # DNS-only: resolves to mpnas's IP (100.120.170.43) for direct access (HTTP/HTTPS/SMB)
   # HTTP/HTTPS hosts resolve to rigel (Traefik) for reverse proxy routing
-  - mpnas      # Resolves to rigel for HTTP/HTTPS (Traefik), use mpnas.tailb821ac.ts.net for SMB
   - aispector  # Resolves to rigel for HTTP/HTTPS (Traefik)
   - dev        # Resolves to rigel for HTTP/HTTPS (Traefik)
   # Direct access hosts resolve to their own IPs
