@@ -44,8 +44,8 @@ edge_ingress_backend_timeout_connect: 30s
 edge_ingress_backend_timeout_response: 60s
 edge_ingress_routes:
   - host: mpnas.exnada.com
-    backend: http://mpnas:5000
-    force_html_content_type: true  # Use security-headers-no-nosniff (Synology sends correct Content-Type, but nosniff blocks CSS/JS)
+    backend: https://mpnas:5001  # Port 5001 is HTTPS, not HTTP
+    # force_html_content_type: false  # TEMPORARILY DISABLED - using standard security headers only (no special middlewares)
     # No health_path - Synology doesn't provide a health endpoint
   - host: aispector.exnada.com
     backend: http://vega:8000
