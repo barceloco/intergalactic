@@ -40,14 +40,16 @@
       file:
         path: "{{ docker_data_root | default('/var/lib/docker') }}"
         state: directory
-        mode: '0711'
+        mode: '0750'
         owner: root
-        group: root
+        group: docker
       when:
         - enable_docker | default(false)
         - docker_data_root is defined
         - docker_data_root != '/var/lib/docker'
-      # Docker requires 711 permissions for data-root directory
+      # Docker requires at least 711 permissions for data-root directory
+      # Group is set to docker so users in docker group can read/list
+      # Permissions 750: owner (root) rwx, group (docker) r-x, others none
 
     - name: Stop Docker before configuring data-root (if changing from default)
       service:

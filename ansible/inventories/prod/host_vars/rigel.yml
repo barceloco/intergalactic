@@ -21,6 +21,10 @@ docker_deploy_tcp_ports:
   - 6379   # Redis
   - 9000   # MinIO
   - 9001   # MinIO
+# Configure Docker to use CoreDNS for DNS resolution (so containers can resolve Tailscale hostnames)
+docker_deploy_dns_servers:
+  - 127.0.0.1  # CoreDNS (for Tailscale hostname resolution)
+  - 8.8.8.8    # Fallback to Google DNS
 
 # Internal DNS configuration
 internal_dns_enabled: true

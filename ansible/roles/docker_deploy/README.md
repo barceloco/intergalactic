@@ -38,7 +38,7 @@ Sets up a dedicated `deploy` user for Docker container deployment with SSH acces
 
 ## Directory Structure Created
 
-- `/home/deploy/docker/` - Docker data-root (711 permissions, owned by deploy)
+- `/home/deploy/docker/` - Docker data-root (750 permissions, owned by root:docker)
 - `/home/deploy/srv/` - Service data (755 permissions, owned by deploy)
 - `/home/deploy/logs/apps/` - Application logs (755 permissions, owned by deploy)
 
@@ -129,7 +129,7 @@ The role sets `docker_deploy_tcp_ports` fact which is automatically merged into 
 - **SSH Keys**: Copied from `armand` user - ensure `armand` has secure keys
 - **Sudo Access**: `deploy` user has passwordless sudo - treat as privileged user
 - **Docker Group**: `deploy` user is in `docker` group (root-equivalent access)
-- **Directory Permissions**: Docker data-root uses 711 permissions (required by Docker)
+- **Directory Permissions**: Docker data-root uses 750 permissions (root:docker) - allows deploy user to read/list via docker group membership
 
 ## Troubleshooting
 

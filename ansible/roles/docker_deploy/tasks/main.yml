@@ -45,6 +45,16 @@
     append: true
     state: present
 
+- name: Ensure deploy user home directory has correct ownership and permissions
+  when: enable_docker_deploy | default(false)
+  file:
+    path: /home/deploy
+    state: directory
+    owner: deploy
+    group: deploy
+    mode: '0755'
+  # This ensures the deploy user can create directories like .docker in their home directory
+
 - name: Ensure deploy user SSH authorized_keys in system location
   when: enable_docker_deploy | default(false)
   copy:
@@ -63,6 +73,42 @@
   # Explicit reload ensures SSH picks up the deploy user keys immediately
   # Using reloaded instead of restarted to avoid dropping existing connections
   # This is critical for the deploy user to be able to SSH in after playbook completion
+
+- name: Generate SSH key pair for deploy user (if missing)
+  when: enable_docker_deploy | default(false)
+  block:
+    - name: Check if deploy user SSH key pair exists
+      stat:
+        path: /home/deploy/.ssh/id_ed25519
+      register: deploy_ssh_key
+
+    - name: Ensure .ssh directory exists with correct permissions
+      file:
+        path: /home/deploy/.ssh
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: '0700'
+
+    - name: Generate SSH key pair for deploy user
+      shell: su - deploy -c "ssh-keygen -t ed25519 -f /home/deploy/.ssh/id_ed25519 -N '' -C 'deploy@{{ ansible_hostname }}'"
+      args:
+        creates: /home/deploy/.ssh/id_ed25519
+      when: not deploy_ssh_key.stat.exists
+      # Generate ed25519 key without passphrase (suitable for automation)
+      # Use su to run as deploy user to ensure keys are created with correct ownership
+
+    - name: Ensure SSH key pair has correct permissions
+      file:
+        path: "{{ item.path }}"
+        owner: deploy
+        group: deploy
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: /home/deploy/.ssh/id_ed25519, mode: '0600' }
+        - { path: /home/deploy/.ssh/id_ed25519.pub, mode: '0644' }
+      # Set permissions: 600 for private key, 644 for public key
+      # This ensures permissions are correct whether key existed before or was just created
 
 - name: Passwordless sudo for deploy user (no-password policy, no TTY required)
   when: enable_docker_deploy | default(false)
@@ -106,10 +152,13 @@
       file:
         path: /home/deploy/docker
         state: directory
-        owner: deploy
-        group: deploy
-        mode: '0711'
-      # Docker requires 711 permissions for data-root directory
+        owner: root
+        group: docker
+        mode: '0750'
+      # Docker requires at least 711 permissions for data-root directory
+      # Ownership must be root because Docker daemon runs as root
+      # Group is set to docker so deploy user (member of docker group) can read/list
+      # Permissions 750: owner (root) rwx, group (docker) r-x, others none
 
     - name: Create /home/deploy/srv directory (service data)
       file:
@@ -221,6 +270,17 @@
         owner: root
         group: root
       notify: Restart docker
+
+- name: Ensure Docker data-root directory has correct permissions (after Docker may have changed them)
+  when: enable_docker_deploy | default(false)
+  file:
+    path: /home/deploy/docker
+    state: directory
+    owner: root
+    group: docker
+    mode: '0750'
+  # Docker may change permissions when it starts, so we ensure they're correct
+  # This allows deploy user (member of docker group) to read/list the directory
 
 - name: Set fact for docker_deploy_tcp_ports (for firewall integration)
   when: enable_docker_deploy | default(false)

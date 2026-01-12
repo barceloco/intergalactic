@@ -111,7 +111,7 @@
 
     - name: Set tailnet name fact
       set_fact:
-        detected_tailnet_name: "{{ tailnet_name_json.stdout.strip() }}"
+        detected_tailnet_name: "{{ (tailnet_name_json.stdout.strip() | regex_replace('\\.+$', '') | trim) }}"
 
     - name: Use configured tailnet name if provided, otherwise use detected
       set_fact:
@@ -124,7 +124,7 @@
     - final_tailnet_name is defined
     - final_tailnet_name | length > 0
   set_fact:
-    resolved_routes: "{{ resolved_routes | default([]) + [item | combine({'backend_resolved': (item.backend | regex_replace('://([^:/]+)(:.*)?$', '://\\1.' + (final_tailnet_name | trim) + '\\2') | regex_replace('\\.+', '.') | regex_replace(':\\.', ':'))})] }}"
+    resolved_routes: "{{ resolved_routes | default([]) + [item | combine({'backend_resolved': (item.backend | regex_replace('://([^:/]+)(:.*)?$', '://\\1.' + (final_tailnet_name | trim | regex_replace('\\.+$', '')) + '\\2') | regex_replace('\\.+', '.') | regex_replace(':\\.', ':') | regex_replace('\\.(:)', '\\1'))})] }}"
   loop: "{{ edge_ingress_routes }}"
 
 - name: Use original backend URLs if FQDN resolution not needed
