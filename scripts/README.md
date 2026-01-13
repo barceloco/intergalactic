@@ -50,6 +50,41 @@ To run scripts on rigel from your local Mac, use the `run-on-rigel.sh` wrapper:
 ./scripts/run-ansible.sh prod rigel production
 ```
 
+### `run-edge-ingress.sh` ⚡
+
+**Purpose**: Quick deployment/update of edge_ingress (Traefik) role only - **much faster** for iteration
+
+**Usage**:
+```bash
+./scripts/run-edge-ingress.sh [env] [hostname]
+```
+
+**What it does**:
+- Runs only the `edge_ingress` role
+- Skips validation and health-check tags (faster)
+- Uses same Docker setup as `run-ansible.sh`
+
+**Examples**:
+```bash
+# Quick Traefik update on rigel
+./scripts/run-edge-ingress.sh prod rigel
+
+# With additional Ansible arguments
+./scripts/run-edge-ingress.sh prod rigel --check  # dry-run
+./scripts/run-edge-ingress.sh prod rigel -v      # verbose
+```
+
+**When to use**:
+- Testing Traefik configuration changes
+- Updating ACME certificate settings
+- Iterating on routing configuration
+- **Much faster** than running full production playbook
+
+**To run validation separately**:
+```bash
+./scripts/run-ansible.sh prod rigel production --tags validation,health-check
+```
+
 **Features**:
 - Automatically selects correct inventory file based on phase
 - Handles SSH key mounting for Docker container

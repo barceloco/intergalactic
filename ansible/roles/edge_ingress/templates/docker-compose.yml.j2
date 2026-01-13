@@ -14,9 +14,20 @@ services:
       - "--providers.docker=false"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
+      - "--log.level=INFO"
+      - "--log.format=json"
     environment:
       - GODADDY_API_KEY={{ godaddy_api_key }}
       - GODADDY_API_SECRET={{ godaddy_api_secret }}
+      - GODADDY_PROPAGATION_TIMEOUT={{ edge_ingress_acme_propagation_timeout | default(300) }}
+      - GODADDY_POLLING_INTERVAL={{ edge_ingress_acme_polling_interval | default(10) }}
+      - GODADDY_TTL={{ edge_ingress_acme_dns_ttl | default(600) }}
     restart: always
     cap_add:
       - NET_BIND_SERVICE
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=traefik"
