@@ -117,15 +117,22 @@
       set_fact:
         final_tailnet_name: "{{ edge_ingress_tailnet_name if (edge_ingress_tailnet_name | length > 0) else detected_tailnet_name }}"
 
-- name: Build backend URLs with Tailscale FQDNs
+- name: Build backend URLs with Tailscale FQDNs (skip for localhost/IP addresses/same host)
   when:
     - edge_ingress_enabled | default(false)
     - edge_ingress_use_tailscale_fqdn | default(true)
     - final_tailnet_name is defined
     - final_tailnet_name | length > 0
+  vars:
+    backend_host: "{{ item.backend | regex_replace('^[^:]+://', '') | regex_replace('[:/].*$', '') }}"
+    # Skip FQDN conversion for: localhost, 127.0.0.1, IP addresses, or same hostname
+    should_skip_fqdn: "{{ backend_host == 'localhost' or backend_host == '127.0.0.1' or backend_host is regex('^([0-9]+\\.){3}[0-9]+$') or backend_host == inventory_hostname }}"
+    resolved_backend: "{{ item.backend if should_skip_fqdn else (item.backend | regex_replace('://([^:/]+)(:.*)?$', '://\\1.' + (final_tailnet_name | trim | regex_replace('\\.+$', '')) + '\\2') | regex_replace('\\.+', '.') | regex_replace(':\\.', ':') | regex_replace('\\.(:)', '\\1')) }}"
   set_fact:
-    resolved_routes: "{{ resolved_routes | default([]) + [item | combine({'backend_resolved': (item.backend | regex_replace('://([^:/]+)(:.*)?$', '://\\1.' + (final_tailnet_name | trim | regex_replace('\\.+$', '')) + '\\2') | regex_replace('\\.+', '.') | regex_replace(':\\.', ':') | regex_replace('\\.(:)', '\\1'))})] }}"
+    resolved_routes: "{{ resolved_routes | default([]) + [item | combine({'backend_resolved': resolved_backend})] }}"
   loop: "{{ edge_ingress_routes }}"
+  loop_control:
+    label: "{{ item.host }}"
 
 - name: Use original backend URLs if FQDN resolution not needed
   when:
@@ -177,6 +184,15 @@
     owner: root
     group: root
 
+- name: Fix ACME file permissions if incorrect
+  when: edge_ingress_enabled | default(false)
+  file:
+    path: "{{ edge_ingress_data_dir }}/acme.json"
+    mode: '0600'
+    owner: root
+    group: root
+  # This ensures permissions are always correct, even if file was created with wrong permissions
+
 - name: Deploy Traefik static configuration
   when: edge_ingress_enabled | default(false)
   template:
@@ -207,21 +223,25 @@
     group: root
   notify: Restart traefik
 
-- name: Check if Traefik container is running
+- name: Deploy Traefik systemd service
   when: edge_ingress_enabled | default(false)
-  command: docker ps --filter name={{ edge_ingress_container_name }} --format "{{ '{{' }}.Names{{ '}}' }}"
-  register: traefik_container_check
-  changed_when: false
-  failed_when: false
+  template:
+    src: traefik.service.j2
+    dest: /etc/systemd/system/traefik.service
+    mode: '0644'
+    owner: root
+    group: root
+  notify:
+    - Reload systemd
+    - Restart traefik
 
-- name: Start Traefik container
-  when: 
-    - edge_ingress_enabled | default(false)
-    - edge_ingress_container_name not in (traefik_container_check.stdout | default(''))
-  command: docker compose -f {{ edge_ingress_data_dir }}/docker-compose.yml up -d
-  args:
-    chdir: "{{ edge_ingress_data_dir }}"
-  register: traefik_start_result
+- name: Enable and start Traefik systemd service
+  when: edge_ingress_enabled | default(false)
+  systemd:
+    name: traefik
+    enabled: yes
+    state: started
+    daemon_reload: yes
 
 - name: Verify Traefik container is running
   when: edge_ingress_enabled | default(false)
@@ -250,5 +270,11 @@
       2. Traefik logs: docker logs {{ edge_ingress_container_name }}
       3. Ports 80/443 are not already in use: netstat -tuln | grep -E ':(80|443) '
       4. Configuration files are valid: check {{ edge_ingress_data_dir }}/traefik.yml and dynamic.yml
+      5. Systemd service status: systemctl status traefik
       ============================================================================
     success_msg: "✓ Traefik container is running"
+
+- name: Include validation tasks
+  when: edge_ingress_enabled | default(false)
+  tags: [validation, health-check]
+  include_tasks: validate.yml

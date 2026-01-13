@@ -2,6 +2,31 @@
 
 This directory contains utility scripts for managing the intergalactic infrastructure deployment.
 
+## Running Scripts on rigel from Your Mac
+
+To run scripts on rigel from your local Mac, use the `run-on-rigel.sh` wrapper:
+
+```bash
+# Run any script on rigel
+./scripts/run-on-rigel.sh <script-name> [args...]
+
+# Examples:
+./scripts/run-on-rigel.sh check-dev-exnada-traefik.sh
+./scripts/run-on-rigel.sh create-traefik-dev-config.sh
+./scripts/run-on-rigel.sh diagnose-dev-exnada.sh
+```
+
+**Configuration:**
+- Set `RIGEL_HOST` environment variable to override host (default: `rigel`)
+- Set `SSH_KEY` environment variable to override SSH key (default: `~/.ssh/intergalactic_ansible`)
+- Set `RIGEL_USER` environment variable to override user (default: `ansible`)
+
+**What it does:**
+1. Copies the script to rigel via SCP
+2. Makes it executable
+3. Runs it via SSH
+4. Shows output in real-time
+
 ## Core Deployment Scripts
 
 ### `run-ansible.sh`
@@ -30,6 +55,34 @@ This directory contains utility scripts for managing the intergalactic infrastru
 - Handles SSH key mounting for Docker container
 - Provides phase-specific guidance and next steps
 - Validates Tailscale connectivity for production phase
+- Supports Ansible tags and other options for faster iteration
+
+**Faster Iteration with Tags**:
+```bash
+# Run only validation/health-check tasks (skip deployment)
+./scripts/run-ansible.sh prod rigel production --tags validation,health-check
+
+# Skip validation tasks (deploy only)
+./scripts/run-ansible.sh prod rigel production --skip-tags validation
+
+# Run only edge_ingress role
+./scripts/run-ansible.sh prod rigel production --tags edge_ingress
+
+# Start at a specific task (useful when debugging)
+./scripts/run-ansible.sh prod rigel production --start-at-task "Deploy Traefik systemd service"
+
+# Run only tasks that changed (idempotency check)
+./scripts/run-ansible.sh prod rigel production --check --diff
+```
+
+**Available Tags**:
+- `validation` - All validation tasks (health checks, connectivity tests)
+- `health-check` - Health check tasks only
+- `production` - All production phase tasks
+- `services` - Service deployment tasks
+- `monitoring` - Monitoring-related tasks
+- `security` - Security-related tasks
+- Role-specific tags: `edge_ingress`, `internal_dns`, `docker_deploy`, etc.
 
 ## Validation and Verification Scripts
 
@@ -164,6 +217,105 @@ This directory contains utility scripts for managing the intergalactic infrastru
 - Docker socket accessible for Molecule tests
 
 ## Diagnostic Scripts
+
+### `dns-tools.sh` ⭐ NEW
+
+**Purpose**: Unified DNS diagnostic and testing tool (consolidates 6 DNS-related scripts)
+
+**Usage**:
+```bash
+./scripts/dns-tools.sh <command> [options]
+```
+
+**Commands**:
+- `check-nameservers` - Check DNS nameserver configuration
+- `test-coredns` - Test CoreDNS functionality
+- `validate-split-dns` - Validate split-horizon DNS setup
+- `test-resolution <hostname>` - Test DNS resolution for specific host
+- `check-acme-records` - Check ACME DNS records
+
+**Examples**:
+```bash
+# Check DNS configuration
+./scripts/dns-tools.sh check-nameservers
+
+# Test CoreDNS
+./scripts/dns-tools.sh test-coredns
+
+# Validate split-horizon DNS
+./scripts/dns-tools.sh validate-split-dns
+
+# Test specific host resolution
+./scripts/dns-tools.sh test-resolution mpnas.exnada.com
+
+# Get help
+./scripts/dns-tools.sh --help
+```
+
+**Features**:
+- Unified command interface with subcommands
+- Color-coded output (info, success, warning, error)
+- Built-in help documentation
+- Consistent error handling
+
+**When to use**:
+- After deploying `internal_dns` role
+- When troubleshooting DNS resolution issues
+- To verify CoreDNS configuration
+- For split-horizon DNS validation
+
+### `traefik-tools.sh` ⭐ NEW
+
+**Purpose**: Unified Traefik diagnostic and testing tool (consolidates 3 Traefik-related scripts)
+
+**Usage**:
+```bash
+./scripts/traefik-tools.sh <command> [options]
+```
+
+**Commands**:
+- `status` - Check Traefik container status
+- `check-routing` - Check routing configuration
+- `test-backend <hostname>` - Test backend connectivity for a route
+- `diagnose` - Full diagnostic of Traefik setup
+- `logs [-f]` - Show Traefik logs (with optional follow)
+- `test-route <url>` - Test specific route end-to-end
+
+**Examples**:
+```bash
+# Check Traefik status
+./scripts/traefik-tools.sh status
+
+# Check routing configuration
+./scripts/traefik-tools.sh check-routing
+
+# Run full diagnostic
+./scripts/traefik-tools.sh diagnose
+
+# Test specific route
+./scripts/traefik-tools.sh test-route https://mpnas.exnada.com
+
+# View logs
+./scripts/traefik-tools.sh logs -f
+
+# Get help
+./scripts/traefik-tools.sh --help
+```
+
+**Features**:
+- Unified command interface with subcommands
+- Comprehensive diagnostics in one place
+- Port binding verification
+- Configuration file validation
+- Log analysis
+- End-to-end route testing
+
+**When to use**:
+- After deploying `edge_ingress` role
+- When troubleshooting routing issues
+- To verify Traefik configuration
+- For SSL/TLS certificate issues
+- For backend connectivity problems
 
 ### `verify-reverse-proxy.sh`
 
@@ -358,6 +510,8 @@ sudo python3 scripts/provision_sd.py <image-file> <device> --hostname <hostname>
 - `run-all-tests.sh` - Comprehensive test suite (for CI/CD)
 
 ### Diagnostic Scripts
+- `dns-tools.sh` ⭐ **NEW** - Unified DNS diagnostics (consolidates 6 scripts)
+- `traefik-tools.sh` ⭐ **NEW** - Unified Traefik diagnostics (consolidates 3 scripts)
 - `verify-reverse-proxy.sh` - Service verification
 - `diagnose-reverse-proxy.sh` - Detailed troubleshooting
 - `check-role-execution.sh` - Role execution verification

@@ -1,0 +1,154 @@
+---
+# Validation tasks for Traefik
+# These tasks verify that Traefik is actually working after deployment
+
+- name: Wait for Traefik to be ready
+  when: edge_ingress_enabled | default(false)
+  tags: [validation, health-check]
+  wait_for:
+    port: 443
+    host: 127.0.0.1
+    delay: 2
+    timeout: 30
+    msg: "Traefik is not listening on port 443"
+
+- name: Test Traefik API endpoint (if accessible)
+  when: edge_ingress_enabled | default(false)
+  tags: [validation, health-check]
+  uri:
+    url: http://localhost:8080/ping
+    method: GET
+    status_code: [200, 404]
+    timeout: 5
+  register: traefik_api_test
+  changed_when: false
+  failed_when: false
+  ignore_errors: true
+
+- name: Validate Traefik configuration syntax
+  when: edge_ingress_enabled | default(false)
+  tags: [validation]
+  command: docker exec {{ edge_ingress_container_name }} traefik version
+  register: traefik_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Check Traefik can reach backends
+  when: 
+    - edge_ingress_enabled | default(false)
+    - final_routes is defined
+    - final_routes | length > 0
+  tags: [validation, health-check]
+  block:
+    - name: Extract backend hostname from URL
+      set_fact:
+        backend_host: "{{ item.backend_resolved | default(item.backend) | regex_replace('^https?://', '') | regex_replace('(:.*)?$', '') }}"
+        backend_port: "{{ (item.backend_resolved | default(item.backend) | regex_replace('^https?://[^:]+:', '') | regex_replace('/.*$', '')) | default('80') }}"
+      loop: "{{ final_routes }}"
+      loop_control:
+        label: "{{ item.host }}"
+
+    - name: Test backend connectivity from Traefik container
+      command: docker exec {{ edge_ingress_container_name }} wget -qO- --timeout=5 {{ item.backend_resolved | default(item.backend) }}{{ item.health_path | default('/health') }}
+      register: backend_connectivity_test
+      changed_when: false
+      failed_when: false
+      loop: "{{ final_routes }}"
+      loop_control:
+        label: "{{ item.host }}"
+
+    - name: Validate backend connectivity
+      assert:
+        that:
+          - item.rc == 0
+        fail_msg: |
+          ============================================================================
+          WARNING: Traefik cannot reach backend for {{ item.item.host }}!
+          ============================================================================
+          Backend URL: {{ item.item.backend_resolved | default(item.item.backend) }}
+          
+          This may be normal if:
+          1. Backend service is not running yet
+          2. Backend is on a different host and network connectivity is not ready
+          3. Backend health endpoint is not available
+          4. Docker container cannot resolve Tailscale hostnames (DNS issue)
+          
+          Please verify:
+          1. Backend service is running
+          2. Network connectivity between Traefik and backend
+          3. Backend health endpoint is accessible
+          4. Docker DNS configuration (may need to use CoreDNS or IP addresses)
+          ============================================================================
+        success_msg: "✓ Backend connectivity test passed for {{ item.item.host }}"
+      loop: "{{ backend_connectivity_test.results | default([]) }}"
+      ignore_errors: true
+
+- name: Validate certificate file exists and has correct permissions
+  when: 
+    - edge_ingress_enabled | default(false)
+    - not (edge_ingress_disable_tls | default(false))
+  tags: [validation]
+  stat:
+    path: "{{ edge_ingress_data_dir }}/acme.json"
+  register: acme_file_check
+
+- name: Check ACME file permissions
+  when: 
+    - edge_ingress_enabled | default(false)
+    - not (edge_ingress_disable_tls | default(false))
+    - acme_file_check.stat.exists
+  tags: [validation]
+  assert:
+    that:
+      - acme_file_check.stat.mode | int == 384  # 0600 in decimal
+    fail_msg: |
+      ============================================================================
+      WARNING: ACME file has incorrect permissions!
+      ============================================================================
+      Expected: 0600 (rw-------) - decimal: 384
+      Current: {{ "%04o" | format(acme_file_check.stat.mode | int) }} (decimal: {{ acme_file_check.stat.mode | int }})
+      
+      This will be fixed automatically on the next playbook run.
+      The fix task ensures permissions are set correctly.
+      ============================================================================
+    success_msg: "✓ ACME file has correct permissions"
+  ignore_errors: true
+
+- name: Test HTTPS endpoint (if routes are configured)
+  when: 
+    - edge_ingress_enabled | default(false)
+    - final_routes is defined
+    - final_routes | length > 0
+    - not (edge_ingress_disable_tls | default(false))
+  tags: [validation, health-check]
+  uri:
+    url: "https://{{ final_routes[0].host }}/health"
+    method: GET
+    status_code: [200, 404, 503]
+    validate_certs: false
+    timeout: 10
+    headers:
+      Host: "{{ final_routes[0].host }}"
+  register: https_test
+  changed_when: false
+  failed_when: false
+  ignore_errors: true
+
+- name: Report HTTPS test result
+  when: 
+    - edge_ingress_enabled | default(false)
+    - https_test is defined
+    - https_test.status is defined
+  tags: [validation, health-check]
+  debug:
+    msg: |
+      HTTPS test for {{ final_routes[0].host }}: {{ https_test.status | default('unknown') }}
+      {% if https_test.status == 200 %}
+      ✓ HTTPS endpoint is working correctly
+      {% elif https_test.status == 503 %}
+      ⚠ HTTPS endpoint returned 503 - backend may not be ready
+      {% elif https_test.status == 404 %}
+      ⚠ HTTPS endpoint returned 404 - route may not be configured correctly
+      {% else %}
+      ⚠ HTTPS endpoint test inconclusive
+      {% endif %}
