@@ -30,6 +30,10 @@ Deploys Traefik as an HTTPS ingress router for private services via Tailscale, u
 | `edge_ingress_enabled` | `false` | Enable this role (set to `true` in host_vars) |
 | `edge_ingress_domain` | `exnada.com` | Base domain for routing |
 | `edge_ingress_acme_email` | `admin@exnada.com` | Email for Let's Encrypt ACME registration |
+| `edge_ingress_acme_delay_before_check` | `180` | Delay before checking DNS propagation (seconds) - GoDaddy can be slow |
+| `edge_ingress_acme_propagation_timeout` | `300` | Maximum time to wait for DNS propagation (seconds) |
+| `edge_ingress_acme_polling_interval` | `10` | How often to check DNS propagation (seconds) |
+| `edge_ingress_acme_dns_ttl` | `600` | TTL for ACME challenge TXT records (seconds) |
 | `edge_ingress_use_tailscale_fqdn` | `true` | Use Tailscale FQDNs for backend services (e.g., `http://rigel.tailb821ac.ts.net:8000`) |
 | `edge_ingress_tailnet_name` | `""` | Tailscale tailnet name (auto-detected if empty) |
 | `edge_ingress_backend_timeout_connect` | `30s` | Backend connection timeout |
@@ -129,6 +133,13 @@ This role uses **Traefik's built-in ACME resolver** with GoDaddy DNS-01 challeng
 - **GoDaddy API Credentials**: Set `godaddy_api_key` and `godaddy_api_secret` in `all_secrets.yml`
 - **CA Server**: Set `cert_issuer_ca_server: staging` for testing or `cert_issuer_ca_server: production` for real certificates
 - **Email**: Set `edge_ingress_acme_email` for Let's Encrypt account registration
+- **DNS Propagation Settings**: Configure timeouts and delays for GoDaddy DNS propagation:
+  - `edge_ingress_acme_delay_before_check`: Delay before checking if DNS record is propagated (default: 180s)
+  - `edge_ingress_acme_propagation_timeout`: Maximum time to wait for DNS propagation (default: 300s)
+  - `edge_ingress_acme_polling_interval`: How often to check DNS propagation (default: 10s)
+  - `edge_ingress_acme_dns_ttl`: TTL for ACME challenge TXT records (default: 600s)
+
+These settings are passed to Traefik's GoDaddy provider via environment variables (`GODADDY_PROPAGATION_TIMEOUT`, `GODADDY_POLLING_INTERVAL`, `GODADDY_TTL`).
 
 ### Certificate Storage
 
@@ -210,17 +221,27 @@ When `edge_ingress_enabled: true`, the `firewall_nftables` role automatically op
    docker logs traefik | grep -i acme
    ```
 
-2. **Verify certificates are present**:
+2. **Check for DNS propagation errors**:
    ```bash
-   ls -la /opt/traefik/certs/
-   # Should show exnada.com.crt and exnada.com.key
+   docker logs traefik | grep -i "propagation\|timeout\|NXDOMAIN"
    ```
 
-3. **Check certificate issuer status**:
+3. **Verify ACME storage file exists and has correct permissions**:
    ```bash
-   sudo systemctl status lego-renew.timer
-   sudo journalctl -u lego-renew.service -n 50
+   ls -la /opt/traefik/acme.json
+   # Should show -rw------- (600 permissions)
    ```
+
+4. **If DNS propagation is slow, increase timeouts**:
+   ```yaml
+   edge_ingress_acme_delay_before_check: 240  # Increase from 180s
+   edge_ingress_acme_propagation_timeout: 600  # Increase from 300s
+   ```
+
+5. **Verify GoDaddy API credentials**:
+   - Check `godaddy_api_key` and `godaddy_api_secret` are set in `all_secrets.yml`
+   - Verify API key has DNS management permissions
+   - Test API access: `curl -H "Authorization: sso-key ${GODADDY_API_KEY}:${GODADDY_API_SECRET}" https://api.godaddy.com/v1/domains/exnada.com`
 
 ### Backend Not Reachable
 
