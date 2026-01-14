@@ -14,62 +14,9 @@
       import_tasks: shared/host-key-verification.yml
       tags: always
 
-    - name: Verify Tailscale is installed
-      command: which tailscale
-      register: tailscale_which
-      changed_when: false
-      failed_when: false
-      tags: always
-
-    - name: Verify Tailscale connection
-      command: tailscale status
-      register: tailscale_status
-      changed_when: false
-      failed_when: false
-      when: tailscale_which.rc == 0
-      tags: always
-
-    - name: Fail if Tailscale is not installed
-      assert:
-        that:
-          - tailscale_which.rc == 0
-        fail_msg: |
-          ============================================================================
-          ERROR: Tailscale is not installed!
-          ============================================================================
-          The production phase requires Tailscale to be installed and connected.
-          
-          Please run the foundation phase first:
-          ./scripts/run-ansible.sh prod rigel foundation
-          ============================================================================
-        success_msg: "✓ Tailscale is installed"
-      when: tailscale_which.rc != 0
-      tags: always
-
-    - name: Fail if not connected via Tailscale
-      assert:
-        that:
-          - tailscale_status.rc == 0
-          - ansible_host is not search('192.168.')
-          - ansible_host is not search('10.')
-          - ansible_host is not search('172.')
-        fail_msg: |
-          ============================================================================
-          ERROR: Production phase requires Tailscale connection!
-          ============================================================================
-          The production phase MUST connect via Tailscale network, not local IP.
-          
-          Current ansible_host: {{ ansible_host }}
-          Tailscale status: {{ 'Connected' if tailscale_status.rc == 0 else 'Not connected' }}
-          
-          Please:
-          1. Ensure foundation phase completed successfully
-          2. Update hosts-production.yml to use Tailscale hostname (rigel.tailb821ac.ts.net or just 'rigel' with MagicDNS)
-          3. Verify Tailscale connectivity: tailscale status
-          4. Re-run production phase
-          ============================================================================
-        success_msg: "✓ Connected via Tailscale network ({{ ansible_host }})"
-      when: tailscale_which.rc == 0
+    # Import shared production validation (Tailscale verification)
+    - name: Import production validation tasks
+      import_tasks: shared/production-validation.yml
       tags: always
   roles:
     # 1. Docker deploy user and directory structure (must be first)

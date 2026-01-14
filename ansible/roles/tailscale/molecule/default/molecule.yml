@@ -1,0 +1,32 @@
+---
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: instance
+    image: debian:bookworm-slim
+    pre_build_image: true
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+    command: "/lib/systemd/systemd"
+    tmpfs:
+      - /run
+      - /tmp
+    capabilities:
+      - SYS_ADMIN
+      - NET_ADMIN
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      instance:
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_distribution_release: bookworm
+        enable_tailscale: true
+        tailscale_authkey: "tskey-auth-test-mock-key-for-testing"
+        tailscale_advertise_exit_node: false
+        tailscale_advertise_routes: []
+verifier:
+  name: ansible

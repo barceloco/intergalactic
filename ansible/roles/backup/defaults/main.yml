@@ -1,0 +1,5 @@
+---
+backup_enabled: false
+backup_dir: /opt/backups
+backup_interval_hours: 24
+backup_retention_days: 7

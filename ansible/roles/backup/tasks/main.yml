@@ -1,0 +1,61 @@
+---
+# Backup role for critical configuration and data
+
+- name: Skip backup role if not enabled
+  when: not (backup_enabled | default(false))
+  debug:
+    msg: "Skipping backup role (backup_enabled is false)"
+
+- name: Ensure backup directory exists
+  when: backup_enabled | default(false)
+  file:
+    path: "{{ backup_dir | default('/opt/backups') }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Deploy backup script
+  when: backup_enabled | default(false)
+  copy:
+    src: "{{ playbook_dir }}/../scripts/backup-configs.sh"
+    dest: /usr/local/bin/backup-configs.sh
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Deploy restore script
+  when: backup_enabled | default(false)
+  copy:
+    src: "{{ playbook_dir }}/../scripts/restore-configs.sh"
+    dest: /usr/local/bin/restore-configs.sh
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Deploy backup systemd timer
+  when: backup_enabled | default(false)
+  template:
+    src: backup.timer.j2
+    dest: /etc/systemd/system/backup.timer
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Reload systemd
+
+- name: Deploy backup systemd service
+  when: backup_enabled | default(false)
+  template:
+    src: backup.service.j2
+    dest: /etc/systemd/system/backup.service
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Reload systemd
+
+- name: Enable and start backup timer
+  when: backup_enabled | default(false)
+  systemd:
+    name: backup.timer
+    enabled: yes
+    daemon_reload: yes

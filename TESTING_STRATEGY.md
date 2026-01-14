@@ -4,14 +4,83 @@
 
 This document outlines a testing strategy for the intergalactic Ansible project. Testing ensures playbooks and roles work correctly, remain idempotent, and don't break existing functionality.
 
-## Current State
+## Current State (Updated: 2026-01-13)
 
-**Testing Status**: ❌ **NO FORMAL TESTING**
+**Testing Status**: ✅ **TESTING INFRASTRUCTURE IN PLACE**
 
-- No automated tests
-- No linting in CI/CD
-- Manual testing only
-- No test infrastructure
+### Implemented ✅
+
+1. **Linting** (Phase 1)
+   - ✅ ansible-lint (containerized)
+   - ✅ yamllint (containerized)
+   - ✅ Syntax validation
+   - ✅ Scripts: `./scripts/run-linting.sh`
+
+2. **Molecule Tests** (Phase 1 + Phase 2)
+   - ✅ `docker_deploy` - Deploy user setup
+   - ✅ `internal_dns` - CoreDNS configuration
+   - ✅ `edge_ingress` - Traefik reverse proxy
+   - ✅ `firewall_nftables` - Firewall rules
+   - ✅ `ssh_hardening` - SSH security *(NEW in Phase 2)*
+   - ✅ `fail2ban` - Intrusion prevention *(NEW in Phase 2)*
+   - ✅ `tailscale` - VPN connectivity *(NEW in Phase 2)*
+   - ✅ `docker_host` - Docker engine *(NEW in Phase 2)*
+   - Scripts: `./scripts/run-molecule-tests.sh`
+
+3. **Integration Tests** (Phase 2)
+   - ✅ DNS resolution tests (CoreDNS)
+   - ⚠️ Backend connectivity (skeleton)
+   - ⚠️ Reverse proxy routing (skeleton)
+   - ⚠️ TLS certificates (skeleton)
+
+4. **Testinfra Tests**
+   - ✅ Common system tests
+   - ✅ Docker installation tests
+   - ✅ Firewall tests
+   - ✅ Tailscale connectivity tests
+
+5. **Containerized Testing**
+   - ✅ All tests run in Docker (no host dependencies)
+   - ✅ Automatic container builds
+   - ✅ Consistent test environment
+
+### Testing Coverage
+
+**Molecule Test Coverage: 8/19 roles (42%)**
+
+**Tested Roles:**
+- ✅ docker_deploy
+- ✅ internal_dns
+- ✅ edge_ingress
+- ✅ firewall_nftables
+- ✅ ssh_hardening *(NEW)*
+- ✅ fail2ban *(NEW)*
+- ✅ tailscale *(NEW)*
+- ✅ docker_host *(NEW)*
+
+**Untested Roles:**
+- ❌ common
+- ❌ common_bootstrap
+- ❌ updates
+- ❌ samba
+- ❌ luks
+- ❌ desktop
+- ❌ cert_issuer (disabled)
+- ❌ backup (new)
+- ❌ monitoring_base
+- ❌ monitoring_docker
+- ❌ monitoring_health
+
+**Security-Critical Roles: 4/4 tested (100%)** ✅
+- ✅ ssh_hardening
+- ✅ fail2ban
+- ✅ tailscale
+- ✅ firewall_nftables
+
+**Foundation Roles: 1/3 tested (33%)**
+- ✅ docker_host
+- ❌ common
+- ❌ updates
 
 ## Testing Tools for Ansible
 
@@ -403,15 +472,30 @@ repos:
 
 ## Conclusion
 
-**Current State**: No formal testing ❌
+**Current State**: Testing infrastructure in place ✅
 
-**Recommended Approach**: Start with linting and syntax checks, then add Molecule for key roles
+**Progress**:
+- ✅ Phase 1 complete: Linting and syntax checks
+- ✅ Phase 2 complete: Molecule tests for security-critical roles
+- ⚠️ Phase 3 in progress: Integration tests (DNS implemented)
 
-**Priority**: High - Testing prevents production issues and increases confidence
+**Testing Achievements**:
+- 42% of roles have Molecule tests (8/19)
+- 100% of security-critical roles tested (4/4)
+- All testing containerized (no host dependencies)
+- DNS integration test implemented
 
-**Next Steps**: 
-1. Add ansible-lint and yamllint
-2. Create configuration files
-3. Add to pre-commit hook
-4. Fix existing issues
-5. Document in README
+**Remaining Work**:
+1. Add Molecule tests for remaining foundation roles (common, common_bootstrap, updates)
+2. Complete integration test skeletons (backend connectivity, reverse proxy, TLS)
+3. Expand Testinfra coverage
+4. Add pre-commit hooks for linting
+
+**Priority**: Medium - Core testing complete, expansion for comprehensive coverage
+
+**Next Steps**:
+1. Add Molecule tests for foundation roles (common, common_bootstrap)
+2. Implement remaining integration tests
+3. Set up pre-commit hooks
+4. Document testing workflow in README
+5. Consider CI/CD integration

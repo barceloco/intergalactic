@@ -1,0 +1,57 @@
+---
+# Health monitoring role
+# Aggregates health checks and provides monitoring capabilities
+
+- name: Skip monitoring_health role if not enabled
+  when: not (monitoring_health_enabled | default(false))
+  debug:
+    msg: "Skipping monitoring_health role (monitoring_health_enabled is false)"
+
+- name: Ensure health check script is deployed
+  when: monitoring_health_enabled | default(false)
+  copy:
+    src: "{{ playbook_dir }}/../scripts/health-check.sh"
+    dest: /usr/local/bin/health-check.sh
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Deploy health monitoring systemd service
+  when: monitoring_health_enabled | default(false)
+  template:
+    src: health-monitor.service.j2
+    dest: /etc/systemd/system/health-monitor.service
+    mode: '0644'
+    owner: root
+    group: root
+  notify:
+    - Reload systemd
+    - Restart health-monitor
+
+- name: Deploy health monitoring systemd timer
+  when: monitoring_health_enabled | default(false)
+  template:
+    src: health-monitor.timer.j2
+    dest: /etc/systemd/system/health-monitor.timer
+    mode: '0644'
+    owner: root
+    group: root
+  notify:
+    - Reload systemd
+    - Enable health-monitor-timer
+
+- name: Enable and start health monitoring timer
+  when: monitoring_health_enabled | default(false)
+  systemd:
+    name: health-monitor.timer
+    enabled: yes
+    daemon_reload: yes
+
+- name: Ensure health check log directory exists
+  when: monitoring_health_enabled | default(false)
+  file:
+    path: "{{ monitoring_health_log_dir | default('/var/log/health-monitor') }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root

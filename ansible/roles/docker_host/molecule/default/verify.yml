@@ -1,0 +1,125 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify ca-certificates is installed
+      command: dpkg -l ca-certificates
+      register: ca_cert_check
+      changed_when: false
+      failed_when: ca_cert_check.rc != 0
+
+    - name: Verify curl is installed
+      command: dpkg -l curl
+      register: curl_check
+      changed_when: false
+      failed_when: curl_check.rc != 0
+
+    - name: Verify gnupg is installed
+      command: dpkg -l gnupg
+      register: gnupg_check
+      changed_when: false
+      failed_when: gnupg_check.rc != 0
+
+    - name: Verify Docker keyring exists
+      stat:
+        path: /etc/apt/keyrings/docker.gpg
+      register: docker_keyring
+      failed_when: not docker_keyring.stat.exists
+
+    - name: Verify Docker keyring is readable
+      stat:
+        path: /etc/apt/keyrings/docker.gpg
+      register: docker_keyring_perms
+      failed_when: not (docker_keyring_perms.stat.mode | int(base=8) & 0o004)
+
+    - name: Verify Docker apt source exists
+      stat:
+        path: /etc/apt/sources.list.d/docker.list
+      register: docker_list
+      failed_when: not docker_list.stat.exists
+
+    - name: Verify Docker apt source has correct permissions
+      stat:
+        path: /etc/apt/sources.list.d/docker.list
+      register: docker_list_perms
+      failed_when: docker_list_perms.stat.mode != "0644"
+
+    - name: Verify Docker apt source content
+      command: grep "download.docker.com/linux/debian" /etc/apt/sources.list.d/docker.list
+      register: docker_repo_check
+      changed_when: false
+      failed_when: docker_repo_check.rc != 0
+
+    - name: Verify docker-ce is installed
+      command: dpkg -l docker-ce
+      register: docker_ce_check
+      changed_when: false
+      failed_when: docker_ce_check.rc != 0
+
+    - name: Verify docker-ce-cli is installed
+      command: dpkg -l docker-ce-cli
+      register: docker_cli_check
+      changed_when: false
+      failed_when: docker_cli_check.rc != 0
+
+    - name: Verify containerd.io is installed
+      command: dpkg -l containerd.io
+      register: containerd_check
+      changed_when: false
+      failed_when: containerd_check.rc != 0
+
+    - name: Verify docker-compose-plugin is installed
+      command: dpkg -l docker-compose-plugin
+      register: docker_compose_check
+      changed_when: false
+      failed_when: docker_compose_check.rc != 0
+
+    - name: Verify Docker service is enabled
+      command: systemctl is-enabled docker
+      register: docker_enabled_check
+      changed_when: false
+      failed_when: docker_enabled_check.stdout != "enabled"
+
+    - name: Verify Docker service is running
+      command: systemctl is-active docker
+      register: docker_active_check
+      changed_when: false
+      failed_when: docker_active_check.stdout != "active"
+
+    - name: Verify docker binary exists
+      stat:
+        path: /usr/bin/docker
+      register: docker_binary
+      failed_when: not docker_binary.stat.exists
+
+    - name: Verify docker binary is executable
+      stat:
+        path: /usr/bin/docker
+      register: docker_exec
+      failed_when: not docker_exec.stat.executable
+
+    - name: Verify ansible user exists
+      command: id ansible
+      register: ansible_user_check
+      changed_when: false
+      failed_when: ansible_user_check.rc != 0
+
+    - name: Verify ansible user is in docker group
+      command: groups ansible
+      register: ansible_groups
+      changed_when: false
+      failed_when: "'docker' not in ansible_groups.stdout"
+
+    - name: Verify Docker version command works
+      command: docker --version
+      register: docker_version
+      changed_when: false
+      failed_when: docker_version.rc != 0
+
+    - name: Verify docker compose plugin works
+      command: docker compose version
+      register: docker_compose_version
+      changed_when: false
+      failed_when: docker_compose_version.rc != 0

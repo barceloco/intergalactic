@@ -1,0 +1,47 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+      changed_when: false
+    
+    # Mock tailscale status command to pretend already connected
+    # This prevents the role from trying to actually connect (which would fail in tests)
+    - name: Create mock tailscale script for testing
+      copy:
+        dest: /usr/local/bin/tailscale
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          # Mock tailscale command for Molecule testing
+          case "$1" in
+            status)
+              echo "Mock tailscale status - already connected"
+              exit 0
+              ;;
+            set)
+              echo "Mock tailscale set command"
+              exit 0
+              ;;
+            up)
+              echo "Mock tailscale up command"
+              exit 0
+              ;;
+            *)
+              echo "Mock tailscale command: $*"
+              exit 0
+              ;;
+          esac
+  roles:
+    - role: tailscale
+  post_tasks:
+    # Remove mock script after role runs
+    - name: Remove mock tailscale script
+      file:
+        path: /usr/local/bin/tailscale
+        state: absent

@@ -1,0 +1,11 @@
+[Unit]
+Description=Configuration Backup Timer
+Requires=backup.service
+
+[Timer]
+OnBootSec={{ backup_interval_hours | default(24) }}h
+OnUnitActiveSec={{ backup_interval_hours | default(24) }}h
+AccuracySec=1h
+
+[Install]
+WantedBy=timers.target

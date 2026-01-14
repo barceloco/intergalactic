@@ -14,7 +14,7 @@ services:
       - "--providers.docker=false"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
-      - "--log.level=INFO"
+      - "--log.level=DEBUG"
       - "--log.format=json"
     environment:
       - GODADDY_API_KEY={{ godaddy_api_key }}

@@ -1,0 +1,14 @@
+[Unit]
+Description=Health Check Monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/health-check.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=health-monitor
+
+[Install]
+WantedBy=multi-user.target

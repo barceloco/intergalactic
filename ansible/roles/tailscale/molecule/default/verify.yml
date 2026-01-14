@@ -1,0 +1,83 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify curl is installed
+      command: dpkg -l curl
+      register: curl_check
+      changed_when: false
+      failed_when: curl_check.rc != 0
+
+    - name: Verify ca-certificates is installed
+      command: dpkg -l ca-certificates
+      register: ca_cert_check
+      changed_when: false
+      failed_when: ca_cert_check.rc != 0
+
+    - name: Verify gnupg is installed
+      command: dpkg -l gnupg
+      register: gnupg_check
+      changed_when: false
+      failed_when: gnupg_check.rc != 0
+
+    - name: Verify Tailscale keyring exists
+      stat:
+        path: /usr/share/keyrings/tailscale-archive-keyring.gpg
+      register: tailscale_keyring
+      failed_when: not tailscale_keyring.stat.exists
+
+    - name: Verify Tailscale apt source list exists
+      stat:
+        path: /etc/apt/sources.list.d/tailscale.list
+      register: tailscale_list
+      failed_when: not tailscale_list.stat.exists
+
+    - name: Verify Tailscale apt source has correct permissions
+      stat:
+        path: /etc/apt/sources.list.d/tailscale.list
+      register: tailscale_list_perms
+      failed_when: tailscale_list_perms.stat.mode != "0644"
+
+    - name: Verify Tailscale apt source content
+      command: grep "pkgs.tailscale.com/stable/debian" /etc/apt/sources.list.d/tailscale.list
+      register: tailscale_repo_check
+      changed_when: false
+      failed_when: tailscale_repo_check.rc != 0
+
+    - name: Verify Tailscale package is installed
+      command: dpkg -l tailscale
+      register: tailscale_package_check
+      changed_when: false
+      failed_when: tailscale_package_check.rc != 0
+
+    - name: Verify tailscaled service is enabled
+      command: systemctl is-enabled tailscaled
+      register: tailscaled_enabled_check
+      changed_when: false
+      failed_when: tailscaled_enabled_check.stdout != "enabled"
+
+    - name: Verify tailscaled service is running
+      command: systemctl is-active tailscaled
+      register: tailscaled_active_check
+      changed_when: false
+      failed_when: tailscaled_active_check.stdout != "active"
+
+    - name: Verify tailscale binary exists
+      stat:
+        path: /usr/bin/tailscale
+      register: tailscale_binary
+      failed_when: not tailscale_binary.stat.exists
+
+    - name: Verify tailscale binary is executable
+      stat:
+        path: /usr/bin/tailscale
+      register: tailscale_exec
+      failed_when: not tailscale_exec.stat.executable
+
+    - name: Verify tailscaled binary exists
+      stat:
+        path: /usr/sbin/tailscaled
+      register: tailscaled_binary
+      failed_when: not tailscaled_binary.stat.exists

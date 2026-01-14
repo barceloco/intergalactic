@@ -142,9 +142,64 @@
     resolved_routes: "{{ resolved_routes | default([]) + [item | combine({'backend_resolved': item.backend})] }}"
   loop: "{{ edge_ingress_routes }}"
 
+- name: Resolve backend hostnames to IP addresses (for Docker container DNS compatibility)
+  when: 
+    - edge_ingress_enabled | default(false)
+    - enable_tailscale | default(false)
+    - resolved_routes is defined
+  vars:
+    backend_url: "{{ item.backend_resolved | default(item.backend) }}"
+    backend_host: "{{ backend_url | regex_replace('^[^:]+://', '') | regex_replace('[:/].*$', '') }}"
+    is_ip_address: "{{ backend_host is regex('^([0-9]+\\.){3}[0-9]+$') }}"
+    should_resolve: "{{ not (is_ip_address or backend_host == 'localhost' or backend_host == '127.0.0.1' or backend_host == inventory_hostname) }}"
+  shell: |
+    # Try to resolve hostname to IP
+    if getent hosts "{{ backend_host }}" >/dev/null 2>&1; then
+      getent hosts "{{ backend_host }}" | awk '{print $1}' | head -1
+    elif tailscale status | grep -E "^\s*[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\s+{{ backend_host }}\s" >/dev/null 2>&1; then
+      tailscale status | grep -E "^\s*[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\s+{{ backend_host }}\s" | awk '{print $1}' | head -1
+    else
+      echo ""
+    fi
+  register: backend_ip_result
+  loop: "{{ resolved_routes | default(edge_ingress_routes) }}"
+  changed_when: false
+  failed_when: false
+  loop_control:
+    label: "{{ item.host }}"
+
+- name: Initialize final_routes list
+  when: 
+    - edge_ingress_enabled | default(false)
+    - enable_tailscale | default(false)
+    - resolved_routes is defined
+    - backend_ip_result is defined
+  set_fact:
+    final_routes: []
+
+- name: Replace hostnames with IP addresses in backend URLs
+  when: 
+    - edge_ingress_enabled | default(false)
+    - enable_tailscale | default(false)
+    - resolved_routes is defined
+    - backend_ip_result is defined
+  vars:
+    backend_url: "{{ item.item.backend_resolved | default(item.item.backend) }}"
+    backend_host: "{{ backend_url | regex_replace('^[^:]+://', '') | regex_replace('[:/].*$', '') }}"
+    backend_port_path: "{{ backend_url | regex_replace('^[^:]+://[^:/]+', '') }}"
+    backend_scheme: "{{ backend_url | regex_replace('://.*$', '') }}"
+    resolved_ip: "{{ item.stdout | default('') | trim }}"
+    is_ip_address: "{{ backend_host is regex('^([0-9]+\\.){3}[0-9]+$') }}"
+    should_use_ip: "{{ resolved_ip | length > 0 and not (is_ip_address or backend_host == 'localhost' or backend_host == '127.0.0.1' or backend_host == inventory_hostname) }}"
+    final_backend_url: "{{ backend_url if not should_use_ip else (backend_scheme + '://' + resolved_ip + backend_port_path) }}"
+  set_fact:
+    final_routes: "{{ final_routes + [item.item | combine({'backend_resolved': final_backend_url})] }}"
+  loop: "{{ backend_ip_result.results | default([]) }}"
+
 - name: Set final resolved routes (fallback to original if resolution failed)
   when: 
     - edge_ingress_enabled | default(false)
+    - final_routes is not defined
     - resolved_routes is defined
   set_fact:
     final_routes: "{{ resolved_routes }}"
@@ -175,23 +230,52 @@
     owner: root
     group: root
 
-- name: Ensure ACME storage file exists with correct permissions
+- name: Check if acme.json exists
+  when: edge_ingress_enabled | default(false)
+  stat:
+    path: "{{ edge_ingress_data_dir }}/acme.json"
+  register: acme_json_check
+  failed_when: false
+
+- name: Remove acme.json if it's a directory (should be a file)
+  when:
+    - edge_ingress_enabled | default(false)
+    - acme_json_check.stat.exists is defined
+    - acme_json_check.stat.exists
+    - acme_json_check.stat.isdir is defined
+    - acme_json_check.stat.isdir
+  file:
+    path: "{{ edge_ingress_data_dir }}/acme.json"
+    state: absent
+  failed_when: false
+
+- name: Ensure ACME storage file exists
   when: edge_ingress_enabled | default(false)
   file:
     path: "{{ edge_ingress_data_dir }}/acme.json"
     state: touch
-    mode: '0600'
     owner: root
     group: root
 
-- name: Fix ACME file permissions if incorrect
+- name: Fix ACME file permissions (force correct permissions)
   when: edge_ingress_enabled | default(false)
   file:
     path: "{{ edge_ingress_data_dir }}/acme.json"
+    state: file
     mode: '0600'
     owner: root
     group: root
-  # This ensures permissions are always correct, even if file was created with wrong permissions
+  # Always ensure permissions are correct - use chmod as backup
+  register: acme_perms_fix
+  failed_when: false
+
+- name: Force ACME file permissions using chmod (ensures permissions are set)
+  when: edge_ingress_enabled | default(false)
+  command: chmod 0600 {{ edge_ingress_data_dir }}/acme.json
+  args:
+    creates: "{{ edge_ingress_data_dir }}/acme.json"
+  changed_when: true
+  failed_when: false
 
 - name: Deploy Traefik static configuration
   when: edge_ingress_enabled | default(false)

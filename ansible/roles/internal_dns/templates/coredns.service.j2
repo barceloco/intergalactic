@@ -1,0 +1,34 @@
+[Unit]
+Description=CoreDNS Internal DNS Service
+Documentation=https://coredns.io/
+After=docker.service tailscale.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/docker compose -f {{ internal_dns_data_dir }}/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose -f {{ internal_dns_data_dir }}/docker-compose.yml down
+ExecReload=/usr/bin/docker compose -f {{ internal_dns_data_dir }}/docker-compose.yml restart
+Restart=on-failure
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Wait for Docker to be ready
+ExecStartPre=/bin/bash -c 'until docker info >/dev/null 2>&1; do sleep 1; done'
+
+# Wait for Tailscale to be connected (if enabled)
+{% if enable_tailscale | default(false) %}
+ExecStartPre=/bin/bash -c 'until tailscale status >/dev/null 2>&1; do sleep 1; done'
+{% endif %}
+
+# Wait for network to be up
+ExecStartPre=/bin/bash -c 'until ping -c 1 8.8.8.8 >/dev/null 2>&1; do sleep 1; done'
+
+# Health check
+ExecStartPost=/bin/bash -c 'for i in {1..30}; do if dig @127.0.0.1 {{ internal_dns_domain }} >/dev/null 2>&1; then exit 0; fi; sleep 1; done; exit 1'
+
+[Install]
+WantedBy=multi-user.target

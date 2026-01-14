@@ -702,14 +702,59 @@ cat ~/.ssh/known_hosts | grep 192.168.1.40
 - **Tailscale services not accessible**: Check `internal_dns_enabled` or `edge_ingress_enabled` are set
 
 #### DNS issues
-- **DNS not resolving**: Check CoreDNS is running: `docker ps | grep coredns`
+- **DNS not resolving**: Use `./scripts/dns-tools.sh test-coredns` or check: `docker ps | grep coredns`
 - **Wrong IP**: Check Tailscale IP: `tailscale ip -4`
 - **Zone file errors**: Check zone file: `sudo cat /opt/coredns/db.exnada.com`
+- **Full DNS diagnostics**: Use `./scripts/dns-tools.sh diagnose` for comprehensive checks
+
+**Unified DNS Diagnostic Tool**:
+```bash
+# Check all DNS configuration
+./scripts/dns-tools.sh check-nameservers
+
+# Test CoreDNS functionality
+./scripts/dns-tools.sh test-coredns
+
+# Validate split-horizon DNS
+./scripts/dns-tools.sh validate-split-dns
+
+# Test specific host resolution
+./scripts/dns-tools.sh test-resolution mpnas.exnada.com
+
+# Show all commands
+./scripts/dns-tools.sh --help
+```
 
 #### Traefik issues
 - **SSL certificate not issued**: Check ACME logs: `docker logs traefik | grep -i acme`
-- **Backend not reachable**: Check backend service is running and accessible
+- **Backend not reachable**: Use `./scripts/traefik-tools.sh test-backend <host>` to diagnose
 - **HTTP not redirecting**: Check Traefik configuration: `sudo cat /opt/traefik/traefik.yml`
+- **Full Traefik diagnostics**: Use `./scripts/traefik-tools.sh diagnose` for comprehensive checks
+
+**Unified Traefik Diagnostic Tool**:
+```bash
+# Check Traefik container status
+./scripts/traefik-tools.sh status
+
+# Check routing configuration
+./scripts/traefik-tools.sh check-routing
+
+# Test backend connectivity
+./scripts/traefik-tools.sh test-backend mpnas.exnada.com
+
+# Run full diagnostic
+./scripts/traefik-tools.sh diagnose
+
+# View Traefik logs
+./scripts/traefik-tools.sh logs
+./scripts/traefik-tools.sh logs -f  # Follow logs
+
+# Test specific route end-to-end
+./scripts/traefik-tools.sh test-route https://mpnas.exnada.com
+
+# Show all commands
+./scripts/traefik-tools.sh --help
+```
 
 #### Samba issues
 - **Cannot access Samba share**: Check Samba service: `sudo systemctl status smbd`
@@ -819,6 +864,57 @@ ssh -i ~/.ssh/intergalactic_ansible ansible@<pi-ip-address>
 # SSH into Pi via Tailscale (after foundation)
 ssh -i ~/.ssh/intergalactic_ansible ansible@<hostname>.tailb821ac.ts.net
 ```
+
+### Diagnostic Tools
+
+Two consolidated diagnostic tools provide unified interfaces for troubleshooting infrastructure services:
+
+**DNS Diagnostics** (`dns-tools.sh`):
+```bash
+# Check DNS nameserver configuration
+./scripts/dns-tools.sh check-nameservers
+
+# Test CoreDNS functionality
+./scripts/dns-tools.sh test-coredns
+
+# Validate split-horizon DNS setup
+./scripts/dns-tools.sh validate-split-dns
+
+# Test specific host resolution
+./scripts/dns-tools.sh test-resolution <hostname>
+
+# Check ACME DNS records
+./scripts/dns-tools.sh check-acme-records
+
+# Show all commands
+./scripts/dns-tools.sh --help
+```
+
+**Traefik Diagnostics** (`traefik-tools.sh`):
+```bash
+# Check Traefik container status
+./scripts/traefik-tools.sh status
+
+# Check routing configuration
+./scripts/traefik-tools.sh check-routing
+
+# Test backend connectivity
+./scripts/traefik-tools.sh test-backend <hostname>
+
+# Run full diagnostic
+./scripts/traefik-tools.sh diagnose
+
+# View logs
+./scripts/traefik-tools.sh logs [-f]
+
+# Test specific route end-to-end
+./scripts/traefik-tools.sh test-route <url>
+
+# Show all commands
+./scripts/traefik-tools.sh --help
+```
+
+See the [Troubleshooting](#troubleshooting) section for detailed usage examples.
 
 ### Running Only Specific Parts
 

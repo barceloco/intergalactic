@@ -244,21 +244,25 @@
     group: root
   notify: Restart coredns
 
-- name: Check if CoreDNS container is running
+- name: Deploy CoreDNS systemd service
   when: internal_dns_enabled | default(false)
-  command: docker ps --filter name={{ internal_dns_container_name }} --format "{{ '{{' }}.Names{{ '}}' }}"
-  register: coredns_container_check
-  changed_when: false
-  failed_when: false
+  template:
+    src: coredns.service.j2
+    dest: /etc/systemd/system/coredns.service
+    mode: '0644'
+    owner: root
+    group: root
+  notify:
+    - Reload systemd
+    - Restart coredns
 
-- name: Start CoreDNS container
-  when: 
-    - internal_dns_enabled | default(false)
-    - internal_dns_container_name not in (coredns_container_check.stdout | default(''))
-  command: docker compose -f {{ internal_dns_data_dir }}/docker-compose.yml up -d
-  args:
-    chdir: "{{ internal_dns_data_dir }}"
-  register: coredns_start_result
+- name: Enable and start CoreDNS systemd service
+  when: internal_dns_enabled | default(false)
+  systemd:
+    name: coredns
+    enabled: yes
+    state: started
+    daemon_reload: yes
 
 - name: Verify CoreDNS container is running
   when: internal_dns_enabled | default(false)
@@ -286,5 +290,10 @@
       1. Docker is running: systemctl status docker
       2. CoreDNS logs: docker logs {{ internal_dns_container_name }}
       3. Port 53 is not already in use: netstat -tuln | grep :53
+      4. Systemd service status: systemctl status coredns
       ============================================================================
     success_msg: "✓ CoreDNS container is running"
+
+- name: Include validation tasks
+  when: internal_dns_enabled | default(false)
+  include_tasks: validate.yml
