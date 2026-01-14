@@ -1,6 +1,7 @@
 ---
 edge_ingress_domain: exnada.com
 edge_ingress_acme_email: admin@exnada.com
+edge_ingress_acme_staging: false            # Set to true for Let's Encrypt staging certificates (testing only)
 edge_ingress_acme_delay_before_check: 180  # Delay before checking DNS propagation (seconds) - GoDaddy can be slow
 edge_ingress_acme_propagation_timeout: 300  # Maximum time to wait for DNS propagation (seconds)
 edge_ingress_acme_polling_interval: 10      # How often to check DNS propagation (seconds)

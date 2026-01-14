@@ -31,7 +31,7 @@ certificatesResolvers:
         resolvers:
           - "8.8.8.8:53"
           - "8.8.4.4:53"
-{% if cert_issuer_ca_server is defined and cert_issuer_ca_server == 'staging' %}
+{% if edge_ingress_acme_staging | default(false) %}
       caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
 {% else %}
       caServer: "https://acme-v02.api.letsencrypt.org/directory"

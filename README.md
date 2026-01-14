@@ -1387,6 +1387,18 @@ If you have hosts that were previously configured with the old single-phase appr
 
 This section documents critical issues, solutions, and insights discovered through extensive troubleshooting and deployment. These lessons will save significant time in future deployments and troubleshooting.
 
+**📚 For a comprehensive, consolidated reference of all production issues and solutions, see [docs/LESSONS_LEARNED.md](docs/LESSONS_LEARNED.md)**. This includes diagnostic tools, prevention checklists, and quick-reference solutions.
+
+### Recent Issues (2026-01-14): DNS and Tailscale
+
+**Critical Issue**: Services timing out despite valid certificates and working infrastructure.
+
+**Root Cause**: Tailscale split-horizon DNS was pointing to OLD rigel IP (`100.72.27.93`) instead of new IP (`100.116.21.120`).
+
+**Solution**: After reinstalling a host, ALWAYS update Tailscale Admin Console DNS settings with the new Tailscale IP. The foundation playbook now displays this reminder automatically.
+
+**See**: [docs/DNS_TRAEFIK_TROUBLESHOOTING.md](docs/DNS_TRAEFIK_TROUBLESHOOTING.md) for detailed analysis and [docs/LESSONS_LEARNED.md](docs/LESSONS_LEARNED.md) for prevention checklist.
+
 ### SMB/NetBIOS Protocol Limitations with FQDNs
 
 **Issue**: `smb://mpnas.exnada.com` fails with "Connection refused" or "The specified netbios name [mpnas.exnada.com] is too long!" error, while `smb://mpnas` works correctly.

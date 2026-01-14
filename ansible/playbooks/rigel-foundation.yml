@@ -37,10 +37,11 @@
       delegate_to: rigel
       when: enable_tailscale | default(false)
 
-    - name: Extract Tailscale hostname
+    - name: Extract Tailscale hostname and IP
       set_fact:
         tailscale_hostname: "{{ (tailscale_status_json.stdout | from_json).Self.DNSName | default('') }}"
-      when: 
+        tailscale_ip: "{{ (tailscale_status_json.stdout | from_json).Self.TailscaleIPs[0] | default('') }}"
+      when:
         - enable_tailscale | default(false)
         - tailscale_status_json.stdout is defined
 
@@ -51,22 +52,39 @@
           ✓ Foundation phase completed successfully!
           ============================================================================
           The host is now on the Tailscale network.
-          
+
           {% if tailscale_hostname is defined and tailscale_hostname | length > 0 %}
           Tailscale hostname: {{ tailscale_hostname }}
-          {% else %}
-          To get Tailscale hostname, run: tailscale status | grep {{ inventory_hostname }}
           {% endif %}
-          
+          {% if tailscale_ip is defined and tailscale_ip | length > 0 %}
+          Tailscale IP:       {{ tailscale_ip }}
+          {% else %}
+          To get Tailscale IP, run: tailscale ip -4
+          {% endif %}
+
+          ⚠️  IMPORTANT: Update Tailscale DNS Configuration
+          ============================================================================
+          If this host runs CoreDNS (internal_dns_enabled: true), you MUST update
+          your Tailscale split DNS configuration to use the NEW Tailscale IP:
+
+          1. Go to: https://login.tailscale.com/admin/dns
+          2. Delete any old nameserver configuration for {{ inventory_hostname }}
+          3. Add/update split DNS nameserver:
+             - Domain: {{ internal_dns_domain | default('exnada.com') }}
+             - Nameserver: {{ tailscale_ip | default('[Tailscale IP from above]') }}
+
+          This prevents DNS resolution failures when the host gets a new Tailscale IP.
+          ============================================================================
+
           Next steps:
           1. Update hosts-production.yml to use Tailscale hostname:
-             rigel:
-               ansible_host: {{ tailscale_hostname | default('rigel.tailb821ac.ts.net') }}
+             {{ inventory_hostname }}:
+               ansible_host: {{ tailscale_hostname | default(inventory_hostname + '.tailb821ac.ts.net') }}
                ansible_user: ansible
-          
+
           2. Run production phase:
-             ./scripts/run-ansible.sh prod rigel production
-          
+             ./scripts/run-ansible.sh prod {{ inventory_hostname }} production
+
           ============================================================================
       delegate_to: localhost
       run_once: true

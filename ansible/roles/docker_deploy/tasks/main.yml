@@ -286,3 +286,42 @@
   when: enable_docker_deploy | default(false)
   set_fact:
     docker_deploy_tcp_ports: "{{ docker_deploy_tcp_ports | default([]) }}"
+
+- name: Read deploy user SSH public key
+  when: enable_docker_deploy | default(false)
+  slurp:
+    src: /home/deploy/.ssh/id_ed25519.pub
+  register: deploy_public_key
+  failed_when: false
+
+- name: Display deploy user SSH public key for GitHub
+  when:
+    - enable_docker_deploy | default(false)
+    - deploy_public_key.content is defined
+  debug:
+    msg: |
+      ============================================================================
+      ✓ Deploy user SSH key generated
+      ============================================================================
+
+      ⚠️  IMPORTANT: Add this public key as a GitHub Deploy Key
+      ============================================================================
+      To allow the deploy user to clone private GitHub repositories, add this
+      SSH public key as a deploy key in your GitHub repository settings:
+
+      1. Go to: https://github.com/<your-org>/<your-repo>/settings/keys
+      2. Click "Add deploy key"
+      3. Title: deploy@{{ ansible_hostname }}
+      4. Key: Copy the key below
+      5. Check "Allow write access" if needed (for deployments that push back)
+
+      Deploy User Public SSH Key:
+      ============================================================================
+      {{ deploy_public_key.content | b64decode | trim }}
+      ============================================================================
+
+      Alternatively, add this key to your GitHub user account for access to
+      multiple repositories:
+      https://github.com/settings/keys
+
+      ============================================================================
