@@ -3,14 +3,8 @@ hostname: "rigel"
 enable_desktop: false
 enable_docker: true
 
-# LUKS configuration
-enable_luks: true
-# LUKS device to encrypt (will be set based on system)
-# Common options: /dev/sda1, /dev/mmcblk0p2, etc.
-# Leave empty to skip automatic encryption (manual setup)
-luks_device: ""
-# LUKS keyfile location (optional, for automatic unlocking)
-luks_keyfile: ""
+# LUKS/cryptsetup: Installed for mounting external encrypted devices
+# No configuration needed - cryptsetup is installed and ready to use
 
 # Samba configuration
 enable_samba: true
@@ -27,3 +21,49 @@ docker_deploy_tcp_ports:
   - 6379   # Redis
   - 9000   # MinIO
   - 9001   # MinIO
+# Configure Docker to use CoreDNS for DNS resolution (so containers can resolve Tailscale hostnames)
+docker_deploy_dns_servers:
+  - 127.0.0.1  # CoreDNS (for Tailscale hostname resolution)
+  - 8.8.8.8    # Fallback to Google DNS
+
+# Internal DNS configuration
+internal_dns_enabled: true
+internal_dns_domain: exnada.com
+internal_dns_private_hosts:
+  # DNS-only hosts (no Traefik routing) - resolve directly to their own IPs
+  - mpnas      # DNS-only: resolves to mpnas's IP (100.120.170.43) for direct access (HTTP/HTTPS/SMB)
+  # HTTP/HTTPS hosts resolve to rigel (Traefik) for reverse proxy routing
+  - aispector  # Resolves to rigel for HTTP/HTTPS (Traefik)
+  - dev        # Resolves to rigel for HTTP/HTTPS (Traefik)
+  # Direct access hosts resolve to their own IPs
+  - vega       # Resolves to vega's IP (direct access)
+  - rigel      # Resolves to rigel's IP (direct access)
+
+# Edge ingress configuration
+edge_ingress_enabled: true
+edge_ingress_domain: exnada.com
+edge_ingress_acme_email: admin@exnada.com
+edge_ingress_use_tailscale_fqdn: true
+edge_ingress_disable_tls: false  # TLS enabled - certificates managed by Traefik's built-in ACME resolver
+edge_ingress_backend_timeout_connect: 30s
+edge_ingress_backend_timeout_response: 60s
+edge_ingress_routes:
+  # mpnas.exnada.com REMOVED - DNS only, no Traefik routing
+  # mpnas.exnada.com resolves directly to mpnas's IP for SMB and direct access
+  - host: aispector.exnada.com
+    backend: http://vega:8000
+    health_path: /health
+  - host: dev.exnada.com
+    backend: http://rigel:8000
+    health_path: /health
+
+# Certificate issuer configuration (lego with GoDaddy DNS-01)
+# DISABLED: Using Traefik's built-in ACME resolver instead (simpler, more integrated)
+# Traefik automatically obtains and renews certificates via GoDaddy DNS-01 challenge
+# Certificates are stored in /opt/traefik/acme.json
+cert_issuer_enabled: false  # Disabled - using Traefik's built-in ACME
+# cert_issuer_domain: exnada.com
+# cert_issuer_wildcard: true  # *.exnada.com + exnada.com
+# cert_issuer_email: admin@exnada.com
+# cert_issuer_ca_server: production  # Production Let's Encrypt certificates
+# cert_issuer_renew_days: 30

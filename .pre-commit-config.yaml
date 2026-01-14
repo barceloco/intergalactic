@@ -1,0 +1,25 @@
+---
+repos:
+  - repo: https://github.com/ansible/ansible-lint
+    rev: v6.22.2
+    hooks:
+      - id: ansible-lint
+        files: ansible/.*\.(yml|yaml)$
+        args: ['--force-color']
+  
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        files: ansible/.*\.(yml|yaml)$
+        args: ['-d', '{extends: default, rules: {line-length: {max: 120, level: warning}}}']
+  
+  - repo: local
+    hooks:
+      - id: ansible-syntax-check
+        name: Ansible Syntax Check
+        entry: bash -c 'ansible-playbook --syntax-check "$@" || exit 1' --
+        language: system
+        files: ansible/playbooks/.*\.yml$
+        pass_filenames: true
+        always_run: false

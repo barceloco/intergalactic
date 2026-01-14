@@ -9,7 +9,16 @@ table inet filter {
 
     iif lo accept
     {% if enable_tailscale | default(false) %}
-    # Accept all traffic on Tailscale interface (more secure than opening UDP port globally)
+    iifname "tailscale0" tcp dport {{ ssh_port | default(22) }} accept
+    {% if internal_dns_enabled | default(false) %}
+    iifname "tailscale0" udp dport 53 accept
+    iifname "tailscale0" tcp dport 53 accept
+    {% endif %}
+    {% if edge_ingress_enabled | default(false) %}
+    iifname "tailscale0" tcp dport 80 accept
+    iifname "tailscale0" tcp dport 443 accept
+    {% endif %}
+    # Accept all other traffic on Tailscale interface (more secure than opening UDP port globally)
     # Note: This rule will be ignored if tailscale0 doesn't exist yet (e.g., before Tailscale is started)
     iifname "tailscale0" accept
     {% endif %}

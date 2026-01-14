@@ -1,0 +1,148 @@
+#!/bin/bash
+# Preflight checks for lego certificate renewal
+# This script validates the environment before attempting certificate operations
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="{{ cert_issuer_config_dir }}"
+COMPOSE_FILE="{{ cert_issuer_data_dir }}/docker-compose.yml"
+LEGO_VOLUME="lego_data"  # Docker named volume
+API_KEY_FILE="${CONFIG_DIR}/godaddy_api_key"
+API_SECRET_FILE="${CONFIG_DIR}/godaddy_api_secret"
+DEPLOY_TARGETS="${CONFIG_DIR}/deploy-targets.json"
+CERT_DIR="{{ edge_ingress_data_dir }}/certs"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Check if running as root
+if [[ $EUID -ne 0 ]]; then
+    log_error "This script must be run as root"
+    exit 1
+fi
+
+log_info "Running preflight checks..."
+
+# Check Docker is available
+if ! command -v docker &> /dev/null; then
+    log_error "Docker is not installed or not in PATH"
+    exit 1
+fi
+log_info "✓ Docker is available"
+
+# Check lego container image exists or can be pulled
+if ! docker image inspect "goacme/lego:{{ cert_issuer_lego_version }}" &> /dev/null; then
+    log_warn "Lego image not found locally, will be pulled on first run"
+else
+    log_info "✓ Lego Docker image exists"
+fi
+
+# Check API key file exists and is readable
+if [[ ! -f "${API_KEY_FILE}" ]]; then
+    log_error "GoDaddy API key file not found: ${API_KEY_FILE}"
+    exit 1
+fi
+
+if [[ ! -r "${API_KEY_FILE}" ]]; then
+    log_error "GoDaddy API key file is not readable: ${API_KEY_FILE}"
+    exit 1
+fi
+
+if [[ $(stat -c "%a" "${API_KEY_FILE}") != "600" ]]; then
+    log_warn "API key file permissions should be 600, current: $(stat -c "%a" "${API_KEY_FILE}")"
+fi
+log_info "✓ GoDaddy API key file exists and is readable"
+
+# Check API key file is not empty
+if [[ ! -s "${API_KEY_FILE}" ]]; then
+    log_error "GoDaddy API key file is empty"
+    exit 1
+fi
+log_info "✓ GoDaddy API key file is not empty"
+
+# Check API secret file exists and is readable
+if [[ ! -f "${API_SECRET_FILE}" ]]; then
+    log_error "GoDaddy API secret file not found: ${API_SECRET_FILE}"
+    exit 1
+fi
+
+if [[ ! -r "${API_SECRET_FILE}" ]]; then
+    log_error "GoDaddy API secret file is not readable: ${API_SECRET_FILE}"
+    exit 1
+fi
+
+if [[ $(stat -c "%a" "${API_SECRET_FILE}") != "600" ]]; then
+    log_warn "API secret file permissions should be 600, current: $(stat -c "%a" "${API_SECRET_FILE}")"
+fi
+log_info "✓ GoDaddy API secret file exists and is readable"
+
+# Check API secret file is not empty
+if [[ ! -s "${API_SECRET_FILE}" ]]; then
+    log_error "GoDaddy API secret file is empty"
+    exit 1
+fi
+log_info "✓ GoDaddy API secret file is not empty"
+
+# Check deploy targets file exists
+if [[ ! -f "${DEPLOY_TARGETS}" ]]; then
+    log_error "Deploy targets file not found: ${DEPLOY_TARGETS}"
+    exit 1
+fi
+log_info "✓ Deploy targets file exists"
+
+# Check Docker Compose file exists
+if [[ ! -f "${COMPOSE_FILE}" ]]; then
+    log_error "Docker Compose file not found: ${COMPOSE_FILE}"
+    exit 1
+fi
+log_info "✓ Docker Compose file exists"
+
+# Check lego data directory exists (bind mount)
+LEGO_DATA_DIR="{{ cert_issuer_data_dir }}/data"
+if [[ ! -d "${LEGO_DATA_DIR}" ]]; then
+    log_error "Lego data directory does not exist: ${LEGO_DATA_DIR}"
+    exit 1
+fi
+log_info "✓ Lego data directory exists"
+
+# Check certificate destination directory exists
+if [[ ! -d "${CERT_DIR}" ]]; then
+    log_error "Certificate destination directory does not exist: ${CERT_DIR}"
+    exit 1
+fi
+log_info "✓ Certificate destination directory exists"
+
+    # Check if Traefik container exists (optional, but good to verify)
+    if ! docker ps -a --format "{{ '{{' }}.Names{{ '}}' }}" | grep -q "^traefik$"; then
+        log_warn "Traefik container not found (may not be deployed yet)"
+    else
+        log_info "✓ Traefik container exists"
+    fi
+
+# Check network connectivity (optional)
+if command -v dig &> /dev/null; then
+    if dig +short @8.8.8.8 google.com &> /dev/null; then
+        log_info "✓ Network connectivity verified"
+    else
+        log_warn "Network connectivity check failed (may still work)"
+    fi
+fi
+
+log_info "All preflight checks passed!"
+exit 0

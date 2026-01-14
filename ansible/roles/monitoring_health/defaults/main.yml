@@ -1,0 +1,4 @@
+---
+monitoring_health_enabled: false
+monitoring_health_interval: 60  # seconds
+monitoring_health_log_dir: /var/log/health-monitor

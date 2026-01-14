@@ -1,0 +1,12 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  gather_facts: true
+  vars_files:
+    - ../../../../inventories/prod/group_vars/all_secrets.yml
+  roles:
+    - role: docker_host
+      vars:
+        enable_docker: true
+    - role: docker_deploy

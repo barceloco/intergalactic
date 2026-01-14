@@ -1,0 +1,114 @@
+http:
+  middlewares:
+    security-headers:
+      headers:
+{% if not (edge_ingress_disable_tls | default(false)) %}
+        sslRedirect: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000  # 1 year - ensures browsers remember HTTPS-only
+        # HSTS preload ensures browsers never attempt HTTP connections
+{% endif %}
+        customFrameOptionsValue: "SAMEORIGIN"
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+        customResponseHeaders:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "SAMEORIGIN"
+          X-XSS-Protection: "1; mode=block"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+
+    retry:
+      retry:
+        attempts: 3
+        initialInterval: 100ms
+
+    # Middleware to set Content-Type for HTML responses (for services that don't send it)
+    content-type-html:
+      headers:
+        customResponseHeaders:
+          Content-Type: "text/html; charset=utf-8"
+
+    # Middleware to remove CSP header (for services behind reverse proxy that have restrictive CSP)
+    remove-csp:
+      headers:
+        customResponseHeaders:
+          Content-Security-Policy: ""
+
+    # Security headers WITHOUT nosniff (for services that send incorrect Content-Type headers)
+    # This is needed for Synology which sends text/html for CSS/JS files
+    # Removing nosniff allows browsers to parse CSS/JS even with incorrect Content-Type
+    security-headers-no-nosniff:
+      headers:
+{% if not (edge_ingress_disable_tls | default(false)) %}
+        sslRedirect: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+{% endif %}
+        customFrameOptionsValue: "SAMEORIGIN"
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+        customResponseHeaders:
+          # Note: X-Content-Type-Options: nosniff is intentionally omitted
+          X-Frame-Options: "SAMEORIGIN"
+          X-XSS-Protection: "1; mode=block"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+
+    # HTTP to HTTPS redirect middleware
+{% if not (edge_ingress_disable_tls | default(false)) %}
+    redirect-to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+{% endif %}
+
+  routers:
+{% for route in final_routes | default(edge_ingress_routes) %}
+    # HTTPS router (HTTP→HTTPS redirect handled by entrypoint-level redirect)
+    router-{{ route.host | regex_replace('\\.', '-') | regex_replace('^([^-]+)-.*', '\\1') }}:
+      rule: "Host(`{{ route.host }}`)"
+      entryPoints:
+{% if edge_ingress_disable_tls | default(false) %}
+        - web
+{% else %}
+        - websecure
+{% endif %}
+      service: service-{{ route.host | regex_replace('\\.', '-') | regex_replace('^([^-]+)-.*', '\\1') }}
+      middlewares:
+{% if route.force_html_content_type | default(false) %}
+        - security-headers-no-nosniff  # Use security headers without nosniff for Synology
+        - retry
+        - remove-csp
+        # Note: content-type-html middleware removed - Synology sends correct Content-Type headers
+        # The middleware was forcing text/html on CSS/JS files, breaking them
+{% else %}
+        - security-headers
+        - retry
+{% endif %}
+{% if not (edge_ingress_disable_tls | default(false)) %}
+      tls:
+        certResolver: letsencrypt
+{% endif %}
+
+{% endfor %}
+
+  services:
+{% for route in final_routes | default(edge_ingress_routes) %}
+    service-{{ route.host | regex_replace('\\.', '-') | regex_replace('^([^-]+)-.*', '\\1') }}:
+      loadBalancer:
+{% if route.health_path is defined and route.health_path | length > 0 %}
+        healthCheck:
+          path: "{{ route.health_path }}"
+          interval: "{{ edge_ingress_health_check_interval }}"
+          timeout: "{{ edge_ingress_health_check_timeout }}"
+          scheme: http
+{% endif %}
+        servers:
+          - url: "{{ route.backend_resolved | default(route.backend) }}"
+
+{% endfor %}

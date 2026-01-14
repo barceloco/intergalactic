@@ -1,3 +1,16 @@
+# Bootstrap hosts configuration for SD card provisioning
+# Used by: scripts/provision_sd.py
+#
+# This file defines host configurations for initial SD card provisioning.
+# It's separate from Ansible inventories because it's used before the system
+# is booted (during SD card image preparation).
+#
+# Note: The SSH key shown is an example. Replace with your actual automation
+# public key from ~/.ssh/intergalactic_ansible.pub
+#
+# Usage:
+#   sudo python3 scripts/provision_sd.py <image> <device> --hostname <hostname> --config bootstrap/hosts.yaml
+
 defaults:
   debian_release: trixie
   admin_user: ansible

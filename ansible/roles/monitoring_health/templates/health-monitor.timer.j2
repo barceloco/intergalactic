@@ -1,0 +1,11 @@
+[Unit]
+Description=Health Check Monitor Timer
+Requires=health-monitor.service
+
+[Timer]
+OnBootSec={{ monitoring_health_interval | default(60) }}
+OnUnitActiveSec={{ monitoring_health_interval | default(60) }}
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

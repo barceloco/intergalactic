@@ -1,0 +1,364 @@
+---
+- name: Skip edge_ingress role if not enabled
+  when: not (edge_ingress_enabled | default(false))
+  debug:
+    msg: "Skipping edge_ingress role (edge_ingress_enabled is false)"
+
+- name: Validate edge_ingress_domain is configured
+  when: edge_ingress_enabled | default(false)
+  assert:
+    that:
+      - edge_ingress_domain is defined
+      - edge_ingress_domain | length > 0
+    fail_msg: |
+      ============================================================================
+      ERROR: edge_ingress_domain is not configured!
+      ============================================================================
+      The edge_ingress role requires edge_ingress_domain to be set.
+      
+      Please configure in host_vars or group_vars:
+        edge_ingress_domain: exnada.com
+      ============================================================================
+    success_msg: "✓ edge_ingress_domain is configured: {{ edge_ingress_domain }}"
+
+- name: Validate edge_ingress_acme_email is configured
+  when: edge_ingress_enabled | default(false)
+  assert:
+    that:
+      - edge_ingress_acme_email is defined
+      - edge_ingress_acme_email | length > 0
+      - (edge_ingress_acme_email | default('')) is search('@')
+    fail_msg: |
+      ============================================================================
+      ERROR: edge_ingress_acme_email is not configured!
+      ============================================================================
+      The edge_ingress role requires a valid email for ACME registration.
+      
+      Please configure in host_vars or group_vars:
+        edge_ingress_acme_email: admin@exnada.com
+      ============================================================================
+    success_msg: "✓ edge_ingress_acme_email is configured: {{ edge_ingress_acme_email }}"
+
+- name: Validate routes are configured
+  when: edge_ingress_enabled | default(false)
+  assert:
+    that:
+      - edge_ingress_routes is defined
+      - edge_ingress_routes is iterable
+      - edge_ingress_routes | length > 0
+    fail_msg: |
+      ============================================================================
+      ERROR: No routes configured!
+      ============================================================================
+      The edge_ingress role requires at least one route in edge_ingress_routes.
+      
+      Please configure routes in host_vars or group_vars:
+        edge_ingress_routes:
+          - host: mpnas.exnada.com
+            backend: http://mpnas:5000
+            health_path: /health
+      ============================================================================
+    success_msg: "✓ {{ edge_ingress_routes | length }} route(s) configured"
+
+- name: Validate route structure
+  when: 
+    - edge_ingress_enabled | default(false)
+    - edge_ingress_routes is defined
+    - edge_ingress_routes | length > 0
+  assert:
+    that:
+      - item.host is defined
+      - item.backend is defined
+      - item.host | length > 0
+      - item.backend | length > 0
+      - item.backend is search('://')
+    fail_msg: |
+      ============================================================================
+      ERROR: Invalid route configuration!
+      ============================================================================
+      Route {{ item | default('unknown') }} is missing required fields.
+      
+      Each route must have:
+        - host: Hostname (e.g., "mpnas.exnada.com")
+        - backend: Backend URL (e.g., "http://mpnas:5000")
+        - health_path: Health check path (optional, defaults to "/health")
+      ============================================================================
+    success_msg: "✓ Route {{ item.host }} is valid"
+  loop: "{{ edge_ingress_routes }}"
+
+- name: Check if Tailscale is connected
+  when: 
+    - edge_ingress_enabled | default(false)
+    - enable_tailscale | default(false)
+    - edge_ingress_use_tailscale_fqdn | default(true)
+  command: tailscale status
+  register: tailscale_status_check
+  changed_when: false
+  failed_when: false
+
+- name: Get Tailscale tailnet name
+  when:
+    - edge_ingress_enabled | default(false)
+    - enable_tailscale | default(false)
+    - edge_ingress_use_tailscale_fqdn | default(true)
+    - tailscale_status_check.rc == 0
+  block:
+    - name: Extract tailnet name from tailscale status JSON
+      shell: tailscale status --json | python3 -c "import sys, json; data = json.load(sys.stdin); dns = data.get('Self', {}).get('DNSName', ''); print('.'.join(dns.split('.')[1:]) if '.' in dns else '')"
+      register: tailnet_name_json
+      changed_when: false
+      failed_when: false
+
+    - name: Set tailnet name fact
+      set_fact:
+        detected_tailnet_name: "{{ (tailnet_name_json.stdout.strip() | regex_replace('\\.+$', '') | trim) }}"
+
+    - name: Use configured tailnet name if provided, otherwise use detected
+      set_fact:
+        final_tailnet_name: "{{ edge_ingress_tailnet_name if (edge_ingress_tailnet_name | length > 0) else detected_tailnet_name }}"
+
+- name: Build backend URLs with Tailscale FQDNs (skip for localhost/IP addresses/same host)
+  when:
+    - edge_ingress_enabled | default(false)
+    - edge_ingress_use_tailscale_fqdn | default(true)
+    - final_tailnet_name is defined
+    - final_tailnet_name | length > 0
+  vars:
+    backend_host: "{{ item.backend | regex_replace('^[^:]+://', '') | regex_replace('[:/].*$', '') }}"
+    # Skip FQDN conversion for: localhost, 127.0.0.1, IP addresses, or same hostname
+    should_skip_fqdn: "{{ backend_host == 'localhost' or backend_host == '127.0.0.1' or backend_host is regex('^([0-9]+\\.){3}[0-9]+$') or backend_host == inventory_hostname }}"
+    resolved_backend: "{{ item.backend if should_skip_fqdn else (item.backend | regex_replace('://([^:/]+)(:.*)?$', '://\\1.' + (final_tailnet_name | trim | regex_replace('\\.+$', '')) + '\\2') | regex_replace('\\.+', '.') | regex_replace(':\\.', ':') | regex_replace('\\.(:)', '\\1')) }}"
+  set_fact:
+    resolved_routes: "{{ resolved_routes | default([]) + [item | combine({'backend_resolved': resolved_backend})] }}"
+  loop: "{{ edge_ingress_routes }}"
+  loop_control:
+    label: "{{ item.host }}"
+
+- name: Use original backend URLs if FQDN resolution not needed
+  when:
+    - edge_ingress_enabled | default(false)
+    - not (edge_ingress_use_tailscale_fqdn | default(true)) or final_tailnet_name is not defined or final_tailnet_name | length == 0
+  set_fact:
+    resolved_routes: "{{ resolved_routes | default([]) + [item | combine({'backend_resolved': item.backend})] }}"
+  loop: "{{ edge_ingress_routes }}"
+
+- name: Resolve backend hostnames to IP addresses (for Docker container DNS compatibility)
+  when: 
+    - edge_ingress_enabled | default(false)
+    - enable_tailscale | default(false)
+    - resolved_routes is defined
+  vars:
+    backend_url: "{{ item.backend_resolved | default(item.backend) }}"
+    backend_host: "{{ backend_url | regex_replace('^[^:]+://', '') | regex_replace('[:/].*$', '') }}"
+    is_ip_address: "{{ backend_host is regex('^([0-9]+\\.){3}[0-9]+$') }}"
+    should_resolve: "{{ not (is_ip_address or backend_host == 'localhost' or backend_host == '127.0.0.1' or backend_host == inventory_hostname) }}"
+  shell: |
+    # Try to resolve hostname to IP
+    if getent hosts "{{ backend_host }}" >/dev/null 2>&1; then
+      getent hosts "{{ backend_host }}" | awk '{print $1}' | head -1
+    elif tailscale status | grep -E "^\s*[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\s+{{ backend_host }}\s" >/dev/null 2>&1; then
+      tailscale status | grep -E "^\s*[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\s+{{ backend_host }}\s" | awk '{print $1}' | head -1
+    else
+      echo ""
+    fi
+  register: backend_ip_result
+  loop: "{{ resolved_routes | default(edge_ingress_routes) }}"
+  changed_when: false
+  failed_when: false
+  loop_control:
+    label: "{{ item.host }}"
+
+- name: Initialize final_routes list
+  when: 
+    - edge_ingress_enabled | default(false)
+    - enable_tailscale | default(false)
+    - resolved_routes is defined
+    - backend_ip_result is defined
+  set_fact:
+    final_routes: []
+
+- name: Replace hostnames with IP addresses in backend URLs
+  when: 
+    - edge_ingress_enabled | default(false)
+    - enable_tailscale | default(false)
+    - resolved_routes is defined
+    - backend_ip_result is defined
+  vars:
+    backend_url: "{{ item.item.backend_resolved | default(item.item.backend) }}"
+    backend_host: "{{ backend_url | regex_replace('^[^:]+://', '') | regex_replace('[:/].*$', '') }}"
+    backend_port_path: "{{ backend_url | regex_replace('^[^:]+://[^:/]+', '') }}"
+    backend_scheme: "{{ backend_url | regex_replace('://.*$', '') }}"
+    resolved_ip: "{{ item.stdout | default('') | trim }}"
+    is_ip_address: "{{ backend_host is regex('^([0-9]+\\.){3}[0-9]+$') }}"
+    should_use_ip: "{{ resolved_ip | length > 0 and not (is_ip_address or backend_host == 'localhost' or backend_host == '127.0.0.1' or backend_host == inventory_hostname) }}"
+    final_backend_url: "{{ backend_url if not should_use_ip else (backend_scheme + '://' + resolved_ip + backend_port_path) }}"
+  set_fact:
+    final_routes: "{{ final_routes + [item.item | combine({'backend_resolved': final_backend_url})] }}"
+  loop: "{{ backend_ip_result.results | default([]) }}"
+
+- name: Set final resolved routes (fallback to original if resolution failed)
+  when: 
+    - edge_ingress_enabled | default(false)
+    - final_routes is not defined
+    - resolved_routes is defined
+  set_fact:
+    final_routes: "{{ resolved_routes }}"
+  
+- name: Ensure final_routes is always set (fallback)
+  when: 
+    - edge_ingress_enabled | default(false)
+    - final_routes is not defined
+  set_fact:
+    final_routes: "{{ final_routes | default([]) + [item | combine({'backend_resolved': item.backend})] }}"
+  loop: "{{ edge_ingress_routes }}"
+
+- name: Ensure Traefik data directory exists
+  when: edge_ingress_enabled | default(false)
+  file:
+    path: "{{ edge_ingress_data_dir }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Ensure certificate directory exists
+  when: edge_ingress_enabled | default(false)
+  file:
+    path: "{{ edge_ingress_data_dir }}/certs"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Check if acme.json exists
+  when: edge_ingress_enabled | default(false)
+  stat:
+    path: "{{ edge_ingress_data_dir }}/acme.json"
+  register: acme_json_check
+  failed_when: false
+
+- name: Remove acme.json if it's a directory (should be a file)
+  when:
+    - edge_ingress_enabled | default(false)
+    - acme_json_check.stat.exists is defined
+    - acme_json_check.stat.exists
+    - acme_json_check.stat.isdir is defined
+    - acme_json_check.stat.isdir
+  file:
+    path: "{{ edge_ingress_data_dir }}/acme.json"
+    state: absent
+  failed_when: false
+
+- name: Ensure ACME storage file exists
+  when: edge_ingress_enabled | default(false)
+  file:
+    path: "{{ edge_ingress_data_dir }}/acme.json"
+    state: touch
+    owner: root
+    group: root
+
+- name: Fix ACME file permissions (force correct permissions)
+  when: edge_ingress_enabled | default(false)
+  file:
+    path: "{{ edge_ingress_data_dir }}/acme.json"
+    state: file
+    mode: '0600'
+    owner: root
+    group: root
+  # Always ensure permissions are correct - use chmod as backup
+  register: acme_perms_fix
+  failed_when: false
+
+- name: Force ACME file permissions using chmod (ensures permissions are set)
+  when: edge_ingress_enabled | default(false)
+  command: chmod 0600 {{ edge_ingress_data_dir }}/acme.json
+  args:
+    creates: "{{ edge_ingress_data_dir }}/acme.json"
+  changed_when: true
+  failed_when: false
+
+- name: Deploy Traefik static configuration
+  when: edge_ingress_enabled | default(false)
+  template:
+    src: traefik.yml.j2
+    dest: "{{ edge_ingress_data_dir }}/traefik.yml"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Restart traefik
+
+- name: Deploy Traefik dynamic configuration
+  when: edge_ingress_enabled | default(false)
+  template:
+    src: dynamic.yml.j2
+    dest: "{{ edge_ingress_data_dir }}/dynamic.yml"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Restart traefik
+
+- name: Deploy Traefik Docker Compose
+  when: edge_ingress_enabled | default(false)
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ edge_ingress_data_dir }}/docker-compose.yml"
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Restart traefik
+
+- name: Deploy Traefik systemd service
+  when: edge_ingress_enabled | default(false)
+  template:
+    src: traefik.service.j2
+    dest: /etc/systemd/system/traefik.service
+    mode: '0644'
+    owner: root
+    group: root
+  notify:
+    - Reload systemd
+    - Restart traefik
+
+- name: Enable and start Traefik systemd service
+  when: edge_ingress_enabled | default(false)
+  systemd:
+    name: traefik
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: Verify Traefik container is running
+  when: edge_ingress_enabled | default(false)
+  command: docker ps --filter name={{ edge_ingress_container_name }} --format "{{ '{{' }}.Status{{ '}}' }}"
+  register: traefik_status_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if Traefik container is not running
+  when: edge_ingress_enabled | default(false)
+  assert:
+    that:
+      - traefik_status_check.rc == 0
+      - traefik_status_check.stdout | length > 0
+      - (traefik_status_check.stdout | default('')) is search('Up')
+    fail_msg: |
+      ============================================================================
+      ERROR: Traefik container is not running!
+      ============================================================================
+      The Traefik container failed to start or is not running.
+      
+      Status: {{ traefik_status_check.stdout | default('unknown') }}
+      
+      Please check:
+      1. Docker is running: systemctl status docker
+      2. Traefik logs: docker logs {{ edge_ingress_container_name }}
+      3. Ports 80/443 are not already in use: netstat -tuln | grep -E ':(80|443) '
+      4. Configuration files are valid: check {{ edge_ingress_data_dir }}/traefik.yml and dynamic.yml
+      5. Systemd service status: systemctl status traefik
+      ============================================================================
+    success_msg: "✓ Traefik container is running"
+
+- name: Include validation tasks
+  when: edge_ingress_enabled | default(false)
+  tags: [validation, health-check]
+  include_tasks: validate.yml

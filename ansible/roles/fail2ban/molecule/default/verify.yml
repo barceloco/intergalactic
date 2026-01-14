@@ -1,0 +1,95 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify fail2ban is installed
+      command: dpkg -l fail2ban
+      register: fail2ban_check
+      changed_when: false
+      failed_when: fail2ban_check.rc != 0
+
+    - name: Verify jail.local exists
+      stat:
+        path: /etc/fail2ban/jail.local
+      register: jail_local
+      failed_when: not jail_local.stat.exists
+
+    - name: Verify jail.local has correct permissions
+      stat:
+        path: /etc/fail2ban/jail.local
+      register: jail_perms
+      failed_when: jail_perms.stat.mode != "0644"
+
+    - name: Verify nftables banaction is configured
+      command: grep -E "^banaction = nftables-multiport" /etc/fail2ban/jail.local
+      register: banaction_check
+      changed_when: false
+      failed_when: banaction_check.rc != 0
+
+    - name: Verify sshd jail is enabled
+      command: grep -A 3 "^\[sshd\]" /etc/fail2ban/jail.local
+      register: sshd_jail_check
+      changed_when: false
+      failed_when: "'enabled = true' not in sshd_jail_check.stdout"
+
+    - name: Verify bantime is configured
+      command: grep -E "^bantime  = 315360000" /etc/fail2ban/jail.local
+      register: bantime_check
+      changed_when: false
+      failed_when: bantime_check.rc != 0
+
+    - name: Verify maxretry is configured
+      command: grep -E "^maxretry = 5" /etc/fail2ban/jail.local
+      register: maxretry_check
+      changed_when: false
+      failed_when: maxretry_check.rc != 0
+
+    - name: Verify offender log directory exists
+      stat:
+        path: /var/log/intergalactic
+      register: log_dir
+      failed_when: not log_dir.stat.exists or not log_dir.stat.isdir
+
+    - name: Verify offender log directory has correct permissions
+      stat:
+        path: /var/log/intergalactic
+      register: log_dir_perms
+      failed_when: log_dir_perms.stat.mode != "0750"
+
+    - name: Verify custom logging action exists
+      stat:
+        path: /etc/fail2ban/action.d/intergalactic-log.conf
+      register: custom_action
+      failed_when: not custom_action.stat.exists
+
+    - name: Verify custom action has correct permissions
+      stat:
+        path: /etc/fail2ban/action.d/intergalactic-log.conf
+      register: custom_action_perms
+      failed_when: custom_action_perms.stat.mode != "0644"
+
+    - name: Verify intergalactic-log action is configured in jail
+      command: grep "intergalactic-log" /etc/fail2ban/jail.local
+      register: action_configured
+      changed_when: false
+      failed_when: action_configured.rc != 0
+
+    - name: Verify fail2ban service is enabled
+      command: systemctl is-enabled fail2ban
+      register: fail2ban_enabled_check
+      changed_when: false
+      failed_when: fail2ban_enabled_check.stdout != "enabled"
+
+    - name: Verify fail2ban service is running
+      command: systemctl is-active fail2ban
+      register: fail2ban_active_check
+      changed_when: false
+      failed_when: fail2ban_active_check.stdout != "active"
+
+    - name: Verify fail2ban can see sshd jail
+      command: fail2ban-client status sshd
+      register: sshd_status
+      changed_when: false
+      failed_when: sshd_status.rc != 0

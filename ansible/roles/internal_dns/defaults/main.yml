@@ -1,0 +1,20 @@
+---
+internal_dns_domain: exnada.com
+internal_dns_private_hosts:
+  - mpnas
+  - aispector
+  - dev
+internal_dns_upstream_servers:
+  - 8.8.8.8
+  - 8.8.4.4
+internal_dns_container_name: coredns
+internal_dns_data_dir: /opt/coredns
+internal_dns_cache_ttl: 3600
+internal_dns_health_port: 8080
+internal_dns_ready_port: 8181
+internal_dns_prometheus_port: 9153
+internal_dns_reload_port: 8182
+# Optional: Manual IP mappings (overrides auto-detection)
+# Format: {hostname: ip_address}
+# Example: {mpnas: "100.120.170.43", vega: "100.116.12.30"}
+internal_dns_manual_host_ips: {}

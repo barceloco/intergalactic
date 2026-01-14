@@ -4,10 +4,10 @@
 # CRITICAL: ALL hosts in this file MUST use ansible_user: armand
 # This is the initial user that exists on fresh Raspberry Pi images
 # 
-# After bootstrap completes, switch to using hosts.yml which uses the 'ansible' automation user
+# After bootstrap completes, switch to using hosts-foundation.yml which uses the 'ansible' automation user
 # 
 # RULE: When adding a new host, it MUST use ansible_user: armand in this file
-#       and ansible_user: ansible in hosts.yml
+#       and ansible_user: ansible in hosts-foundation.yml and hosts-production.yml
 all:
   children:
     home_milkyway:

@@ -1,0 +1,71 @@
+---
+# Production inventory - used for service deployment
+# 
+# Connection: Tailscale network ONLY
+# User: ansible (automation user)
+# 
+# CRITICAL: All hosts MUST use Tailscale hostnames
+# Format: hostname.tailb821ac.ts.net OR just hostname (if MagicDNS enabled)
+# 
+# To get Tailscale hostname: tailscale status | grep <hostname>
+# 
+# Migration from foundation phase:
+#   1. Run foundation phase: ./scripts/run-ansible.sh prod <host> foundation
+#   2. Get Tailscale hostname from foundation output or: tailscale status
+#   3. Update this file with Tailscale hostname
+#   4. Run production phase: ./scripts/run-ansible.sh prod <host> production
+# 
+# RULE: When adding a new host:
+#       - Copy from hosts-foundation.yml
+#       - Change ansible_host to Tailscale hostname
+#       - Keep ansible_user: ansible
+all:
+  children:
+    home_milkyway:
+      children:
+        rpi5:
+          hosts:
+            vega:
+              # TODO: Update with Tailscale hostname after foundation phase
+              # Format: vega.tailb821ac.ts.net OR just "vega" (if MagicDNS enabled)
+              ansible_host: vega.tailb821ac.ts.net
+              ansible_user: ansible
+        rpi4:
+          hosts:
+            rigel:
+              # TODO: Update with Tailscale hostname after foundation phase
+              # Format: rigel.tailb821ac.ts.net OR just "rigel" (if MagicDNS enabled)
+              ansible_host: rigel.tailb821ac.ts.net
+              ansible_user: ansible
+        rpi3:
+          hosts:
+            alpheratz:
+              # TODO: Update with Tailscale hostname after foundation phase
+              ansible_host: alpheratz.tailb821ac.ts.net
+              ansible_user: ansible
+        rpi1:
+          hosts:
+            deneb:
+              # TODO: Update with Tailscale hostname after foundation phase
+              ansible_host: deneb.tailb821ac.ts.net
+              ansible_user: ansible
+            saiph:
+              # TODO: Update with Tailscale hostname after foundation phase
+              ansible_host: saiph.tailb821ac.ts.net
+              ansible_user: ansible
+    andromeda_m31:
+      children:
+        rpi1:
+          hosts:
+            g1:
+              # TODO: Update with Tailscale hostname after foundation phase
+              ansible_host: g1.tailb821ac.ts.net
+              ansible_user: ansible
+    triangulum_m33:
+      children:
+        rpi1:
+          hosts:
+            ngc604:
+              # TODO: Update with Tailscale hostname after foundation phase
+              ansible_host: ngc604.tailb821ac.ts.net
+              ansible_user: ansible

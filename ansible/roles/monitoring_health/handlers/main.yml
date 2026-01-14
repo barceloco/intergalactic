@@ -1,0 +1,15 @@
+---
+- name: Reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: Restart health-monitor
+  systemd:
+    name: health-monitor
+    state: restarted
+
+- name: Enable health-monitor-timer
+  systemd:
+    name: health-monitor.timer
+    enabled: yes
+    daemon_reload: yes

@@ -1,0 +1,237 @@
+#!/bin/bash
+# Lego certificate renewal script
+# This script handles both initial certificate issuance and renewal
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="{{ cert_issuer_config_dir }}"
+ENV_FILE="${CONFIG_DIR}/lego.env"
+LEGO_PATH="/data"  # Path inside container (mount point - /lego is the binary!)
+LEGO_DATA_DIR="{{ cert_issuer_data_dir }}/data"  # Host directory
+COMPOSE_FILE="{{ cert_issuer_data_dir }}/docker-compose.yml"
+CONTAINER_NAME="{{ cert_issuer_container_name }}"
+CERT_NAME="{{ cert_issuer_domain }}"
+DEPLOY_HOOK="${CONFIG_DIR}/deploy-internal-certs.sh"
+API_KEY_FILE="${CONFIG_DIR}/godaddy_api_key"
+API_SECRET_FILE="${CONFIG_DIR}/godaddy_api_secret"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $1" >&2
+    logger -t lego-renew "INFO: $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1" >&2
+    logger -t lego-renew "WARN: $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1" >&2
+    logger -t lego-renew "ERROR: $1"
+}
+
+# Check if running as root
+if [[ $EUID -ne 0 ]]; then
+    log_error "This script must be run as root"
+    exit 1
+fi
+
+# Load environment variables
+if [[ ! -f "${ENV_FILE}" ]]; then
+    log_error "Environment file not found: ${ENV_FILE}"
+    exit 1
+fi
+
+# Source environment file
+set -a
+source "${ENV_FILE}"
+set +a
+
+# Read GoDaddy API credentials from files
+if [[ ! -f "${API_KEY_FILE}" ]]; then
+    log_error "GoDaddy API key file not found: ${API_KEY_FILE}"
+    exit 1
+fi
+
+if [[ ! -f "${API_SECRET_FILE}" ]]; then
+    log_error "GoDaddy API secret file not found: ${API_SECRET_FILE}"
+    exit 1
+fi
+
+GODADDY_API_KEY=$(cat "${API_KEY_FILE}" | tr -d '\n\r ')
+GODADDY_API_SECRET=$(cat "${API_SECRET_FILE}" | tr -d '\n\r ')
+
+if [[ -z "${GODADDY_API_KEY}" ]] || [[ -z "${GODADDY_API_SECRET}" ]]; then
+    log_error "GoDaddy API credentials are empty"
+    exit 1
+fi
+
+# Check if certificate exists in lego data directory
+LEGO_DATA_DIR="{{ cert_issuer_data_dir }}/data"
+CERT_EXISTS=false
+if [[ -f "${LEGO_DATA_DIR}/certificates/_.${CERT_NAME}.crt" ]] || \
+   [[ -f "${LEGO_DATA_DIR}/certificates/${CERT_NAME}.crt" ]]; then
+    CERT_EXISTS=true
+fi
+
+# Build lego command arguments
+LEGO_ARGS=(
+    --path "${LEGO_PATH}"
+    --email "${LEGO_EMAIL}"
+    --dns "${LEGO_DNS}"
+    --dns.propagation-wait 60s  # Wait 60 seconds max for propagation (fail fast, bypasses ANS check)
+    --accept-tos
+)
+
+# Add CA server if specified
+if [[ -n "${LEGO_CA_SERVER:-}" ]]; then
+    LEGO_ARGS+=(--server "${LEGO_CA_SERVER}")
+fi
+
+# Add domains
+IFS=',' read -ra DOMAINS <<< "${LEGO_DOMAINS}"
+for domain in "${DOMAINS[@]}"; do
+    LEGO_ARGS+=(--domains "${domain}")
+done
+
+# Determine if we need to run or renew
+if [[ "${CERT_EXISTS}" == "true" ]]; then
+    # Certificate exists, try renewal
+    log_info "Certificate exists, attempting renewal..."
+    
+    # Add renewal-specific arguments
+    RENEW_ARGS=(
+        renew
+        --days "${LEGO_RENEW_DAYS}"
+    )
+    
+    # Note: We don't use --renew-hook because the deploy script needs to run on the host
+    # (to restart Docker containers), not inside the lego container.
+    # We'll deploy manually after renewal completes.
+    
+    # Get certificate modification time before renewal
+    CERT_MTIME_BEFORE=""
+    if [[ -f "${LEGO_DATA_DIR}/certificates/_.${CERT_NAME}.crt" ]]; then
+        CERT_MTIME_BEFORE=$(stat -c %Y "${LEGO_DATA_DIR}/certificates/_.${CERT_NAME}.crt" 2>/dev/null || echo "0")
+    elif [[ -f "${LEGO_DATA_DIR}/certificates/${CERT_NAME}.crt" ]]; then
+        CERT_MTIME_BEFORE=$(stat -c %Y "${LEGO_DATA_DIR}/certificates/${CERT_NAME}.crt" 2>/dev/null || echo "0")
+    else
+        CERT_MTIME_BEFORE="0"
+    fi
+    
+    # Run renewal in container (using docker run directly)
+    # Note: /lego is the binary in the image, so we mount to /data instead
+    # Use --network host to use host's network stack (DNS, routing)
+    cd "$(dirname "${COMPOSE_FILE}")"
+    if docker run --rm \
+        --network host \
+        -v "${LEGO_DATA_DIR}:${LEGO_PATH}:rw" \
+        -v "${CONFIG_DIR}:/etc/lego:ro" \
+        -v "{{ edge_ingress_data_dir }}/certs:/certs:rw" \
+        -e GODADDY_API_KEY="${GODADDY_API_KEY}" \
+        -e GODADDY_API_SECRET="${GODADDY_API_SECRET}" \
+        -e GODADDY_PROPAGATION_TIMEOUT={{ cert_issuer_godaddy_propagation_timeout }} \
+        -e GODADDY_POLLING_INTERVAL={{ cert_issuer_godaddy_polling_interval }} \
+        -e GODADDY_TTL={{ cert_issuer_godaddy_ttl }} \
+        --dns "8.8.8.8" \
+        --dns "8.8.4.4" \
+        "goacme/lego:{{ cert_issuer_lego_version }}" \
+        "${LEGO_ARGS[@]}" "${RENEW_ARGS[@]}"; then
+        RENEW_EXIT_CODE=$?
+        
+                   # Check if certificate was actually renewed (file was modified)
+                   CERT_RENEWED=false
+                   if [[ -f "${LEGO_DATA_DIR}/certificates/_.${CERT_NAME}.crt" ]]; then
+                       CERT_MTIME_AFTER=$(stat -c %Y "${LEGO_DATA_DIR}/certificates/_.${CERT_NAME}.crt" 2>/dev/null || echo "0")
+                   elif [[ -f "${LEGO_DATA_DIR}/certificates/${CERT_NAME}.crt" ]]; then
+                       CERT_MTIME_AFTER=$(stat -c %Y "${LEGO_DATA_DIR}/certificates/${CERT_NAME}.crt" 2>/dev/null || echo "0")
+                   else
+                       CERT_MTIME_AFTER="0"
+                   fi
+                   if [[ "${CERT_MTIME_AFTER}" != "${CERT_MTIME_BEFORE}" ]]; then
+                       CERT_RENEWED=true
+                       log_info "Certificate file was modified - renewal occurred"
+                   fi
+        
+        if [[ ${RENEW_EXIT_CODE} -eq 1 ]]; then
+            # Exit code 1 from lego renew means "no renewal needed"
+            log_info "Certificate is still valid, no renewal needed"
+            exit 0
+        elif [[ "${CERT_RENEWED}" == "true" ]] || [[ ${RENEW_EXIT_CODE} -eq 0 ]]; then
+            log_info "Certificate renewal completed successfully"
+            
+            # Deploy certificates (always deploy, even if renewal wasn't needed, to ensure they're in place)
+            if [[ -f "${DEPLOY_HOOK}" ]] && [[ -x "${DEPLOY_HOOK}" ]]; then
+                log_info "Deploying certificates..."
+                "${DEPLOY_HOOK}" || {
+                    log_error "Certificate deployment failed"
+                    exit 1
+                }
+            else
+                log_warn "Deploy hook not found or not executable: ${DEPLOY_HOOK}"
+            fi
+            
+            exit 0
+        else
+            log_error "Certificate renewal failed with exit code ${RENEW_EXIT_CODE}"
+            exit ${RENEW_EXIT_CODE}
+        fi
+    else
+        RENEW_EXIT_CODE=$?
+        if [[ ${RENEW_EXIT_CODE} -eq 1 ]]; then
+            # Exit code 1 from lego renew means "no renewal needed"
+            log_info "Certificate is still valid, no renewal needed"
+            exit 0
+        else
+            log_error "Certificate renewal failed with exit code ${RENEW_EXIT_CODE}"
+            exit ${RENEW_EXIT_CODE}
+        fi
+    fi
+else
+    # Certificate doesn't exist, obtain new one
+    log_info "Certificate not found, obtaining new certificate..."
+    
+    # Run issuance in container (using docker run directly)
+    # Note: /lego is the binary in the image, so we mount to /data instead
+    # Use --network host to use host's network stack (DNS, routing)
+    cd "$(dirname "${COMPOSE_FILE}")"
+    if docker run --rm \
+        --network host \
+        -v "${LEGO_DATA_DIR}:${LEGO_PATH}:rw" \
+        -v "${CONFIG_DIR}:/etc/lego:ro" \
+        -v "{{ edge_ingress_data_dir }}/certs:/certs:rw" \
+        -e GODADDY_API_KEY="${GODADDY_API_KEY}" \
+        -e GODADDY_API_SECRET="${GODADDY_API_SECRET}" \
+        -e GODADDY_PROPAGATION_TIMEOUT={{ cert_issuer_godaddy_propagation_timeout }} \
+        -e GODADDY_POLLING_INTERVAL={{ cert_issuer_godaddy_polling_interval }} \
+        -e GODADDY_TTL={{ cert_issuer_godaddy_ttl }} \
+        --dns "8.8.8.8" \
+        --dns "8.8.4.4" \
+        "goacme/lego:{{ cert_issuer_lego_version }}" \
+        "${LEGO_ARGS[@]}" run; then
+        log_info "Certificate obtained successfully"
+        
+        # Deploy certificates
+        if [[ -f "${DEPLOY_HOOK}" ]] && [[ -x "${DEPLOY_HOOK}" ]]; then
+            log_info "Deploying certificates..."
+            "${DEPLOY_HOOK}" || {
+                log_error "Certificate deployment failed"
+                exit 1
+            }
+        else
+            log_warn "Deploy hook not found, certificates not deployed automatically"
+        fi
+        
+        exit 0
+    else
+        log_error "Certificate issuance failed"
+        exit 1
+    fi
+fi

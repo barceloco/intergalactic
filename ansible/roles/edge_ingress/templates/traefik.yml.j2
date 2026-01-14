@@ -1,0 +1,43 @@
+api:
+  dashboard: true
+  insecure: false
+
+entryPoints:
+  web:
+    address: ":80"
+{% if not (edge_ingress_disable_tls | default(false)) %}
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+    # Force HTTPS-only: reject HTTP connections after redirect
+    # This ensures browsers understand the site ONLY supports HTTPS
+{% endif %}
+
+  websecure:
+    address: ":443"
+    # HTTPS-only entrypoint - all traffic must use this
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "{{ edge_ingress_acme_email }}"
+      storage: "{{ edge_ingress_data_dir }}/acme.json"
+      dnsChallenge:
+        provider: godaddy
+        delayBeforeCheck: {{ edge_ingress_acme_delay_before_check | default(180) }}
+        resolvers:
+          - "8.8.8.8:53"
+          - "8.8.4.4:53"
+{% if edge_ingress_acme_staging | default(false) %}
+      caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
+{% else %}
+      caServer: "https://acme-v02.api.letsencrypt.org/directory"
+{% endif %}
+
+providers:
+  file:
+    filename: /dynamic.yml
+    watch: true

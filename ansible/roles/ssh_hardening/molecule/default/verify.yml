@@ -1,0 +1,101 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify OpenSSH server is installed
+      command: dpkg -l openssh-server
+      register: openssh_check
+      changed_when: false
+      failed_when: openssh_check.rc != 0
+
+    - name: Verify authorized_keys directory exists
+      stat:
+        path: /etc/ssh/authorized_keys.d
+      register: authkeys_dir
+      failed_when: not authkeys_dir.stat.exists or not authkeys_dir.stat.isdir
+
+    - name: Verify authorized_keys directory has correct permissions
+      stat:
+        path: /etc/ssh/authorized_keys.d
+      register: authkeys_dir_perms
+      failed_when: authkeys_dir_perms.stat.mode != "0755"
+
+    - name: Verify SSH hardening config file exists
+      stat:
+        path: /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: ssh_config_file
+      failed_when: not ssh_config_file.stat.exists
+
+    - name: Verify SSH config file has correct permissions
+      stat:
+        path: /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: ssh_config_perms
+      failed_when: ssh_config_perms.stat.mode != "0600"
+
+    - name: Verify password authentication is disabled
+      command: grep -E "^PasswordAuthentication no" /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: password_auth_check
+      changed_when: false
+      failed_when: password_auth_check.rc != 0
+
+    - name: Verify root login is disabled
+      command: grep -E "^PermitRootLogin no" /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: root_login_check
+      changed_when: false
+      failed_when: root_login_check.rc != 0
+
+    - name: Verify public key authentication is enabled
+      command: grep -E "^PubkeyAuthentication yes" /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: pubkey_auth_check
+      changed_when: false
+      failed_when: pubkey_auth_check.rc != 0
+
+    - name: Verify X11 forwarding is disabled
+      command: grep -E "^X11Forwarding no" /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: x11_check
+      changed_when: false
+      failed_when: x11_check.rc != 0
+
+    - name: Verify AllowUsers is configured
+      command: grep -E "^AllowUsers.*ansible.*testuser" /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: allow_users_check
+      changed_when: false
+      failed_when: allow_users_check.rc != 0
+
+    - name: Verify SSH port is configured
+      command: grep -E "^Port 22" /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: ssh_port_check
+      changed_when: false
+      failed_when: ssh_port_check.rc != 0
+
+    - name: Verify SSH service is enabled
+      command: systemctl is-enabled ssh
+      register: ssh_enabled_check
+      changed_when: false
+      failed_when: ssh_enabled_check.stdout != "enabled"
+
+    - name: Verify SSH service is running
+      command: systemctl is-active ssh
+      register: ssh_active_check
+      changed_when: false
+      failed_when: ssh_active_check.stdout != "active"
+
+    - name: Verify AuthorizedKeysFile points to system location
+      command: grep -E "^AuthorizedKeysFile /etc/ssh/authorized_keys.d/%u" /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: authkeys_file_check
+      changed_when: false
+      failed_when: authkeys_file_check.rc != 0
+
+    - name: Verify MaxAuthTries is set
+      command: grep -E "^MaxAuthTries 3" /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: max_auth_tries_check
+      changed_when: false
+      failed_when: max_auth_tries_check.rc != 0
+
+    - name: Verify ClientAliveInterval is set
+      command: grep -E "^ClientAliveInterval 300" /etc/ssh/sshd_config.d/10-intergalactic.conf
+      register: client_alive_check
+      changed_when: false
+      failed_when: client_alive_check.rc != 0

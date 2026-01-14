@@ -1,0 +1,78 @@
+# Docker ignore file
+# Excludes unnecessary files from Docker build context
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation (not needed in containers)
+*.md
+!docker/**/*.md
+
+# Review documents
+*_REVIEW.md
+*_FINDINGS.md
+*_SUMMARY.md
+*_STRATEGY.md
+*_INSTALLATION.md
+CONTAINERIZED_TESTING.md
+
+# Secrets (should never be in Docker context)
+*.secrets.yml
+*.secrets.yaml
+**/all_secrets.yml
+secrets/
+
+# SSH keys
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+intergalactic_*_key*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.pytest_cache/
+
+# Testing
+.molecule/
+.tox/
+.pytest_cache/
+
+# Ansible
+.ansible/
+.ansible.cfg
+*.retry
+ansible.log
+ansible/*.log
+ansible/tmp/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+
+# Build artifacts
+*.tar
+*.tar.gz
+*.tgz
+docker/**/build/
+docker/**/.cache/
+
+# Other
+crypthome/
+.pre-commit/

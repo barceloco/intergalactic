@@ -1,0 +1,14 @@
+[Unit]
+Description=Configuration Backup Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup-configs.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=backup
+
+[Install]
+WantedBy=multi-user.target

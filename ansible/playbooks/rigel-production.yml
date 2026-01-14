@@ -1,0 +1,46 @@
+---
+- name: Rigel Production (Application Services)
+  hosts: rigel
+  become: true
+  gather_facts: false
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
+  tags:
+    - production
+    - always
+  pre_tasks:
+    # Host key verification MUST be first - before any connection attempts
+    - name: Import host key verification tasks
+      import_tasks: shared/host-key-verification.yml
+      tags: always
+
+    # Import shared production validation (Tailscale verification)
+    - name: Import production validation tasks
+      import_tasks: shared/production-validation.yml
+      tags: always
+  roles:
+    # 1. Docker deploy user and directory structure (must be first)
+    - role: docker_deploy
+      tags: [production, services]
+    
+    # 2. Internal DNS (CoreDNS) - must be available for certificate validation
+    - role: internal_dns
+      tags: [production, services]
+    
+    # 3. Edge ingress (Traefik) - includes built-in ACME certificate management
+    # Note: cert_issuer role is disabled - using Traefik's built-in ACME instead
+    - role: edge_ingress
+      tags: [production, services]
+    
+    # 4. Certificate issuer (lego) - DISABLED by default, using Traefik ACME
+    # Uncomment and enable cert_issuer_enabled in host_vars if you prefer lego
+    # - role: cert_issuer
+    #   tags: [production, services, certificates]
+    
+    # 5. Monitoring tools
+    - role: monitoring_docker
+      tags: [production, monitoring]
+    
+    # 6. LUKS support for external encrypted devices
+    - role: luks
+      tags: [production, security]

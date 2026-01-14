@@ -1,0 +1,39 @@
+---
+# Example playbook: Monitoring tools for Raspberry Pi / Debian / Ubuntu hosts
+#
+# This playbook demonstrates how to use the monitoring_base and monitoring_docker roles
+# to set up CLI-only monitoring tooling for headless servers running Docker Compose stacks.
+#
+# Usage:
+#   ansible-playbook -i inventory examples/monitoring.yml
+
+- name: Install monitoring tools
+  hosts: all
+  become: true
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
+  
+  roles:
+    # Base monitoring tools: htop, sysstat, procps, tmux
+    - role: monitoring_base
+      vars:
+        monitoring_base_install_tmux: true
+        monitoring_base_enable_sysstat: true
+        monitoring_base_aliases_enabled: true
+    
+    # Docker monitoring tools: ctop and aliases
+    - role: monitoring_docker
+      vars:
+        # Auto-install: try apt first, fallback to binary
+        monitoring_docker_ctop_install_method: auto
+        
+        # Use latest version (requires GitHub API access)
+        # For production, pin a version: monitoring_docker_ctop_version: "0.7.7"
+        monitoring_docker_ctop_version: latest
+        
+        # Add users to docker group (requires logout/login to take effect)
+        monitoring_docker_add_users_to_docker_group:
+          - pi
+        
+        # Enable Docker monitoring aliases
+        monitoring_docker_aliases_enabled: true

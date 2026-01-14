@@ -1,0 +1,17 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - role: docker_host
+      vars:
+        enable_docker: true
+    - role: tailscale
+      vars:
+        enable_tailscale: true
+        # Skip actual Tailscale connection in test
+    - role: internal_dns
+      vars:
+        # Override Tailscale IP detection for testing
+        tailscale_ip: "100.64.0.1"

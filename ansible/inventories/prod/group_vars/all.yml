@@ -47,13 +47,10 @@ enable_docker: true
 docker_add_automation_user: true
 enable_desktop: false
 
-# LUKS disk encryption (for devices that need encrypted storage)
-enable_luks: false
-# LUKS device to encrypt (e.g., /dev/sda1, /dev/mmcblk0p2)
-# Leave empty for manual setup
-luks_device: ""
-# LUKS keyfile for automatic unlocking (optional)
-luks_keyfile: ""
+# LUKS/cryptsetup: Install cryptsetup for mounting external encrypted devices
+# This enables mounting LUKS-encrypted USB drives or network storage
+# Internal partitions are NOT encrypted - this is only for external devices
+enable_luks: true
 
 disable_default_pi_user: true
 
@@ -61,3 +58,9 @@ disable_default_pi_user: true
 enable_docker_deploy: false  # Enable per-host
 docker_deploy_dns_servers: []  # Optional: list of DNS servers for Docker daemon (e.g., ["8.8.8.8", "8.8.4.4"])
 docker_deploy_env_vars: {}  # Optional: dict of environment variables for deploy user (e.g., {"API_KEY": "value"})
+
+# Docker data-root configuration
+# Docker stores all data (images, containers, volumes) in this directory
+# Default: /var/lib/docker (on root partition)
+# Recommended: /home/deploy/docker (on data partition, owned by deploy user)
+docker_data_root: "/home/deploy/docker"

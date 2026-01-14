@@ -1,0 +1,32 @@
+---
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: instance
+    image: debian:bookworm-slim
+    pre_build_image: true
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: "/lib/systemd/systemd"
+    tmpfs:
+      - /run
+      - /tmp
+    capabilities:
+      - SYS_ADMIN
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      instance:
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_architecture: aarch64
+        ansible_distribution_release: bookworm
+        enable_docker: true
+        docker_add_automation_user: true
+        automation_user: ansible
+verifier:
+  name: ansible

@@ -1,0 +1,21 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+      changed_when: false
+    
+    # Create automation user for testing
+    - name: Create ansible user for testing
+      user:
+        name: ansible
+        shell: /bin/bash
+        create_home: true
+        state: present
+  roles:
+    - role: docker_host

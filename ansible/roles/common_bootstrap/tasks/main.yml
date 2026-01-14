@@ -1,6 +1,9 @@
 ---
-# CRITICAL: Disable password authentication FIRST to secure the system
-# This must happen before any other changes to prevent password-based access
+# CRITICAL: Bootstrap sequence to prevent lockout:
+# 1. Configure SSH to use consolidated key location AND disable password auth (but don't restart yet)
+# 2. Copy existing human user keys to new location
+# 3. Create ansible user and set up its keys
+# 4. Restart SSH (password auth already disabled in config, all keys are in place)
 - name: Ensure OpenSSH server is installed
   apt:
     name: openssh-server
@@ -15,15 +18,17 @@
     owner: root
     group: root
 
-- name: Immediately disable password authentication (CRITICAL SECURITY STEP)
+# STEP 1: Configure SSH to use consolidated key location and disable password auth
+# Password auth is disabled from the start - keys must be in place before SSH restart
+- name: Configure SSH to use consolidated authorized_keys location and disable password auth
   copy:
     dest: /etc/ssh/sshd_config.d/10-intergalactic-bootstrap.conf
     mode: "0600"
     owner: root
     group: root
     content: |
-      # Emergency SSH hardening - disable password auth immediately
       # SSH keys stored in system location for encrypted home directory support
+      # Password authentication is DISABLED - public key authentication only
       AuthorizedKeysFile /etc/ssh/authorized_keys.d/%u
       
       PasswordAuthentication no
@@ -31,12 +36,55 @@
       ChallengeResponseAuthentication no
       PubkeyAuthentication yes
       AuthenticationMethods publickey
-  notify: Restart ssh
+  # DO NOT restart SSH yet - keys must be in place first
 
-- name: Restart SSH service to apply password disable
-  service:
-    name: ssh
-    state: restarted
+# STEP 2: Ensure human users exist and copy their existing keys to new location
+- name: Ensure human users exist (may already exist from standard image)
+  user:
+    name: "{{ item.name }}"
+    shell: /bin/bash
+    create_home: true
+    state: present
+  loop: "{{ human_users | default([]) }}"
+
+- name: Get existing human user SSH keys from home directory
+  slurp:
+    src: "/home/{{ item.name }}/.ssh/authorized_keys"
+  register: existing_home_keys_result
+  loop: "{{ human_users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: human_users is defined and human_users | length > 0
+  failed_when: false
+  changed_when: false
+
+- name: Set fact for existing keys by username
+  set_fact:
+    existing_keys_by_user: "{{ existing_keys_by_user | default({}) | combine({item.item.name: (item.content | b64decode | default('')) if (item.content is defined and item.content != '') else ''}) }}"
+  loop: "{{ existing_home_keys_result.results | default([]) }}"
+  when: 
+    - human_users is defined
+    - human_users | length > 0
+    - item.content is defined
+    - item.content != ''
+
+- name: Ensure human users authorized_keys in system location (from existing keys + secrets)
+  copy:
+    dest: /etc/ssh/authorized_keys.d/{{ item.name }}
+    content: |
+      {{ existing_keys_by_user[item.name] | default('') }}
+      {% if item.authorized_keys is defined %}
+      {% for key in item.authorized_keys %}
+      {{ key }}
+      {% endfor %}
+      {% endif %}
+    mode: '0644'
+    owner: root
+    group: root
+  loop: "{{ human_users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: human_users is defined and human_users | length > 0
 
 - name: Ensure base packages for Ansible are installed
   apt:
@@ -214,26 +262,11 @@
       ============================================================================
     success_msg: "✓ Passwordless sudo verified for {{ automation_user }}"
 
-# Human users may already exist (e.g., from standard Raspberry Pi image)
-# Ensure they exist, then set their SSH keys
-- name: Ensure human users exist (may already exist from standard image)
-  user:
-    name: "{{ item.name }}"
-    shell: /bin/bash
-    create_home: true
-    state: present
-  loop: "{{ human_users | default([]) }}"
-
-- name: Ensure human users authorized_keys in system location
-  copy:
-    dest: /etc/ssh/authorized_keys.d/{{ item.0.name }}
-    content: "{{ item.1 }}\n"
-    mode: '0644'
-    owner: root
-    group: root
-  loop: "{{ (human_users | default([])) | subelements('authorized_keys') }}"
-  loop_control:
-    label: "{{ item.0.name }}"
+# STEP 4: Restart SSH service to apply configuration (password auth already disabled, keys are in place)
+- name: Restart SSH service to apply configuration
+  service:
+    name: ssh
+    state: restarted
 
 - name: Set hostname (if provided)
   when: hostname is defined

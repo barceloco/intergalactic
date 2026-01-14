@@ -1,0 +1,132 @@
+---
+# Centralized Port Registry
+# This file defines all standard ports used across the infrastructure
+# Reference these variables instead of hardcoding port numbers
+
+# ============================================================================
+# INFRASTRUCTURE PORTS (System-level services)
+# ============================================================================
+
+# SSH Management
+port_ssh: 22
+
+# DNS Services
+port_dns: 53  # CoreDNS (UDP/TCP)
+
+# HTTP/HTTPS (Traefik)
+port_http: 80
+port_https: 443
+
+# Tailscale VPN
+port_tailscale_udp: 41641  # Initial connection (UDP only)
+
+# ============================================================================
+# APPLICATION PORTS (Docker services)
+# ============================================================================
+
+# Web Services
+port_api: 8000           # REST API endpoint
+port_web_alt: 8080       # Alternative web port
+
+# Database Services
+port_postgresql: 5432    # PostgreSQL database
+port_mysql: 3306         # MySQL/MariaDB database
+port_mongodb: 27017      # MongoDB database
+port_redis: 6379         # Redis cache/queue
+
+# Object Storage
+port_minio: 9000         # MinIO S3-compatible storage
+port_minio_console: 9001 # MinIO web console
+
+# Monitoring & Observability
+port_prometheus: 9090    # Prometheus metrics
+port_grafana: 3000       # Grafana dashboards
+port_node_exporter: 9100 # Node exporter metrics
+port_alertmanager: 9093  # Alertmanager
+
+# Message Queues
+port_rabbitmq: 5672      # RabbitMQ AMQP
+port_rabbitmq_mgmt: 15672 # RabbitMQ management UI
+port_kafka: 9092         # Kafka broker
+
+# ============================================================================
+# FILE SHARING PORTS
+# ============================================================================
+
+# SMB/CIFS (Samba)
+port_smb: 445            # SMB file sharing
+port_netbios: 139        # NetBIOS session service
+port_netbios_ns: 137     # NetBIOS name service (UDP)
+port_netbios_dg: 138     # NetBIOS datagram service (UDP)
+
+# NFS
+port_nfs: 2049           # NFS file sharing
+
+# ============================================================================
+# PORT GROUPS (For easy firewall configuration)
+# ============================================================================
+
+# Ports required for basic infrastructure
+infrastructure_tcp_ports:
+  - "{{ port_ssh }}"
+  - "{{ port_http }}"
+  - "{{ port_https }}"
+  - "{{ port_dns }}"
+
+infrastructure_udp_ports:
+  - "{{ port_tailscale_udp }}"
+  - "{{ port_dns }}"
+
+# Ports for file sharing services
+file_sharing_tcp_ports:
+  - "{{ port_smb }}"
+  - "{{ port_netbios }}"
+  - "{{ port_nfs }}"
+
+file_sharing_udp_ports:
+  - "{{ port_netbios_ns }}"
+  - "{{ port_netbios_dg }}"
+
+# Ports for database services
+database_tcp_ports:
+  - "{{ port_postgresql }}"
+  - "{{ port_mysql }}"
+  - "{{ port_mongodb }}"
+  - "{{ port_redis }}"
+
+# Ports for monitoring services
+monitoring_tcp_ports:
+  - "{{ port_prometheus }}"
+  - "{{ port_grafana }}"
+  - "{{ port_node_exporter }}"
+  - "{{ port_alertmanager }}"
+
+# ============================================================================
+# USAGE EXAMPLES
+# ============================================================================
+
+# Example 1: Firewall configuration
+# firewall_allow_tcp_ports: "{{ infrastructure_tcp_ports + database_tcp_ports }}"
+
+# Example 2: Docker deploy ports
+# docker_deploy_tcp_ports:
+#   - "{{ port_api }}"
+#   - "{{ port_postgresql }}"
+#   - "{{ port_redis }}"
+#   - "{{ port_minio }}"
+#   - "{{ port_minio_console }}"
+
+# Example 3: Reference individual ports
+# backend_url: "http://{{ backend_host }}:{{ port_api }}"
+
+# ============================================================================
+# NOTES
+# ============================================================================
+
+# - Always reference ports from this file instead of hardcoding numbers
+# - Add new ports here when adding new services
+# - Document the purpose of each port
+# - Group related ports together
+# - Use descriptive variable names (port_<service>)
+# - Update this file when ports change
+# - Port groups make firewall configuration cleaner

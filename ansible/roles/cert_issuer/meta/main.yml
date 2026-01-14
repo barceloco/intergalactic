@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  author: intergalactic
+  description: Automated Let's Encrypt certificate issuance and renewal using lego with GoDaddy DNS-01 challenge
+  license: Proprietary - All Rights Reserved, ExNada Inc.
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Debian
+      versions:
+        - all
+  galaxy_tags:
+    - ssl
+    - tls
+    - certificates
+    - lego
+    - letsencrypt
+    - godaddy
+    - acme
+
+dependencies:
+  - role: docker_host
+    when: enable_docker | default(false)
+  # Note: edge_ingress role should run after this role to ensure certificate directory exists
