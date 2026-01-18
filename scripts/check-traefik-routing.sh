@@ -69,6 +69,28 @@ else
 fi
 echo ""
 
+# Test vega:8001 (callosal service)
+echo -n "Testing vega:8001/health (callosal)... "
+if curl -s --max-time 5 http://vega:8001/health >/dev/null 2>&1; then
+    echo -e "${GREEN}✓${NC} Reachable"
+    curl -s --max-time 5 http://vega:8001/health | head -1
+else
+    echo -e "${YELLOW}⚠${NC} Not reachable (service may not have /health endpoint yet)"
+    echo "  Trying basic connectivity to vega:8001..."
+    if curl -s --max-time 5 http://vega:8001 >/dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} Port is open and responding"
+    else
+        echo -e "${RED}✗${NC} Port not responding"
+        echo "  Trying via Tailscale FQDN..."
+        if curl -s --max-time 5 http://vega.tailb821ac.ts.net:8001 >/dev/null 2>&1; then
+            echo -e "${GREEN}✓${NC} Reachable via Tailscale FQDN"
+        else
+            echo -e "${RED}✗${NC} Not reachable via Tailscale FQDN either"
+        fi
+    fi
+fi
+echo ""
+
 # Test rigel:8000
 echo -n "Testing rigel:8000/health... "
 if curl -s --max-time 5 http://rigel:8000/health >/dev/null 2>&1; then
@@ -111,7 +133,7 @@ echo "----------------------------------------"
 echo "Testing via Traefik (localhost:443):"
 echo ""
 
-for host in "aispector.exnada.com" "dev.exnada.com" "mpnas.exnada.com"; do
+for host in "aispector.exnada.com" "callosal.exnada.com" "dev.exnada.com" "mpnas.exnada.com"; do
     echo -n "Testing ${host}... "
     RESPONSE=$(curl -s -k --max-time 5 -H "Host: ${host}" https://localhost/health 2>&1 || echo "FAILED")
     if echo "${RESPONSE}" | grep -q "404\|not found"; then

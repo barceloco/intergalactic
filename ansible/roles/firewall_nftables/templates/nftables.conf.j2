@@ -48,7 +48,13 @@ table inet filter {
 
   chain forward {
     type filter hook forward priority 0;
+{% if enable_docker | default(false) %}
+    # Allow forwarding when Docker is enabled - Docker manages its own
+    # forwarding rules in the 'ip filter' table (DOCKER-USER, DOCKER-FORWARD chains)
+    policy accept;
+{% else %}
     policy drop;
+{% endif %}
   }
 
   chain output {

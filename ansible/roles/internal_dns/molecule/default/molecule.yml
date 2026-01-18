@@ -23,10 +23,12 @@ provisioner:
       instance:
         ansible_python_interpreter: /usr/bin/python3
         internal_dns_enabled: true
-internal_dns_domain: exnada.com
+        internal_dns_domain: exnada.com
         internal_dns_private_hosts:
           - mpnas
           - aispector
+          - callosal
+          - dev
         enable_tailscale: true
         # Mock Tailscale for testing
         tailscale_ip: "100.64.0.1"

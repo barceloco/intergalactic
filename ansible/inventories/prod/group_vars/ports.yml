@@ -26,6 +26,7 @@ port_tailscale_udp: 41641  # Initial connection (UDP only)
 
 # Web Services
 port_api: 8000           # REST API endpoint
+port_api_alt: 8001       # Alternative API endpoint (e.g., callosal service)
 port_web_alt: 8080       # Alternative web port
 
 # Database Services

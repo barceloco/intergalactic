@@ -18,7 +18,8 @@ all:
         rpi5:
           hosts:
             vega:
-              ansible_host: 192.168.1.243
+              # Updated to use Tailscale hostname (vega is already on Tailscale)
+              ansible_host: vega.tailb821ac.ts.net
               ansible_user: ansible
         rpi4:
           hosts:

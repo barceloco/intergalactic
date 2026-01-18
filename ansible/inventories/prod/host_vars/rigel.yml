@@ -17,6 +17,7 @@ enable_samba: true
 enable_docker_deploy: true
 docker_deploy_tcp_ports:
   - 8000   # API
+  - 8001   # API
   - 5432   # PostgreSQL
   - 6379   # Redis
   - 9000   # MinIO
@@ -34,6 +35,7 @@ internal_dns_private_hosts:
   - mpnas      # DNS-only: resolves to mpnas's IP (100.120.170.43) for direct access (HTTP/HTTPS/SMB)
   # HTTP/HTTPS hosts resolve to rigel (Traefik) for reverse proxy routing
   - aispector  # Resolves to rigel for HTTP/HTTPS (Traefik)
+  - callosal  # Resolves to rigel for HTTP/HTTPS (Traefik)
   - dev        # Resolves to rigel for HTTP/HTTPS (Traefik)
   # Direct access hosts resolve to their own IPs
   - vega       # Resolves to vega's IP (direct access)
@@ -52,6 +54,9 @@ edge_ingress_routes:
   # mpnas.exnada.com resolves directly to mpnas's IP for SMB and direct access
   - host: aispector.exnada.com
     backend: http://vega:8000
+    health_path: /health
+  - host: callosal.exnada.com
+    backend: "http://vega:{{ port_api_alt | default('8001') }}"
     health_path: /health
   - host: dev.exnada.com
     backend: http://rigel:8000

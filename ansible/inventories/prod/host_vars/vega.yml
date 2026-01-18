@@ -12,3 +12,10 @@ enable_samba: true
 # Password is set from samba_armand_passwords[inventory_hostname] in all_secrets.yml
 # Set it to match the system password if you want to use the same password
 # Future system password changes will sync to Samba automatically
+
+# Firewall configuration
+# Allow ports for services running on vega
+firewall_allow_tcp_ports:
+  - "{{ ssh_port }}"
+  - 8000   # AISpector (port_api)
+  - 8001   # Callosal service (port_api_alt)

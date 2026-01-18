@@ -11,5 +11,5 @@ $ORIGIN {{ internal_dns_domain }}.
 @       IN      NS      rigel.{{ internal_dns_domain }}.
 
 {% for host in internal_dns_private_hosts %}
-{{ host }}     IN      A       {{ tailscale_ip }}
+{{ host }}     IN      A       {{ internal_dns_host_ips[host] | default(tailscale_ip) }}
 {% endfor %}

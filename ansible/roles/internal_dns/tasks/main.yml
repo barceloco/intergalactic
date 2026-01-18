@@ -45,6 +45,7 @@
         internal_dns_private_hosts:
           - mpnas
           - aispector
+          - callosal
           - dev
       ============================================================================
     success_msg: "✓ internal_dns_private_hosts is valid ({{ internal_dns_private_hosts | length }} host(s))"
