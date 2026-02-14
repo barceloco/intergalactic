@@ -30,30 +30,36 @@ docker_deploy_dns_servers:
 # Internal DNS configuration
 internal_dns_enabled: true
 internal_dns_domain: exnada.com
+# Hosts that need DNS entries but are NOT routed through Traefik.
+# Routed hosts are auto-added from edge_ingress_routes below — do NOT list them here.
 internal_dns_private_hosts:
-  # DNS-only hosts (no Traefik routing) - resolve directly to their own IPs
-  - mpnas      # DNS-only: resolves to mpnas's IP (100.120.170.43) for direct access (HTTP/HTTPS/SMB)
-  # HTTP/HTTPS hosts resolve to rigel (Traefik) for reverse proxy routing
-  - aispector  # Resolves to rigel for HTTP/HTTPS (Traefik)
-  - callosal  # Resolves to rigel for HTTP/HTTPS (Traefik)
-  - dev        # Resolves to rigel for HTTP/HTTPS (Traefik)
-  - docgen     # Resolves to rigel for HTTP/HTTPS (Traefik)
-  - immich     # Resolves to rigel for HTTP/HTTPS (Traefik)
-  # Direct access hosts resolve to their own IPs
-  - vega       # Resolves to vega's IP (direct access)
-  - rigel      # Resolves to rigel's IP (direct access)
+  - mpnas      # DNS-only: resolves to mpnas's IP for direct access (SMB, etc.)
+  - vega       # Resolves to vega's Tailscale IP (direct access)
+  - rigel      # Resolves to rigel's Tailscale IP (direct access)
 
-# Edge ingress configuration
+# =============================================================================
+# REVERSE PROXY ROUTES (Traefik on rigel)
+# =============================================================================
+# To add a new HTTPS endpoint:
+#   1. Add an entry below with host + backend
+#   2. Run: ./scripts/run-ansible.sh prod rigel production
+#   3. That's it. DNS and TLS certificates are handled automatically.
+#
+# Each entry creates:
+#   - A Traefik HTTPS router with automatic Let's Encrypt certificate
+#   - A CoreDNS record pointing <subdomain>.exnada.com to rigel
+#
+# Optional fields:
+#   health_path: /health    — Traefik health-checks the backend at this path
+# =============================================================================
 edge_ingress_enabled: true
 edge_ingress_domain: exnada.com
 edge_ingress_acme_email: admin@exnada.com
 edge_ingress_use_tailscale_fqdn: true
-edge_ingress_disable_tls: false  # TLS enabled - certificates managed by Traefik's built-in ACME resolver
+edge_ingress_disable_tls: false
 edge_ingress_backend_timeout_connect: 30s
 edge_ingress_backend_timeout_response: 60s
 edge_ingress_routes:
-  # mpnas.exnada.com REMOVED - DNS only, no Traefik routing
-  # mpnas.exnada.com resolves directly to mpnas's IP for SMB and direct access
   - host: aispector.exnada.com
     backend: http://vega:8000
     health_path: /health
@@ -63,19 +69,7 @@ edge_ingress_routes:
   - host: dev.exnada.com
     backend: http://rigel:8000
     health_path: /health
-  - host: immich.exnada.com
-    backend: http://100.120.170.43:2283
-    # health_path: /api/server-info/ping  # Optional: add if Immich has a health endpoint
   - host: docgen.exnada.com
     backend: http://vega:8420
-
-# Certificate issuer configuration (lego with GoDaddy DNS-01)
-# DISABLED: Using Traefik's built-in ACME resolver instead (simpler, more integrated)
-# Traefik automatically obtains and renews certificates via GoDaddy DNS-01 challenge
-# Certificates are stored in /opt/traefik/acme.json
-cert_issuer_enabled: false  # Disabled - using Traefik's built-in ACME
-# cert_issuer_domain: exnada.com
-# cert_issuer_wildcard: true  # *.exnada.com + exnada.com
-# cert_issuer_email: admin@exnada.com
-# cert_issuer_ca_server: production  # Production Let's Encrypt certificates
-# cert_issuer_renew_days: 30
+  - host: immich.exnada.com
+    backend: http://100.120.170.43:2283

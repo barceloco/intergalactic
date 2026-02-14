@@ -29,6 +29,17 @@
       ============================================================================
     success_msg: "✓ internal_dns_domain is configured: {{ internal_dns_domain }}"
 
+- name: Auto-add edge_ingress route hostnames to DNS private hosts
+  when:
+    - internal_dns_enabled | default(false)
+    - edge_ingress_enabled | default(false)
+    - edge_ingress_routes is defined
+  set_fact:
+    internal_dns_private_hosts: >-
+      {{ (internal_dns_private_hosts | default([])) | union(
+           edge_ingress_routes | map(attribute='host') | map('regex_replace', '^([^.]+)\..*', '\1') | list
+         ) | unique | sort }}
+
 - name: Validate internal_dns_private_hosts is a list
   when: internal_dns_enabled | default(false)
   assert:
@@ -40,7 +51,7 @@
       ERROR: internal_dns_private_hosts must be a list!
       ============================================================================
       Current value: {{ internal_dns_private_hosts | default('NOT SET') }}
-      
+
       Please configure as a list in host_vars or group_vars:
         internal_dns_private_hosts:
           - mpnas
