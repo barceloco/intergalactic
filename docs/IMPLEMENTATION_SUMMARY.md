@@ -113,6 +113,7 @@ All five phases have been fully implemented with production-ready components.
 ### Troubleshooting Guides
 - **DNS Issues**: `docs/troubleshooting/dns-issues.md`
 - **Reverse Proxy Issues**: `docs/troubleshooting/reverse-proxy-issues.md`
+- **Tailscale Client Connectivity** (operator machine, not fleet hosts): `docs/troubleshooting/tailscale-client-connectivity.md`
 
 ### Runbooks
 - **Container Restart**: `docs/runbooks/container-restart.md`
