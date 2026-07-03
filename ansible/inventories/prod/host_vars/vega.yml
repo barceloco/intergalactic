@@ -3,6 +3,11 @@ hostname: "vega"
 enable_desktop: true
 enable_docker: true
 
+# Override ssh_allow_users to include the deploy user (which owns /srv/callosal
+# and /srv/docgen on vega). Deploy user already exists locally; we only need
+# AllowUsers in sshd to permit SSH logins for service ops.
+ssh_allow_users: "{{ [automation_user] + (human_users | default([]) | map(attribute='name') | list) + ['deploy'] }}"
+
 # LUKS/cryptsetup: Installed for mounting external encrypted devices
 # No configuration needed - cryptsetup is installed and ready to use
 
@@ -17,5 +22,6 @@ enable_samba: true
 # Allow ports for services running on vega
 firewall_allow_tcp_ports:
   - "{{ ssh_port }}"
-  - 8000   # AISpector (port_api)
-  - 8001   # Callosal service (port_api_alt)
+  - 8000   # AISpector (port_api) → aispector.exnada.com
+  - 8001   # Callosal (port_api_alt) → callosal.exnada.com
+  - 8420   # Docgen → docgen.exnada.com

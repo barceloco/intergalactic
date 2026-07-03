@@ -66,6 +66,9 @@ edge_ingress_routes:
   - host: callosal.exnada.com
     backend: "http://vega:{{ port_api_alt | default('8001') }}"
     health_path: /health
+  - host: demo.exnada.com
+    backend: "http://rigel:{{ port_api_alt | default('8001') }}"
+    health_path: /health
   - host: dev.exnada.com
     backend: http://rigel:8000
     health_path: /health
