@@ -251,6 +251,29 @@ Production playbook now displays deploy user's SSH public key with instructions 
 
 ---
 
+### Issue: Deploying to a Host Restarts Docker and Kills Containers Without a Restart Policy
+
+**Symptoms**:
+- After an Ansible deploy to a host, one or more application containers are gone and their service returns 503 or is simply down.
+- `docker ps` shows all surviving containers with a recent, identical uptime ("Up N minutes").
+- A container that had run for a long time is absent from `docker ps -a` (it was started with `--rm`, so the restart removed it entirely).
+
+**Root Cause**:
+Several roles restart the Docker daemon as a side effect: `firewall_nftables` restarts Docker to reinstall its forwarding chains after an nftables reload, and `docker_deploy` restarts Docker when it changes `/etc/docker/daemon.json`. When the daemon restarts, only containers with a restart policy (`restart: unless-stopped`) come back. Any container started with plain `docker run` and no restart policy (especially with `--rm`) dies and does not return. On 2026-07-03 a `--tags services` deploy to rigel (14:20 UTC) and a `--tags security` deploy to vega (14:36 UTC) each restarted Docker and killed policy-less containers: the callosal instances on both hosts (vega:8001 and rigel:8001, backing callosal.exnada.com and demo.exnada.com), plus a second long-running container on rigel.
+
+Secondary effect: after the restart, inbound NAT to published ports can change so a container sees the reverse proxy's real IP (rigel 100.115.218.7) instead of the masqueraded Docker gateway. This broke docgen's IP allow-list until docgen was configured to trust the proxy IP.
+
+**Prevention**:
+- Before deploying to any host running Docker services, inventory their restart policies:
+  ```bash
+  ssh <host> "sudo docker ps --format '{{.Names}}' | while read n; do echo \"\$n: \$(sudo docker inspect \$n --format '{{.HostConfig.RestartPolicy.Name}}')\"; done"
+  ```
+  Give every long-lived service `restart: unless-stopped` (and drop `--rm`) so it survives a daemon restart.
+- Treat any deploy touching the firewall or Docker config as a Docker restart. Expect a brief blip and re-verify every service on the host afterward, not just the one you changed.
+- Services behind the reverse proxy that key on client IP (like docgen) should trust the proxy's IP explicitly so a NAT change cannot lock users out.
+
+---
+
 ### Issue: Docker Containers Cannot Resolve Tailscale Hostnames
 
 **Symptoms**:
