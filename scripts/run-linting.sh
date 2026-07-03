@@ -28,7 +28,7 @@ ERRORS=0
 if [ "$MODE" = "all" ] || [ "$MODE" = "ansible-lint" ]; then
     echo "Running ansible-lint..."
     if docker run --rm -v "${SCRIPT_DIR}:/repo" "${IMAGE}" \
-        ansible-lint ansible/ --exclude ansible/molecule/ --exclude ansible/.cache/; then
+        sh -c 'cd /repo && ansible-lint ansible/ --exclude ansible/molecule/ --exclude ansible/.cache/'; then
         echo "✓ ansible-lint: PASSED"
     else
         echo "✗ ansible-lint: FAILED"
@@ -40,7 +40,7 @@ fi
 if [ "$MODE" = "all" ] || [ "$MODE" = "yamllint" ]; then
     echo "Running yamllint..."
     if docker run --rm -v "${SCRIPT_DIR}:/repo" "${IMAGE}" \
-        yamllint -c .yamllint ansible/; then
+        sh -c 'cd /repo && yamllint -c .yamllint ansible/'; then
         echo "✓ yamllint: PASSED"
     else
         echo "✗ yamllint: FAILED"
