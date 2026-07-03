@@ -3,7 +3,7 @@ Description=CoreDNS Internal DNS Service
 Documentation=https://coredns.io/
 After=docker.service tailscale.service network-online.target
 Wants=network-online.target
-Requires=docker.service
+Wants=docker.service
 
 [Service]
 Type=oneshot

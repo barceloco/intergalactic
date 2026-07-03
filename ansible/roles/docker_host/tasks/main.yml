@@ -51,15 +51,12 @@
       # Group is set to docker so users in docker group can read/list
       # Permissions 750: owner (root) rwx, group (docker) r-x, others none
 
-    - name: Stop Docker before configuring data-root (if changing from default)
-      service:
-        name: docker
-        state: stopped
-      when:
-        - enable_docker | default(false)
-        - docker_data_root is defined
-        - docker_data_root != '/var/lib/docker'
-        - docker_data_root | default('') != ''
+    # Note: Docker is intentionally NOT stopped here. daemon.json is only read
+    # at daemon startup, so writing it while Docker runs is safe, and the
+    # "Configure Docker daemon.json" task below restarts Docker via handler
+    # only when the file actually changes. The old pre-emptive stop fired on
+    # every run (its when: only checked static config, not an actual change),
+    # bouncing Docker and taking down systemd-managed edge containers.
 
     - name: Check if Docker daemon.json exists
       stat:

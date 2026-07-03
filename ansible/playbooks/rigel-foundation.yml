@@ -7,10 +7,10 @@
     - "../inventories/prod/group_vars/all_secrets.yml"
   tags:
     - foundation
-    - always
   pre_tasks:
     - name: Import host key verification tasks
       import_tasks: shared/host-key-verification.yml
+      tags: always
   roles:
     - role: common
       tags: [foundation, base]

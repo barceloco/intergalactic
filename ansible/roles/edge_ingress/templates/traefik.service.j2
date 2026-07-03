@@ -3,7 +3,7 @@ Description=Traefik Edge Ingress Service
 Documentation=https://traefik.io/
 After=docker.service tailscale.service network-online.target
 Wants=network-online.target
-Requires=docker.service
+Wants=docker.service
 {% if internal_dns_enabled | default(false) %}
 After=coredns.service
 Wants=coredns.service

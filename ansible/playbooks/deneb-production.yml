@@ -7,7 +7,6 @@
     - "../inventories/prod/group_vars/all_secrets.yml"
   tags:
     - production
-    - always
   pre_tasks:
     # Host key verification MUST be first - before any connection attempts
     - name: Import host key verification tasks
