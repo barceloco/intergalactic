@@ -1,6 +1,15 @@
 #!/usr/sbin/nft -f
 
-flush ruleset
+# Manage ONLY our own 'inet filter' table. Do NOT `flush ruleset`: that also
+# wipes Docker's dynamically-managed 'ip nat' / 'ip filter' chains (masquerade,
+# DOCKER-USER, DOCKER-FORWARD, DOCKER-ISOLATION), which breaks all container
+# networking until dockerd is restarted, and that in turn orphans the
+# systemd-managed edge containers (traefik, coredns). Declaring then deleting
+# the table makes the recreate below atomic and idempotent even on a fresh
+# host, while leaving Docker's tables untouched so a firewall reload is safe
+# to run while containers are up.
+table inet filter
+delete table inet filter
 
 table inet filter {
   chain input {
