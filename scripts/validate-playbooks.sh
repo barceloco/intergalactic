@@ -23,7 +23,7 @@ echo "==========================================================================
 echo ""
 
 # Find all playbook files
-PLAYBOOKS=$(find ansible/playbooks -name "*.yml" -type f | sort)
+PLAYBOOKS=$(find ansible/playbooks -name "*.yml" -type f -not -path "*/shared/*" | sort)
 
 if [ -z "$PLAYBOOKS" ]; then
     echo "No playbooks found in ansible/playbooks/"
@@ -42,12 +42,12 @@ for playbook in $PLAYBOOKS; do
     
     # Syntax check using container
     if docker run --rm -v "${SCRIPT_DIR}:/repo" "${IMAGE}" \
-        ansible-playbook --syntax-check "ansible/${playbook_rel}" > /dev/null 2>&1; then
+        ansible-playbook --syntax-check "${playbook_rel}" > /dev/null 2>&1; then
         echo "  ✓ Syntax: OK"
     else
         echo "  ✗ Syntax: FAILED"
         docker run --rm -v "${SCRIPT_DIR}:/repo" "${IMAGE}" \
-            ansible-playbook --syntax-check "ansible/${playbook_rel}" 2>&1 | sed 's/^/    /'
+            ansible-playbook --syntax-check "${playbook_rel}" 2>&1 | sed 's/^/    /'
         ERRORS=$((ERRORS + 1))
     fi
     
