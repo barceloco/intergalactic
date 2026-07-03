@@ -82,6 +82,24 @@ NetBIOS protocol limits hostnames to 15 characters. FQDNs exceed this limit.
 
 ---
 
+### Issue: Operator Machine Loses Direct Tailscale Traffic to a Second VPN
+
+**Symptoms**:
+- `ssh <host>` or `curl https://<service>.exnada.com` from your workstation hang and time out, yet `tailscale ping <host>` still succeeds (reporting `via DERP`, "direct connection not established").
+- `dig <host>.exnada.com` may also time out when MagicDNS (`100.100.100.100`) is affected the same way.
+- `tailscale status` warns `client version "X" != tailscaled server version "Y"`.
+
+**Root Cause**:
+A second full-tunnel VPN (e.g. a corporate or university client) is active alongside Tailscale. It holds the default route and installs a packet filter that drops traffic on other tunnels, so DERP-relayed control traffic (which looks like ordinary HTTPS to the relay) keeps working while direct TCP over the Tailscale tunnel is blocked. Quitting and reopening the Tailscale menu-bar app does not fix it — that does not restart the underlying daemon.
+
+**Solution**:
+Disconnect the other VPN (or configure it to exclude `100.64.0.0/10` and `100.100.100.100` from its tunnel), then retest. Full guide: `docs/troubleshooting/tailscale-client-connectivity.md`.
+
+**Prevention**:
+- When SSH/HTTPS to the fleet times out but `tailscale ping` works, suspect a client-side VPN conflict on your own machine *before* touching any fleet host.
+
+---
+
 ## Certificates and HTTPS
 
 ### Issue: Certificate Issuance Using Wrong Let's Encrypt Server
@@ -128,6 +146,24 @@ API keys must have DNS management permissions. Read-only keys cannot create TXT 
 **Alternative Providers**:
 - Hostinger API is read-only → NOT suitable for ACME
 - GoDaddy, Cloudflare, Route53 work well for DNS-01 challenges
+
+---
+
+### Change: Edge Ingress Serves All Hosts From One Wildcard Certificate
+
+**Context**:
+Each Traefik router used to request its own certificate via `certResolver: letsencrypt`. The dynamic config now defines a default TLS store with a `defaultGeneratedCert` for `*.exnada.com` (apex as SAN), and every router uses `tls: {}` to share it.
+
+**Why**:
+One wildcard cert covers every current single-level host (docgen, dev, demo, callosal, immich, mpnas, aispector), cutting per-host ACME issuance and renewals down to a single certificate.
+
+**Caveats**:
+- A wildcard only covers one subdomain level; a multi-level host (e.g. `a.b.exnada.com`) would need its own cert or a nested wildcard.
+- Issuance now concentrates risk: if the single `*.exnada.com` DNS-01 challenge fails, routers fall back to Traefik's self-signed default and **all** hosts show TLS warnings until it succeeds. After deploying, verify HTTPS on several hosts and watch Traefik logs for the ACME result. Roll back with `git revert` of the template change if needed.
+
+**Files**:
+- `ansible/roles/edge_ingress/templates/dynamic.yml.j2` — default TLS store plus `tls: {}` on routers.
+- `ansible/roles/edge_ingress/templates/traefik.yml.j2` — `letsencrypt` resolver (GoDaddy DNS-01).
 
 ---
 
@@ -235,6 +271,37 @@ docker_deploy_dns_servers:
 **Files**:
 - Configuration in `host_vars/rigel.yml`
 - Applied by `docker_deploy` role to `/etc/docker/daemon.json`
+
+---
+
+### Issue: Containerized Ansible Deploy Fails Host-Key Verification
+
+**Symptoms**:
+- `./scripts/run-ansible.sh prod <host> production` fails in `pre_tasks` with `UNREACHABLE! ... Host key verification failed`.
+- The `ssh-keyscan` step fetched no key (its `ssh_keyscan_output.stdout_lines | length > 0` assertion is false), so `known_hosts` stayed empty.
+
+**Root Cause**:
+The playbook addresses hosts by their Tailscale MagicDNS FQDN (`<host>.tailb821ac.ts.net`). The Dockerized ansible run has no MagicDNS of its own, so when the operator's Tailscale client is degraded (see "Operator Machine Loses Direct Tailscale Traffic to a Second VPN" above), `ssh-keyscan <fqdn>` inside the container returns nothing, and strict host-key checking then correctly refuses the connection. Note the operator's `~/.ssh/known_hosts` frequently trusts only the short name (`<host>`), not the FQDN the inventory uses.
+
+**Solution**:
+- Fix the underlying Tailscale client connectivity first, then deploy once the tailnet is stable.
+- Do **not** disable host-key checking to force it through — that removes MITM protection and is prohibited by the project's security rules.
+
+**Prevention**:
+- Treat `Host key verification failed` at deploy time as a symptom of degraded client-side Tailscale, not a reason to weaken SSH security.
+
+---
+
+### Cross-Repo: docgen Admin Allow-List Wiped by an Empty Compose Env Var
+
+**Context**:
+docgen runs on vega (this fleet) behind edge_ingress at `docgen.exnada.com`. A `docker-compose.yml` `${DOCGEN_ADMINS:-}` passthrough silently overrode the app's built-in admin default with an explicit empty string whenever the deployment `.env` did not set it, locking out all admins after a redeploy or reboot.
+
+**Where documented**:
+Full incident, diagnosis, and fix live in the **docgen** repo: `README.md` → "Tailscale and access control" → "Troubleshooting: ... not on the allow-list", and `docs/lessons-learned.md`.
+
+**Fleet-side takeaway**:
+- vega tracks docgen's `main` branch; deploys are `git pull` + `make up` as the `deploy` user. The only host-local, non-git file is the gitignored `.env`. Containers use `restart: unless-stopped` with Docker enabled on boot, so the service returns after a reboot with its correct configuration.
 
 ---
 
