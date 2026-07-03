@@ -90,7 +90,7 @@ NetBIOS protocol limits hostnames to 15 characters. FQDNs exceed this limit.
 - `tailscale status` warns `client version "X" != tailscaled server version "Y"`.
 
 **Root Cause**:
-A second full-tunnel VPN (e.g. a corporate or university client) is active alongside Tailscale. It holds the default route and installs a packet filter that drops traffic on other tunnels, so DERP-relayed control traffic (which looks like ordinary HTTPS to the relay) keeps working while direct TCP over the Tailscale tunnel is blocked. Quitting and reopening the Tailscale menu-bar app does not fix it — that does not restart the underlying daemon.
+A second full-tunnel VPN (e.g. a corporate or university client) is active alongside Tailscale. It holds the default route and installs a packet filter that drops traffic on other tunnels, so DERP-relayed control traffic (which looks like ordinary HTTPS to the relay) keeps working while direct TCP over the Tailscale tunnel is blocked. Quitting and reopening the Tailscale menu-bar app does not fix it, since that does not restart the underlying daemon.
 
 **Solution**:
 Disconnect the other VPN (or configure it to exclude `100.64.0.0/10` and `100.100.100.100` from its tunnel), then retest. Full guide: `docs/troubleshooting/tailscale-client-connectivity.md`.
@@ -162,8 +162,8 @@ One wildcard cert covers every current single-level host (docgen, dev, demo, cal
 - Issuance now concentrates risk: if the single `*.exnada.com` DNS-01 challenge fails, routers fall back to Traefik's self-signed default and **all** hosts show TLS warnings until it succeeds. After deploying, verify HTTPS on several hosts and watch Traefik logs for the ACME result. Roll back with `git revert` of the template change if needed.
 
 **Files**:
-- `ansible/roles/edge_ingress/templates/dynamic.yml.j2` — default TLS store plus `tls: {}` on routers.
-- `ansible/roles/edge_ingress/templates/traefik.yml.j2` — `letsencrypt` resolver (GoDaddy DNS-01).
+- `ansible/roles/edge_ingress/templates/dynamic.yml.j2`: default TLS store plus `tls: {}` on routers.
+- `ansible/roles/edge_ingress/templates/traefik.yml.j2`: `letsencrypt` resolver (GoDaddy DNS-01).
 
 ---
 
@@ -285,7 +285,7 @@ The playbook addresses hosts by their Tailscale MagicDNS FQDN (`<host>.tailb821a
 
 **Solution**:
 - Fix the underlying Tailscale client connectivity first, then deploy once the tailnet is stable.
-- Do **not** disable host-key checking to force it through — that removes MITM protection and is prohibited by the project's security rules.
+- Do **not** disable host-key checking to force it through; that removes MITM protection and is prohibited by the project's security rules.
 
 **Prevention**:
 - Treat `Host key verification failed` at deploy time as a symptom of degraded client-side Tailscale, not a reason to weaken SSH security.

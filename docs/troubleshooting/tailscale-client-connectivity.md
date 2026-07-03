@@ -11,7 +11,7 @@ hosts themselves. If `tailscale ping` to a fleet host works but real traffic
 
 **Symptoms**:
 - `ssh <host>` or `curl https://<service>.exnada.com` hangs and times out
-  (not a fast refusal — a full connect timeout).
+  (not a fast refusal, a full connect timeout).
 - `tailscale ping <host>` succeeds, but reports `via DERP(...)` and
   `direct connection not established` (should normally go direct on a LAN
   or via a healthy P2P path).
@@ -20,9 +20,10 @@ hosts themselves. If `tailscale ping` to a fleet host works but real traffic
 - `tailscale status` / `tailscale netcheck` / `tailscale ping` print:
   `Warning: client version "X" != tailscaled server version "Y"`.
 
-**Root cause (working hypothesis — not yet confirmed fixed)**: a second,
-unrelated full-tunnel VPN is active on the machine at the same time as
-Tailscale (e.g. a university or corporate VPN client). Evidence from one
+**Root cause (confirmed on 2026-07-02)**: a second, unrelated full-tunnel VPN
+is active on the machine at the same time as Tailscale (e.g. a university or
+corporate VPN client). Disconnecting the other VPN restored direct
+connectivity immediately, which confirmed the conflict. Details from the
 occurrence on a MacBook:
 
 - `netstat -rn -f inet` showed a second `utun` interface (`utun10`) holding
@@ -30,17 +31,17 @@ occurrence on a MacBook:
   Apple/Google/Akamai/Fastly destinations, alongside Tailscale's own `utun9`
   which correctly had the more-specific `100.64/10` route.
 - Routing table priority should favor Tailscale's specific `/10` route for
-  tailnet destinations regardless of the other VPN's default route — but
-  many corporate/university VPN clients additionally install a system
-  packet filter (`pf`) that drops traffic on interfaces/tunnels it doesn't
-  recognize, independent of the routing table. That would explain UDP-based
+  tailnet destinations regardless of the other VPN's default route, but many
+  corporate/university VPN clients additionally install a system packet
+  filter (`pf`) that drops traffic on interfaces/tunnels it doesn't
+  recognize, independent of the routing table. That explains why UDP-based
   Tailscale control traffic and DERP-relayed pings (which look like ordinary
-  outbound HTTPS to the relay) getting through, while direct TCP flows over
-  the Tailscale tunnel do not.
+  outbound HTTPS to the relay) got through, while direct TCP flows over the
+  Tailscale tunnel did not.
 - The persistent client/daemon version mismatch is a second, related smell:
   quitting and reopening the Tailscale menu-bar app on macOS does **not**
   necessarily restart the actual background `tailscaled`/network-extension
-  process — it just reconnects the UI to whatever daemon is already running.
+  process; it just reconnects the UI to whatever daemon is already running.
   If that daemon is stuck or stale, an app-level restart alone won't clear
   the mismatch or the underlying connectivity problem.
 
@@ -58,7 +59,7 @@ tailscale ping -c 2 <hostname>          # look for "via DERP" + "direct connecti
 ifconfig | grep -B2 utun
 netstat -rn -f inet | grep -iE "^default|100\.|utun"
 
-# Confirm it's not just this one host — try both hostname and raw Tailscale IP
+# Confirm it's not just this one host: try both hostname and raw Tailscale IP
 ssh -o ConnectTimeout=8 <hostname> "echo ok"
 ssh -o ConnectTimeout=8 <tailscale-ip> "echo ok"
 
@@ -66,8 +67,8 @@ ssh -o ConnectTimeout=8 <tailscale-ip> "echo ok"
 dig +short <host>.exnada.com
 ```
 
-**Solutions** (in order of least to most disruptive; **not yet confirmed
-which step actually resolves it** — update this doc once verified):
+**Solutions** (in order of least to most disruptive). Step 1 is the confirmed
+fix for the case above:
 1. **Disconnect the other VPN and retest.** Fastest thing to try; if SSH/HTTPS
    start working immediately after, that confirms the conflict.
 2. **Configure split-tunnel/exclude routes** on the other VPN client (if it
@@ -76,11 +77,11 @@ which step actually resolves it** — update this doc once verified):
 3. **Fully restart the Tailscale daemon, not just the app.** On macOS this
    generally means quitting Tailscale, confirming no `tailscaled` /
    `IPNExtension` process is still running (`ps aux | grep -i tailscale`),
-   then relaunching — or toggling the connection off/on from
+   then relaunching, or toggling the connection off/on from
    System Settings → General → Login Items & Extensions → Tailscale, if
    present.
-4. **Reboot the machine** as a last resort — forces both VPN daemons to
-   reinitialize cleanly and clears any stuck kernel-level routing/pf state.
+4. **Reboot the machine** as a last resort, forcing both VPN daemons to
+   reinitialize cleanly and clearing any stuck kernel-level routing/pf state.
 
 **What did NOT fix it** (observed this occurrence): quitting and reopening
 just the Tailscale menu-bar app. The client/daemon version mismatch and the
@@ -101,7 +102,7 @@ dig +short <host>.exnada.com
 
 ## Related
 
-- [DNS Issues](dns-issues.md) — for DNS problems once you've confirmed this
+- [DNS Issues](dns-issues.md): for DNS problems once you've confirmed this
   isn't a general transport/VPN-conflict issue.
-- [Reverse Proxy Issues](reverse-proxy-issues.md) — for problems reaching a
+- [Reverse Proxy Issues](reverse-proxy-issues.md): for problems reaching a
   service once basic Tailscale connectivity to the host is confirmed working.

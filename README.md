@@ -837,7 +837,7 @@ sudo nft list ruleset | grep :8000
 ```
 
 **If `tailscale ping` succeeds but SSH/HTTPS to a fleet host time out**: this
-is usually not a fleet-side problem — check for a second, conflicting VPN on
+is usually not a fleet-side problem. Check for a second, conflicting VPN on
 your own machine first. See
 [Tailscale Client Connectivity](docs/troubleshooting/tailscale-client-connectivity.md).
 
