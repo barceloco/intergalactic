@@ -17,6 +17,13 @@ table inet filter {
     policy drop;
 
     iif lo accept
+    {% if firewall_local_ssh_subnet | default('') | length > 0 %}
+    # Tailscale-independent SSH backup from the trusted LAN subnet, so a
+    # Tailscale outage can never lock out management access. Auth stays
+    # key-only (ssh_hardening disables passwords); this widens only the
+    # network path, and only to the local subnet, never the internet.
+    ip saddr {{ firewall_local_ssh_subnet }} tcp dport {{ ssh_port | default(22) }} accept
+    {% endif %}
     {% if enable_tailscale | default(false) %}
     iifname "tailscale0" tcp dport {{ ssh_port | default(22) }} accept
     {% if internal_dns_enabled | default(false) %}

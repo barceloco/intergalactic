@@ -13,8 +13,17 @@ ssh_port: 22
 # If you need additional users, override ssh_allow_users in host_vars or secrets
 ssh_allow_users: "{{ [automation_user] + (human_users | default([]) | map(attribute='name') | list) + (['deploy'] if enable_docker_deploy | default(false) else []) }}"
 
-firewall_allow_tcp_ports:
-  - "{{ ssh_port }}"
+# SSH is intentionally NOT in this list. Ports listed here are opened for ALL
+# sources on ALL interfaces, so putting SSH here would expose it to the entire
+# network. Instead the firewall template opens SSH via two explicit, narrow
+# paths: the Tailscale interface, and firewall_local_ssh_subnet below (a
+# Tailscale-independent LAN backup, so a Tailscale outage can never lock out
+# management access). Auth stays key-only either way (ssh_hardening).
+firewall_allow_tcp_ports: []
+
+# LAN subnet allowed to reach SSH as the Tailscale-independent backup. Set to an
+# empty string ("") to disable the backup (SSH then reachable via Tailscale only).
+firewall_local_ssh_subnet: "192.168.1.0/24"
 # Tailscale requires UDP 41641 for initial connection
 # Traffic on tailscale0 interface is handled separately in firewall template
 firewall_allow_udp_ports: "{{ [41641] if enable_tailscale | default(false) else [] }}"
