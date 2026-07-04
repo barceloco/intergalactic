@@ -63,15 +63,17 @@
     mode: '0644'
     owner: root
     group: root
-  notify: Restart ssh
+  register: deploy_authkeys
 
 - name: Reload SSH service to ensure deploy user keys are loaded
-  when: enable_docker_deploy | default(false)
+  when:
+    - enable_docker_deploy | default(false)
+    - deploy_authkeys is changed
   service:
     name: ssh
     state: reloaded
-  # Explicit reload ensures SSH picks up the deploy user keys immediately
-  # Using reloaded instead of restarted to avoid dropping existing connections
+  # Reload (not restart, to avoid dropping connections) only when the deploy
+  # authorized_keys actually changed, so the role stays idempotent.
   # This is critical for the deploy user to be able to SSH in after playbook completion
 
 - name: Generate SSH key pair for deploy user (if missing)

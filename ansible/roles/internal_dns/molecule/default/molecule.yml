@@ -5,23 +5,20 @@ driver:
   name: docker
 platforms:
   - name: instance
-    image: debian:bookworm-slim
+    image: geerlingguy/docker-debian12-ansible:latest
     pre_build_image: true
     privileged: true
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
     volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
-    command: "/lib/systemd/systemd"
-    tmpfs:
-      - /run
-      - /tmp
-    capabilities:
-      - SYS_ADMIN
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
 provisioner:
   name: ansible
   inventory:
     host_vars:
       instance:
         ansible_python_interpreter: /usr/bin/python3
+        automation_user: ansible
         internal_dns_enabled: true
         internal_dns_domain: exnada.com
         internal_dns_private_hosts:
@@ -29,8 +26,9 @@ provisioner:
           - aispector
           - callosal
           - dev
-        enable_tailscale: true
-        # Mock Tailscale for testing
+        # Test the DNS logic without real Tailscale: the Corefile falls back to
+        # tailscale_ip for each host, so no tailscale up / status is needed.
+        enable_tailscale: false
         tailscale_ip: "100.64.0.1"
 verifier:
   name: ansible

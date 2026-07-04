@@ -5,25 +5,24 @@ driver:
   name: docker
 platforms:
   - name: instance
-    image: debian:bookworm-slim
+    image: geerlingguy/docker-debian12-ansible:latest
     pre_build_image: true
     privileged: true
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
     volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
-    command: "/lib/systemd/systemd"
-    tmpfs:
-      - /run
-      - /tmp
-    capabilities:
-      - SYS_ADMIN
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
 provisioner:
   name: ansible
   inventory:
     host_vars:
       instance:
         ansible_python_interpreter: /usr/bin/python3
+        ssh_port: 22
+        # SSH is opened via the LAN-subnet backup rule (enable_tailscale is
+        # false in this scenario), not via firewall_allow_tcp_ports.
+        firewall_local_ssh_subnet: "192.168.1.0/24"
         firewall_allow_tcp_ports:
-          - 22
           - 8000
         firewall_allow_udp_ports: []
         enable_tailscale: false

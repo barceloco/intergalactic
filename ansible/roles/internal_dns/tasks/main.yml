@@ -71,10 +71,11 @@
   failed_when: false
 
 - name: Fail if Tailscale is not connected
-  when: internal_dns_enabled | default(false)
+  when:
+    - internal_dns_enabled | default(false)
+    - enable_tailscale | default(false)
   assert:
     that:
-      - enable_tailscale | default(false)
       - tailscale_status_check.rc == 0
     fail_msg: |
       ============================================================================

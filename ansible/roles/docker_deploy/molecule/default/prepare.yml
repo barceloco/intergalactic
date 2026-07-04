@@ -1,0 +1,20 @@
+---
+# Prerequisites that the foundation phase (ssh_hardening) normally provides
+# before docker_deploy runs. Molecule runs this before converge.
+- name: Prepare
+  hosts: all
+  become: true
+  tasks:
+    - name: Install openssh-server (normally from ssh_hardening; docker_deploy reloads it)
+      apt:
+        name: openssh-server
+        state: present
+        update_cache: true
+
+    - name: Create system SSH authorized_keys directory (normally from ssh_hardening)
+      file:
+        path: /etc/ssh/authorized_keys.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'

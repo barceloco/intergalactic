@@ -7,11 +7,8 @@
     - role: docker_host
       vars:
         enable_docker: true
-    - role: tailscale
-      vars:
-        enable_tailscale: true
-        # Skip actual Tailscale connection in test
+    # tailscale role omitted: enable_tailscale is false, and internal_dns's
+    # Corefile falls back to the tailscale_ip variable for every host.
     - role: internal_dns
       vars:
-        # Override Tailscale IP detection for testing
         tailscale_ip: "100.64.0.1"

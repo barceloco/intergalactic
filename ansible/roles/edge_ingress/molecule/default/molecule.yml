@@ -5,23 +5,20 @@ driver:
   name: docker
 platforms:
   - name: instance
-    image: debian:bookworm-slim
+    image: geerlingguy/docker-debian12-ansible:latest
     pre_build_image: true
     privileged: true
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
     volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
-    command: "/lib/systemd/systemd"
-    tmpfs:
-      - /run
-      - /tmp
-    capabilities:
-      - SYS_ADMIN
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
 provisioner:
   name: ansible
   inventory:
     host_vars:
       instance:
         ansible_python_interpreter: /usr/bin/python3
+        automation_user: ansible
         edge_ingress_enabled: true
         edge_ingress_domain: exnada.com
         edge_ingress_acme_email: admin@exnada.com
@@ -29,7 +26,10 @@ provisioner:
           - host: mpnas.exnada.com
             backend: http://mpnas:5000
             health_path: /health
-        enable_tailscale: true
-        # Certificates managed by cert_issuer role (not needed for edge_ingress)
+        # No real Tailscale or secrets in the test: final_tailnet_name is set in
+        # converge.yml; these are mock ACME credentials so templates render.
+        enable_tailscale: false
+        godaddy_api_key: "test-godaddy-key"
+        godaddy_api_secret: "test-godaddy-secret"
 verifier:
   name: ansible

@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssh-client git sshpass docker.io \
+    openssh-client git sshpass docker.io docker-cli \
   && rm -rf /var/lib/apt/lists/*
 
 # Install Ansible and core dependencies

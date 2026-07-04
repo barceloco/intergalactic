@@ -3,17 +3,13 @@
   hosts: all
   become: true
   gather_facts: true
-  vars_files:
-    - ../../../../inventories/prod/group_vars/all_secrets.yml
   roles:
     - role: docker_host
       vars:
         enable_docker: true
-    - role: tailscale
-      vars:
-        enable_tailscale: true
-        # Skip actual Tailscale connection in test
+    # tailscale role omitted: enable_tailscale is false and final_tailnet_name
+    # is supplied below, so no tailscale up / status is needed. Real secrets are
+    # not loaded; mock ACME credentials are set in molecule.yml host_vars.
     - role: edge_ingress
       vars:
-        # Override tailnet detection for testing
         final_tailnet_name: "test-tailnet.ts.net"

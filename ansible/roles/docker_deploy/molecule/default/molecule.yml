@@ -5,23 +5,20 @@ driver:
   name: docker
 platforms:
   - name: instance
-    image: debian:bookworm-slim
+    image: geerlingguy/docker-debian12-ansible:latest
     pre_build_image: true
     privileged: true
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
     volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
-    command: "/lib/systemd/systemd"
-    tmpfs:
-      - /run
-      - /tmp
-    capabilities:
-      - SYS_ADMIN
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
 provisioner:
   name: ansible
   inventory:
     host_vars:
       instance:
         ansible_python_interpreter: /usr/bin/python3
+        automation_user: ansible
         enable_docker_deploy: true
         human_users:
           - name: armand
