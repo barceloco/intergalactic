@@ -298,10 +298,9 @@ pre_tasks:
 - **Run**: `./scripts/run-linting.sh`
 
 ### Phase 2: Molecule (Short-term)
-- Role testing in isolated containers
-- Tests idempotency and convergence
-- **Roles with tests**: docker_deploy, internal_dns, edge_ingress, firewall_nftables
-- **Run**: `./scripts/run-molecule-tests.sh`
+- Role testing in isolated containers; tests convergence and idempotency
+- **Default run** (`./scripts/run-molecule-tests.sh`): firewall_nftables and docker_deploy, end-to-end in a container (docker_deploy includes real Docker-in-Docker)
+- **By name only** (`./scripts/run-molecule-tests.sh <role>`): internal_dns and edge_ingress converge their full config but cannot start their systemd-managed CoreDNS/Traefik containers under nested systemd, so they are validated on a real host
 
 ### Phase 3: Testinfra (Long-term)
 - Production verification on actual servers
@@ -328,7 +327,7 @@ pre_tasks:
 
 ### Firewall Configuration
 - **Default policy**: Deny all except explicitly allowed
-- **SSH**: Always allowed (port 22 by default)
+- **SSH**: Opened by two explicit, narrow paths only — the Tailscale interface and the local LAN subnet (`firewall_local_ssh_subnet`, default 192.168.1.0/24), both key-only. Intentionally NOT in `firewall_allow_tcp_ports` (that list opens ports to all sources). The LAN path is a Tailscale-independent backup so a mesh outage cannot lock out management.
 - **Tailscale**: UDP 41641 for initial connection, tailscale0 interface traffic allowed
 - **DNS/HTTP/HTTPS**: Only if internal_dns or edge_ingress enabled
 

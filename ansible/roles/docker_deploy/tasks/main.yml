@@ -35,6 +35,31 @@
       ============================================================================
     success_msg: "✓ armand user has {{ armand_ssh_keys | length }} SSH key(s)"
 
+- name: Check the system SSH authorized_keys directory exists (from ssh_hardening)
+  when: enable_docker_deploy | default(false)
+  stat:
+    path: /etc/ssh/authorized_keys.d
+  register: sys_authkeys_dir
+
+- name: Fail with guidance if the foundation phase has not run
+  when: enable_docker_deploy | default(false)
+  assert:
+    that:
+      - sys_authkeys_dir.stat.exists
+    fail_msg: |
+      ============================================================================
+      ERROR: /etc/ssh/authorized_keys.d is missing.
+      ============================================================================
+      docker_deploy writes the deploy user's key there, but that directory and
+      the sshd config that reads it are set up by the foundation phase
+      (the ssh_hardening role). Run foundation before this production deploy:
+
+        ./scripts/run-ansible.sh prod {{ inventory_hostname }} foundation
+
+      then re-run the production deploy.
+      ============================================================================
+    success_msg: "✓ System SSH authorized_keys directory present (foundation ran)"
+
 - name: Ensure deploy user exists
   when: enable_docker_deploy | default(false)
   user:

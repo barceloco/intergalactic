@@ -24,6 +24,10 @@
   run_once: true
   changed_when: false
   failed_when: false
+  # Run even under --check. Otherwise check mode skips this command, known_hosts
+  # is never populated, and the play fails UNREACHABLE on the first connection,
+  # making dry runs impossible. Fetching a host key is read-only and safe here.
+  check_mode: false
   tags: always
 
 - name: Warn if ssh-keyscan failed (host key will be verified on first connection)
@@ -57,6 +61,9 @@
     - item | length > 0
     - not item.startswith('#')
     - item.split() | length >= 3
+  # Also write known_hosts under --check: this is a local prerequisite for the
+  # connection, not a change to the target host, so a dry run can proceed.
+  check_mode: false
   tags: always
 
 - name: Gather facts after host key verification
