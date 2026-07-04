@@ -1,6 +1,13 @@
 ---
-# Validation tasks for CoreDNS
-# These tasks verify that CoreDNS is actually working after deployment
+# Validation tasks for CoreDNS.
+#
+# The Corefile change notifies a "Restart coredns" handler that only runs at
+# play end, and the Corefile has no reload plugin, so a freshly added host is
+# not served on the first query (and its NXDOMAIN gets cached). We therefore
+# test, and if any internal host is unresolved we restart CoreDNS once (loading
+# the current Corefile and clearing the denial cache) and re-test before
+# asserting. This is idempotent: the restart is skipped entirely when every
+# host already resolves, so steady-state runs are unaffected.
 
 - name: Wait for CoreDNS to be ready
   when: internal_dns_enabled | default(false)
@@ -31,11 +38,6 @@
       CoreDNS is running but cannot resolve {{ internal_dns_domain }}.
 
       Test output: {{ dns_test_result.stdout | default('empty') }}
-
-      Please check:
-      1. DNS zone file is correct: {{ internal_dns_data_dir }}/db.{{ internal_dns_domain }}
-      2. CoreDNS logs: docker logs {{ internal_dns_container_name }}
-      3. Corefile configuration: {{ internal_dns_data_dir }}/Corefile
       ============================================================================
     success_msg: "✓ DNS resolution test passed for {{ internal_dns_domain }}"
 
@@ -50,6 +52,45 @@
   failed_when: false
   loop: "{{ internal_dns_private_hosts }}"
 
+# Self-heal: a host that does not resolve means CoreDNS is serving a stale
+# Corefile (handler runs at play end, no reload plugin). Restart once to load
+# current records and clear the denial cache, then re-test.
+- name: Identify internal hosts that did not resolve
+  when: internal_dns_enabled | default(false)
+  set_fact:
+    internal_dns_unresolved: "{{ host_dns_test_result.results | default([]) | rejectattr('stdout', 'search', 'NOERROR') | map(attribute='item') | list }}"
+
+- name: Restart CoreDNS to load current records (stale Corefile detected)
+  when:
+    - internal_dns_enabled | default(false)
+    - internal_dns_unresolved | default([]) | length > 0
+  systemd:
+    name: coredns
+    state: restarted
+  # Idempotent: only runs when a record was unresolved. Also clears the denial
+  # (NXDOMAIN) cache so a just-added host is served immediately.
+
+- name: Wait for CoreDNS again after restart
+  when:
+    - internal_dns_enabled | default(false)
+    - internal_dns_unresolved | default([]) | length > 0
+  wait_for:
+    port: 53
+    host: 127.0.0.1
+    delay: 2
+    timeout: 30
+
+- name: Re-test DNS resolution of internal hosts after restart
+  when:
+    - internal_dns_enabled | default(false)
+    - internal_dns_unresolved | default([]) | length > 0
+    - internal_dns_private_hosts | default([]) | length > 0
+  command: dig @127.0.0.1 +timeout=5 +tries=2 {{ item }}.{{ internal_dns_domain }}
+  register: host_dns_retest_result
+  changed_when: false
+  failed_when: false
+  loop: "{{ internal_dns_private_hosts }}"
+
 - name: Validate internal host DNS resolution
   when:
     - internal_dns_enabled | default(false)
@@ -57,20 +98,13 @@
     - internal_dns_private_hosts | length > 0
   assert:
     that:
-      - item.rc == 0
       - item.stdout is search('NOERROR')
     fail_msg: |
       ============================================================================
-      ERROR: DNS resolution failed for {{ item.item }}.{{ internal_dns_domain }}!
+      ERROR: DNS resolution failed for {{ item.item }}.{{ internal_dns_domain }}
+      (even after a CoreDNS reload)!
       ============================================================================
-      CoreDNS cannot resolve this internal host.
-
       Test output: {{ item.stdout | default('empty') }}
-
-      Please check:
-      1. Host is in DNS zone file: {{ internal_dns_data_dir }}/db.{{ internal_dns_domain }}
-      2. Host IP mapping is correct
-      3. CoreDNS logs: docker logs {{ internal_dns_container_name }}
       ============================================================================
     success_msg: "✓ DNS resolution test passed for {{ item.item }}.{{ internal_dns_domain }}"
-  loop: "{{ host_dns_test_result.results | default([]) }}"
+  loop: "{{ (internal_dns_unresolved | default([]) | length > 0) | ternary(host_dns_retest_result.results | default([]), host_dns_test_result.results | default([])) }}"

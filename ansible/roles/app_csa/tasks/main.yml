@@ -1,0 +1,60 @@
+---
+# Deploy/run csa via its own docker compose. Runs as the deploy user, who owns
+# /srv/csa and is in the docker group. The csa repo is only pulled (read), never
+# modified. csa has no named data volumes, so nothing is guarded here.
+- name: Deploy csa service
+  when: csa_enabled | default(false)
+  become: true
+  become_user: deploy
+  block:
+    - name: Ensure csa repo present at the configured ref (pull only)
+      git:
+        repo: "{{ csa_repo_url }}"
+        dest: "{{ csa_dir }}"
+        version: "{{ csa_repo_ref }}"
+        update: true
+      register: csa_repo
+
+    - name: Render csa .env (gitignored; sets CSA_PORT for the compose port mapping)
+      template:
+        src: csa.env.j2
+        dest: "{{ csa_dir }}/.env"
+        mode: '0640'
+      register: csa_env_file
+
+    - name: Render csa compose override (restart policy; kept outside the checkout)
+      template:
+        src: csa.override.yml.j2
+        dest: "{{ csa_override_file }}"
+        mode: '0640'
+      register: csa_override
+
+    - name: Build csa image (only when the checked-out code changed)
+      command: docker compose -f compose.yaml -f {{ csa_override_file }} build
+      args:
+        chdir: "{{ csa_dir }}"
+      when: csa_repo.changed
+      # Building the Python image on a Pi is slow; only rebuild on an actual code
+      # change. `up` below still builds on first deploy if the image is missing.
+
+    - name: Start csa (docker compose up -d; recreates only on change)
+      command: docker compose -f compose.yaml -f {{ csa_override_file }} up -d
+      args:
+        chdir: "{{ csa_dir }}"
+      register: csa_up
+      changed_when: >-
+        'Recreat' in (csa_up.stdout + csa_up.stderr)
+        or 'Creat' in (csa_up.stdout + csa_up.stderr)
+        or 'Start' in (csa_up.stdout + csa_up.stderr)
+      # csa's own compose.yaml plus the ansible restart-policy override; only the
+      # csa service starts (the web tooling service is gated behind a profile).
+
+    - name: Wait for csa to answer on /health
+      uri:
+        url: "http://127.0.0.1:{{ csa_port }}/health"
+        status_code: [200]
+      register: csa_health
+      retries: 30
+      delay: 5
+      until: csa_health.status is defined and csa_health.status == 200
+      # Generous retries: a fresh build plus uvicorn startup on a Pi is slow.

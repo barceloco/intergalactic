@@ -1,0 +1,10 @@
+# Managed by Ansible (app_csa role). Deployment override for csa's own
+# compose.yaml, kept outside the repo checkout so the csa repo is untouched.
+# Applied via: docker compose -f compose.yaml -f <this file>.
+#
+# Adds the restart policy the fleet needs so csa comes back automatically after
+# a reboot or power loss (Docker is enabled on boot and restarts policy-set
+# containers). csa's own compose declares no restart policy.
+services:
+  csa:
+    restart: {{ csa_restart_policy }}

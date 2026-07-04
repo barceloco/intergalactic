@@ -1,0 +1,30 @@
+---
+# app_csa: deploy and run the csa service via its own docker compose
+# (compose.yaml). Thin orchestration only: ansible ensures the repo is at a ref,
+# renders the gitignored .env (which sets CSA_PORT for the compose port
+# mapping), and runs `docker compose up -d --build`. The csa repo is only ever
+# read (git pull), never modified. csa has no named data volumes (its data/ is a
+# bind-mounted directory in the checkout), so there is no volume guardrail.
+csa_enabled: false
+
+# Git source. Pulled as the deploy user via the github-csa SSH alias set up by
+# docker_deploy's git_ssh tasks (register the printed public key as a read-only
+# GitHub deploy key on the csa repo).
+csa_repo_url: "git@github-csa:exnada/csa.git"
+csa_repo_ref: main
+csa_dir: /srv/csa
+
+# Per-deployment overrides rendered into /srv/csa/.env. csa's compose publishes
+# ${CSA_PORT:-8000}:8000, so CSA_PORT here selects the host port. Everything else
+# has a settings.py default, so only real overrides belong here. Set in host_vars.
+csa_env: {}
+
+# Health gate: host port csa is published on. Derived from csa_env so it always
+# matches the rendered .env (compose maps ${CSA_PORT:-8000}:8000).
+csa_port: "{{ csa_env.CSA_PORT | default('8000') }}"
+
+# Ansible-managed docker compose override, kept OUTSIDE the csa checkout so the
+# repo stays untouched. It adds the restart policy the fleet needs for automatic
+# recovery after a reboot/power loss (csa's own compose declares none).
+csa_override_file: /home/deploy/csa.compose.override.yml
+csa_restart_policy: unless-stopped

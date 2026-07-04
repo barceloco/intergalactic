@@ -22,6 +22,7 @@ docker_deploy_tcp_ports:
   - 6379   # Redis
   - 9000   # MinIO
   - 9001   # MinIO
+  - 8023   # csa -> csa.exnada.com
 # Configure Docker to use CoreDNS for DNS resolution (so containers can resolve Tailscale hostnames)
 docker_deploy_dns_servers:
   - 127.0.0.1  # CoreDNS (for Tailscale hostname resolution)
@@ -33,6 +34,14 @@ docker_deploy_dns_servers:
 docker_deploy_git_repos:
   - aispector   # /srv/aispector -> git@github-aispector:exnada/aispector.git
   - callosal    # /srv/callosal  -> git@github-callosal:barceloco/callosal.git
+  - csa         # /srv/csa       -> git@github-csa:exnada/csa.git
+
+# csa service (app_csa role). Ansible pulls the repo, renders the gitignored
+# .env with CSA_PORT (compose maps ${CSA_PORT:-8000}:8000), and runs docker
+# compose up --build. The csa repo is pulled (read), never modified.
+csa_enabled: true
+csa_env:
+  CSA_PORT: "8023"   # deterministic: 8000 + C+S+A
 
 # Internal DNS configuration
 internal_dns_enabled: true
@@ -72,6 +81,9 @@ edge_ingress_routes:
     health_path: /health
   - host: callosal.exnada.com
     backend: "http://vega:{{ port_api_alt | default('8001') }}"
+    health_path: /health
+  - host: csa.exnada.com
+    backend: http://rigel:8023
     health_path: /health
   - host: demo.exnada.com
     backend: "http://rigel:{{ port_api_alt | default('8001') }}"
