@@ -80,6 +80,6 @@ edge_ingress_routes:
     backend: http://rigel:8000
     health_path: /health
   - host: docgen.exnada.com
-    backend: http://vega:8420
+    backend: http://vega:8048
   - host: immich.exnada.com
     backend: http://100.120.170.43:2283

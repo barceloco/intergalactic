@@ -21,8 +21,9 @@ docgen_brand_dir: /srv/docgen-exnada
 # overrides belong here (today just DOCGEN_ADMINS). Set in host_vars.
 docgen_env: {}
 
-# Health gate: host port docgen listens on (compose maps ${DOCGEN_PORT:-8420}).
-docgen_port: 8420
+# Health gate: host port docgen is published on. Derived from docgen_env so it
+# always matches the rendered .env (compose maps ${DOCGEN_PORT:-8420}:8000).
+docgen_port: "{{ docgen_env.DOCGEN_PORT | default('8420') }}"
 
 # Data-loss guardrail. Assert the Postgres volume already exists before
 # bringing the stack up, so a redeploy can never silently create an empty

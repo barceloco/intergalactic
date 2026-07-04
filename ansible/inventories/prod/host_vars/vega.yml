@@ -26,6 +26,7 @@ docker_deploy_git_repos:
 docgen_enabled: true
 docgen_env:
   DOCGEN_ADMINS: "{{ docgen_admins }}"
+  DOCGEN_PORT: "8048"   # deterministic: 8000 + D+O+C+G+E+N (moved off 8420)
 
 # LUKS/cryptsetup: Installed for mounting external encrypted devices
 # No configuration needed - cryptsetup is installed and ready to use
@@ -43,4 +44,4 @@ firewall_allow_tcp_ports:
   - "{{ ssh_port }}"
   - 8000   # AISpector (port_api) → aispector.exnada.com
   - 8001   # Callosal (port_api_alt) → callosal.exnada.com
-  - 8420   # Docgen → docgen.exnada.com
+  - 8048   # Docgen → docgen.exnada.com (deterministic port; was 8420)
