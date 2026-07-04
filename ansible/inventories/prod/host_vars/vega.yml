@@ -8,6 +8,16 @@ enable_docker: true
 # AllowUsers in sshd to permit SSH logins for service ops.
 ssh_allow_users: "{{ [automation_user] + (human_users | default([]) | map(attribute='name') | list) + ['deploy'] }}"
 
+# Per-repo Git SSH for the deploy user (adopts the existing on-host keys).
+# vega does NOT run the full docker_deploy role (its /srv is a real directory;
+# the role would bind-mount /home/deploy/srv over it). vega-production.yml
+# imports only tasks_from: git_ssh from the role.
+docker_deploy_git_repos:
+  - aispector       # /srv/aispector      -> git@github-aispector:exnada/aispector.git
+  - callosal        # /srv/callosal       -> git@github-callosal:barceloco/callosal.git
+  - docgen          # /srv/docgen         -> git@github-docgen:exnada/docgen.git
+  - docgen-exnada   # /srv/docgen-exnada  -> github-docgen-exnada:exnada/docgen-exnada.git
+
 # LUKS/cryptsetup: Installed for mounting external encrypted devices
 # No configuration needed - cryptsetup is installed and ready to use
 

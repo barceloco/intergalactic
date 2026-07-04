@@ -58,6 +58,10 @@ disable_default_pi_user: true
 enable_docker_deploy: false  # Enable per-host
 docker_deploy_dns_servers: []  # Optional: list of DNS servers for Docker daemon (e.g., ["8.8.8.8", "8.8.4.4"])
 docker_deploy_env_vars: {}  # Optional: dict of environment variables for deploy user (e.g., {"API_KEY": "value"})
+# Per-host list of app repo names for the deploy user's Git SSH setup.
+# Each name <n> gets an on-host key ~deploy/.ssh/id_ed25519_<n> plus an SSH
+# alias github-<n>; the public key must be registered as a GitHub deploy key.
+docker_deploy_git_repos: []
 
 # Docker data-root configuration
 # Docker stores all data (images, containers, volumes) in this directory

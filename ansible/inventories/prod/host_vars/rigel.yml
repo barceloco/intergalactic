@@ -26,6 +26,13 @@ docker_deploy_tcp_ports:
 docker_deploy_dns_servers:
   - 127.0.0.1  # CoreDNS (for Tailscale hostname resolution)
   - 8.8.8.8    # Fallback to Google DNS
+# Per-repo Git SSH for the deploy user: each name <n> maps to on-host key
+# ~deploy/.ssh/id_ed25519_<n> and SSH alias github-<n> (HostName github.com).
+# The role prints each public key to register as a GitHub deploy key
+# (unique per repo per host).
+docker_deploy_git_repos:
+  - aispector   # /srv/aispector -> git@github-aispector:exnada/aispector.git
+  - callosal    # /srv/callosal  -> git@github-callosal:barceloco/callosal.git
 
 # Internal DNS configuration
 internal_dns_enabled: true

@@ -110,6 +110,12 @@
       # Set permissions: 600 for private key, 644 for public key
       # This ensures permissions are correct whether key existed before or was just created
 
+- name: Configure per-repo Git SSH for deploy user (deploy keys + ~/.ssh/config)
+  when: enable_docker_deploy | default(false)
+  import_tasks: git_ssh.yml
+  # No-op unless docker_deploy_git_repos is set in host_vars; existing keys
+  # on the host are adopted, never regenerated. See tasks/git_ssh.yml.
+
 - name: Passwordless sudo for deploy user (no-password policy, no TTY required)
   when: enable_docker_deploy | default(false)
   copy:

@@ -1,0 +1,97 @@
+---
+# Per-repo Git SSH setup for the deploy user.
+#
+# For each name <n> in docker_deploy_git_repos this file:
+#   1. Generates /home/deploy/.ssh/id_ed25519_<n> ON THE HOST, only if missing.
+#      Existing keys are adopted untouched: regenerating a key would invalidate
+#      the GitHub deploy key registered for that repo on this host.
+#   2. Renders /home/deploy/.ssh/config with a "github-<n>" alias per repo
+#      (HostName github.com, per-repo IdentityFile, IdentitiesOnly yes).
+#   3. Displays each public key so it can be registered as a GitHub deploy key
+#      (the one unavoidable manual step; informational and idempotent).
+#
+# Standalone-safe: hosts that must not run the full docker_deploy role (vega,
+# whose /srv is a real directory that the role would bind-mount over) import
+# only this file via: import_role: { name: docker_deploy, tasks_from: git_ssh }.
+# Requires the deploy user to already exist.
+
+- name: Configure per-repo GitHub deploy keys and SSH config
+  when: docker_deploy_git_repos | default([]) | length > 0
+  block:
+    - name: Verify deploy user exists
+      getent:
+        database: passwd
+        key: deploy
+      # Fails with a clear error if the deploy user is missing (this task file
+      # does not create it; the full docker_deploy role or manual setup does)
+
+    - name: Ensure .ssh directory exists with correct permissions
+      file:
+        path: /home/deploy/.ssh
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: '0700'
+
+    - name: Generate per-repo SSH deploy key (only if missing)
+      shell: su - deploy -c "ssh-keygen -t ed25519 -f /home/deploy/.ssh/id_ed25519_{{ item }} -N '' -C 'deploy+{{ item }}@{{ ansible_hostname }}'"
+      args:
+        creates: "/home/deploy/.ssh/id_ed25519_{{ item }}"
+      loop: "{{ docker_deploy_git_repos }}"
+      # creates: guarantees adoption of pre-existing keys (rigel/vega): the
+      # task is a no-op whenever the private key file already exists.
+      # GitHub deploy keys are unique per repo AND per host, hence one key
+      # per (host, repo) pair, generated on-host and never stored in the repo.
+
+    - name: Ensure per-repo private key permissions
+      file:
+        path: "/home/deploy/.ssh/id_ed25519_{{ item }}"
+        owner: deploy
+        group: deploy
+        mode: '0600'
+      loop: "{{ docker_deploy_git_repos }}"
+
+    - name: Ensure per-repo public key permissions
+      file:
+        path: "/home/deploy/.ssh/id_ed25519_{{ item }}.pub"
+        owner: deploy
+        group: deploy
+        mode: '0644'
+      loop: "{{ docker_deploy_git_repos }}"
+
+    - name: Render deploy user SSH config with per-repo GitHub aliases
+      template:
+        src: deploy_ssh_config.j2
+        dest: /home/deploy/.ssh/config
+        owner: deploy
+        group: deploy
+        mode: '0600'
+      # Full-file template: on rigel and vega the live config contains only
+      # these alias blocks, so re-templating is functionally identical.
+      # "User git" is required on vega (the docgen-exnada remote has no git@
+      # prefix) and inert on hosts whose remotes carry git@ (URL user wins).
+
+    - name: Read per-repo deploy public keys
+      slurp:
+        src: "/home/deploy/.ssh/id_ed25519_{{ item }}.pub"
+      loop: "{{ docker_deploy_git_repos }}"
+      register: docker_deploy_repo_pubkeys
+      failed_when: false
+
+    - name: Display per-repo public keys for GitHub deploy-key registration
+      debug:
+        msg: |
+          ============================================================================
+          Per-repo GitHub deploy keys for deploy@{{ ansible_hostname }}
+          ============================================================================
+          Register each public key below as a Deploy Key on its GitHub repository:
+            repo Settings -> Deploy keys -> Add deploy key
+          Deploy keys are unique per repository AND per host; register each host's
+          key separately. Read-only access is sufficient for git pull.
+          Keys already registered (existing hosts) need no action.
+          {% for result in docker_deploy_repo_pubkeys.results %}
+
+          [{{ result.item }}]  alias: github-{{ result.item }}  (suggested title: deploy@{{ ansible_hostname }})
+          {{ result.content | b64decode | trim if result.content is defined else '(key not present yet; run without --check to generate)' }}
+          {% endfor %}
+          ============================================================================

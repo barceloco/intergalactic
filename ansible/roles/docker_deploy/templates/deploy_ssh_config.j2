@@ -1,0 +1,12 @@
+# Managed by Ansible (docker_deploy role, templates/deploy_ssh_config.j2).
+# Do not edit by hand. Per-repo GitHub deploy-key aliases for the deploy user.
+# App repo remotes reference these aliases, e.g.:
+#   git@github-callosal:barceloco/callosal.git
+{% for repo in docker_deploy_git_repos %}
+
+Host github-{{ repo }}
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519_{{ repo }}
+  IdentitiesOnly yes
+{% endfor %}
