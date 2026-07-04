@@ -18,6 +18,15 @@ docker_deploy_git_repos:
   - docgen          # /srv/docgen         -> git@github-docgen:exnada/docgen.git
   - docgen-exnada   # /srv/docgen-exnada  -> github-docgen-exnada:exnada/docgen-exnada.git
 
+# docgen service (app_docgen role). Ansible drives the deployment lifecycle
+# (repo ref, gitignored .env, docker compose up via docgen's own Makefile) but
+# never touches docgen's data volumes (docgen_pgdata, docgen_doc_storage).
+# DOCGEN_ADMINS (a Tailscale-IP allow-list) is kept in the gitignored
+# all_secrets.yml as docgen_admins, so no IP lands in the committed repo.
+docgen_enabled: true
+docgen_env:
+  DOCGEN_ADMINS: "{{ docgen_admins }}"
+
 # LUKS/cryptsetup: Installed for mounting external encrypted devices
 # No configuration needed - cryptsetup is installed and ready to use
 

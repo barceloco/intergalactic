@@ -35,3 +35,11 @@
         name: docker_deploy
         tasks_from: git_ssh
       tags: [production, services]
+
+    # docgen service. Runs after git_ssh so the deploy user's SSH aliases exist
+    # before its repos are pulled. Manages docgen's lifecycle only, never its
+    # data volumes; the docgen/docgen-exnada repos are pulled (read), not changed.
+    - name: Deploy docgen service
+      import_role:
+        name: app_docgen
+      tags: [production, services, docgen]

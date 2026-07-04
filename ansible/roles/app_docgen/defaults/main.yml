@@ -1,0 +1,32 @@
+---
+# app_docgen: deploy and run the docgen service via its own docker-compose
+# Makefile. Thin orchestration only: ansible ensures the repos are at a ref,
+# renders the gitignored .env, and drives `make build` / `make up`. It NEVER
+# manages docgen's data volumes (docgen_pgdata, docgen_doc_storage); those are
+# sacred and out of scope. The docgen and docgen-exnada repos are only ever
+# read (git pull), never modified.
+docgen_enabled: false
+
+# Git sources. Pulled as the deploy user via the github-docgen /
+# github-docgen-exnada SSH aliases set up by docker_deploy's git_ssh tasks.
+docgen_repo_url: "git@github-docgen:exnada/docgen.git"
+docgen_repo_ref: main
+docgen_brand_url: "github-docgen-exnada:exnada/docgen-exnada.git"
+docgen_brand_ref: main
+docgen_dir: /srv/docgen
+docgen_brand_dir: /srv/docgen-exnada
+
+# Per-deployment overrides rendered into /srv/docgen/.env. docgen's
+# docker-compose.yml carries safe defaults for everything else, so only real
+# overrides belong here (today just DOCGEN_ADMINS). Set in host_vars.
+docgen_env: {}
+
+# Health gate: host port docgen listens on (compose maps ${DOCGEN_PORT:-8420}).
+docgen_port: 8420
+
+# Data-loss guardrail. Assert the Postgres volume already exists before
+# bringing the stack up, so a redeploy can never silently create an empty
+# database and mask a lost volume. Set to false ONLY for a genuine first
+# deploy on a new host, where no data exists yet.
+docgen_expect_existing_data: true
+docgen_pgdata_volume: docgen_pgdata

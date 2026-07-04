@@ -1,0 +1,70 @@
+---
+# Deploy/run docgen via its own docker-compose Makefile. Runs as the deploy
+# user, who owns /srv/docgen and is in the docker group. The docgen and
+# docgen-exnada repos are only pulled (read), never modified. Data volumes
+# (docgen_pgdata, docgen_doc_storage) are never touched.
+- name: Deploy docgen service
+  when: docgen_enabled | default(false)
+  become: true
+  become_user: deploy
+  block:
+    - name: Ensure docgen repo present at the configured ref (pull only)
+      git:
+        repo: "{{ docgen_repo_url }}"
+        dest: "{{ docgen_dir }}"
+        version: "{{ docgen_repo_ref }}"
+        update: true
+      register: docgen_repo
+
+    - name: Ensure docgen-exnada brand repo present at the configured ref (pull only)
+      git:
+        repo: "{{ docgen_brand_url }}"
+        dest: "{{ docgen_brand_dir }}"
+        version: "{{ docgen_brand_ref }}"
+        update: true
+      register: docgen_brand
+
+    - name: Render docgen .env (gitignored deployment config, not part of the repo)
+      template:
+        src: docgen.env.j2
+        dest: "{{ docgen_dir }}/.env"
+        mode: '0640'
+      register: docgen_env_file
+
+    - name: Assert docgen Postgres volume exists (data-loss guardrail)
+      command: "docker volume inspect {{ docgen_pgdata_volume }}"
+      changed_when: false
+      when: docgen_expect_existing_data | default(true)
+      # Fails loudly if the DB volume is missing on a host expected to already
+      # hold data, so a fresh `up` can never silently create an empty database.
+      # Set docgen_expect_existing_data: false for a genuine first deploy.
+
+    - name: Build docgen image (only when code or brand changed)
+      command: make build
+      args:
+        chdir: "{{ docgen_dir }}"
+      when: docgen_repo.changed or docgen_brand.changed
+
+    - name: Bring docgen up (docker compose up -d; recreates only on change)
+      command: make up
+      args:
+        chdir: "{{ docgen_dir }}"
+      register: docgen_up
+      changed_when: >-
+        'Recreat' in (docgen_up.stdout + docgen_up.stderr)
+        or 'Creat' in (docgen_up.stdout + docgen_up.stderr)
+        or 'Start' in (docgen_up.stdout + docgen_up.stderr)
+      # docker compose writes progress to stderr; 'Running'/'up-to-date' => no
+      # change. Running `up` every time keeps the service convergent while
+      # staying a no-op when nothing changed.
+
+    - name: Wait for docgen to answer on its port
+      uri:
+        url: "http://127.0.0.1:{{ docgen_port }}/"
+        status_code: [200, 403, 404]
+      register: docgen_health
+      retries: 12
+      delay: 5
+      until: docgen_health.status is defined and docgen_health.status in [200, 403, 404]
+      # Any HTTP response proves docgen is serving; 403 just means the caller is
+      # not on the allow-list, which still confirms the app is up.
