@@ -1,20 +1,20 @@
 ---
 # Production inventory - used for service deployment
-# 
+#
 # Connection: Tailscale network ONLY
 # User: ansible (automation user)
-# 
+#
 # CRITICAL: All hosts MUST use Tailscale hostnames
 # Format: hostname.tailb821ac.ts.net OR just hostname (if MagicDNS enabled)
-# 
+#
 # To get Tailscale hostname: tailscale status | grep <hostname>
-# 
+#
 # Migration from foundation phase:
 #   1. Run foundation phase: ./scripts/run-ansible.sh prod <host> foundation
 #   2. Get Tailscale hostname from foundation output or: tailscale status
 #   3. Update this file with Tailscale hostname
 #   4. Run production phase: ./scripts/run-ansible.sh prod <host> production
-# 
+#
 # RULE: When adding a new host:
 #       - Copy from hosts-foundation.yml
 #       - Change ansible_host to Tailscale hostname

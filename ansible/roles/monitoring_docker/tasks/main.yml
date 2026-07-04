@@ -202,37 +202,37 @@
       ERROR: ctop installation failed!
       ============================================================================
       ctop is not available in PATH.
-      
+
       Installation method: {{ monitoring_docker_ctop_install_method }}
       Version: {{ monitoring_docker_ctop_version }}
       Architecture: {{ ctop_arch | default('unknown') }}
-      
+
       {% if monitoring_docker_ctop_install_method in ['auto', 'apt'] %}
       Apt installation: {{ 'SUCCEEDED' if (ctop_installed_via_apt | default(false)) else 'FAILED (package not available)' }}
       {% if ctop_apt_binary_path is defined and ctop_apt_binary_path | length > 0 %}
       Apt binary location: {{ ctop_apt_binary_path }}
       {% endif %}
       {% endif %}
-      
+
       {% if monitoring_docker_ctop_install_method in ['auto', 'binary'] and not (ctop_installed_via_apt | default(false)) %}
       Binary download: {{ 'SUCCEEDED' if (ctop_binary_stat.stat.exists | default(false)) else 'FAILED' }}
       {% if ctop_latest_release is defined %}
       GitHub API: {{ 'SUCCEEDED' if (ctop_latest_release.status == 200) else 'FAILED (status: ' + (ctop_latest_release.status | string) + ')' }}
       {% endif %}
       {% endif %}
-      
+
       Solutions:
       1. Pin a specific version (recommended for production):
          monitoring_docker_ctop_version: "0.7.7"
-      
+
       2. Use binary method directly:
          monitoring_docker_ctop_install_method: "binary"
-      
+
       3. Check network connectivity to GitHub (for binary downloads)
-      
+
       4. Check if apt package is available in your Debian release
       ============================================================================
-  when: 
+  when:
     - ctop_check is defined
     - (ctop_final_check is defined and ctop_final_check.rc != 0) or (ctop_final_check is not defined and ctop_check.rc != 0)
     - not (ctop_binary_stat.stat.exists | default(false))

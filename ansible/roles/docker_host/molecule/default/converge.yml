@@ -9,7 +9,7 @@
         update_cache: true
         cache_valid_time: 3600
       changed_when: false
-    
+
     # Create automation user for testing
     - name: Create ansible user for testing
       user:

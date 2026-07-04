@@ -105,8 +105,8 @@
         group: deploy
         mode: "{{ item.mode }}"
       loop:
-        - { path: /home/deploy/.ssh/id_ed25519, mode: '0600' }
-        - { path: /home/deploy/.ssh/id_ed25519.pub, mode: '0644' }
+        - {path: /home/deploy/.ssh/id_ed25519, mode: '0600'}
+        - {path: /home/deploy/.ssh/id_ed25519.pub, mode: '0644'}
       # Set permissions: 600 for private key, 644 for public key
       # This ensures permissions are correct whether key existed before or was just created
 
@@ -146,7 +146,7 @@
       ============================================================================
       The sudoers file for deploy has syntax errors.
       This will prevent passwordless sudo from working.
-      
+
       Check output: {{ deploy_sudoers_check.stdout | default('No output') }}
       ============================================================================
     success_msg: "✓ Deploy user sudoers file syntax is valid"

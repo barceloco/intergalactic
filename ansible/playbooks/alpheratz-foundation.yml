@@ -34,7 +34,7 @@
     - name: Extract Tailscale hostname
       set_fact:
         tailscale_hostname: "{{ (tailscale_status_json.stdout | from_json).Self.DNSName | default('') }}"
-      when: 
+      when:
         - enable_tailscale | default(false)
         - tailscale_status_json.stdout is defined
 
@@ -45,22 +45,22 @@
           ✓ Foundation phase completed successfully!
           ============================================================================
           The host is now on the Tailscale network.
-          
+
           {% if tailscale_hostname is defined and tailscale_hostname | length > 0 %}
           Tailscale hostname: {{ tailscale_hostname }}
           {% else %}
           To get Tailscale hostname, run: tailscale status | grep {{ inventory_hostname }}
           {% endif %}
-          
+
           Next steps:
           1. Update hosts-production.yml to use Tailscale hostname:
              alpheratz:
                ansible_host: {{ tailscale_hostname | default('alpheratz.tailb821ac.ts.net') }}
                ansible_user: ansible
-          
+
           2. Run production phase:
              ./scripts/run-ansible.sh prod alpheratz production
-          
+
           ============================================================================
       delegate_to: localhost
       run_once: true

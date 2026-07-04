@@ -15,7 +15,7 @@
       ERROR: firewall_allow_tcp_ports must be a list!
       ============================================================================
       Current value: {{ firewall_allow_tcp_ports | default('NOT SET') }}
-      
+
       Please configure firewall_allow_tcp_ports as a list in group_vars or host_vars:
         firewall_allow_tcp_ports:
           - "{{ ssh_port }}"
@@ -33,7 +33,7 @@
       ERROR: firewall_allow_udp_ports must be a list!
       ============================================================================
       Current value: {{ firewall_allow_udp_ports | default('NOT SET') }}
-      
+
       Please configure firewall_allow_udp_ports as a list in group_vars or host_vars:
         firewall_allow_udp_ports:
           - 41641
@@ -72,7 +72,7 @@
       1. The generated /etc/nftables.conf file
       2. The template: ansible/roles/firewall_nftables/templates/nftables.conf.j2
       3. Variable values in your inventory
-      
+
       Syntax check output:
       {{ nftables_syntax_check.stderr | default('No error output') }}
       ============================================================================

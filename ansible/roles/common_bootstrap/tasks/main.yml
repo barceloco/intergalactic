@@ -30,7 +30,7 @@
       # SSH keys stored in system location for encrypted home directory support
       # Password authentication is DISABLED - public key authentication only
       AuthorizedKeysFile /etc/ssh/authorized_keys.d/%u
-      
+
       PasswordAuthentication no
       KbdInteractiveAuthentication no
       ChallengeResponseAuthentication no
@@ -62,7 +62,7 @@
   set_fact:
     existing_keys_by_user: "{{ existing_keys_by_user | default({}) | combine({item.item.name: (item.content | b64decode | default('')) if (item.content is defined and item.content != '') else ''}) }}"
   loop: "{{ existing_home_keys_result.results | default([]) }}"
-  when: 
+  when:
     - human_users is defined
     - human_users | length > 0
     - item.content is defined
@@ -123,15 +123,15 @@
       CRITICAL ERROR: Automation user '{{ automation_user }}' was NOT created!
       ============================================================================
       The bootstrap playbook failed to create the required automation user.
-      
+
       User creation task result: {{ ansible_user_result | default('unknown') }}
       Verification command result: {{ ansible_user_verify | default('unknown') }}
-      
+
       Please check:
       1. The playbook ran with sufficient privileges (become: true)
       2. The user creation task completed without errors
       3. System logs for any user creation failures
-      
+
       You may need to manually create the user or fix the underlying issue.
       ============================================================================
     success_msg: "✓ Automation user '{{ automation_user }}' successfully created and verified"
@@ -161,19 +161,19 @@
       CRITICAL ERROR: automation_authorized_keys is not configured!
       ============================================================================
       The bootstrap playbook requires SSH keys to be set in all_secrets.yml
-      
+
       Current value: {{ automation_authorized_keys | default('NOT SET') }}
-      
+
       Please:
       1. Edit ansible/inventories/prod/group_vars/all_secrets.yml
       2. Add your SSH public key(s) to automation_authorized_keys
       3. See all_secrets.yml.example for the correct format
-      
+
       Without SSH keys, you will not be able to login as the ansible user!
       ============================================================================
 
 - name: Fail if automation keys file missing
-  when: 
+  when:
     - automation_authorized_keys is defined
     - automation_authorized_keys | length > 0
   assert:
@@ -185,20 +185,20 @@
       CRITICAL ERROR: Automation keys file was NOT created!
       ============================================================================
       The bootstrap playbook failed to add SSH keys to the automation user.
-      
+
       Expected keys: {{ automation_authorized_keys | length }} key(s)
       Keys provided: {{ automation_authorized_keys }}
       Keys task result: {{ automation_keys_result | default('unknown') }}
       File exists: {{ automation_keys_file.stat.exists | default('unknown') }}
       File size: {{ automation_keys_file.stat.size | default('unknown') }} bytes
-      
+
       Expected location: /etc/ssh/authorized_keys.d/{{ automation_user }}
-      
+
       Please check:
       1. automation_authorized_keys is set in all_secrets.yml
       2. The keys are valid SSH public keys (should start with ssh-)
       3. The /etc/ssh/authorized_keys.d directory exists and is writable
-      
+
       You may need to manually add the keys or fix the underlying issue.
       ============================================================================
     success_msg: "✓ SSH authorized_keys successfully added for {{ automation_user }} ({{ automation_keys_file.stat.size }} bytes)"
@@ -230,7 +230,7 @@
       ============================================================================
       The sudoers file for {{ automation_user }} has syntax errors.
       This will prevent passwordless sudo from working.
-      
+
       Check output: {{ sudoers_check.stdout | default('No output') }}
       ============================================================================
 
@@ -250,10 +250,10 @@
       ============================================================================
       The sudoers file was created, but passwordless sudo is not functioning.
       This will cause Ansible tasks to timeout waiting for password prompts.
-      
+
       Sudo test output: {{ sudo_test.stdout | default('No output') }}
       Sudo test error: {{ sudo_test.stderr | default('No error') }}
-      
+
       Please check:
       1. The sudoers file exists: /etc/sudoers.d/90-{{ automation_user }}
       2. The file has correct permissions (0440)

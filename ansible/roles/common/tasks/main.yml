@@ -60,13 +60,13 @@
     state: present
     reload: true
   loop:
-    - { name: "net.ipv4.conf.all.rp_filter", value: "1" }
-    - { name: "net.ipv4.conf.default.rp_filter", value: "1" }
-    - { name: "net.ipv4.tcp_syncookies", value: "1" }
-    - { name: "net.ipv4.conf.all.accept_redirects", value: "0" }
-    - { name: "net.ipv4.conf.default.accept_redirects", value: "0" }
-    - { name: "net.ipv4.conf.all.send_redirects", value: "0" }
-    - { name: "net.ipv4.conf.default.send_redirects", value: "0" }
+    - {name: "net.ipv4.conf.all.rp_filter", value: "1"}
+    - {name: "net.ipv4.conf.default.rp_filter", value: "1"}
+    - {name: "net.ipv4.tcp_syncookies", value: "1"}
+    - {name: "net.ipv4.conf.all.accept_redirects", value: "0"}
+    - {name: "net.ipv4.conf.default.accept_redirects", value: "0"}
+    - {name: "net.ipv4.conf.all.send_redirects", value: "0"}
+    - {name: "net.ipv4.conf.default.send_redirects", value: "0"}
 
 - name: Ensure hostname (if provided)
   when: hostname is defined

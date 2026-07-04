@@ -19,7 +19,7 @@
           ✓ Phase 1: Bootstrap completed successfully!
           ============================================================================
           The automation user '{{ automation_user }}' has been created and configured.
-          
+
           Next step: Run Phase 2 (Foundation)
           ./scripts/run-ansible.sh prod alpheratz foundation
           ============================================================================

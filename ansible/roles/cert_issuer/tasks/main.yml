@@ -15,7 +15,7 @@
       ERROR: cert_issuer_domain is not configured!
       ============================================================================
       The cert_issuer role requires cert_issuer_domain to be set.
-      
+
       Please configure in host_vars or group_vars:
         cert_issuer_domain: exnada.com
       ============================================================================
@@ -33,7 +33,7 @@
       ERROR: cert_issuer_email is not configured!
       ============================================================================
       The cert_issuer role requires a valid email for ACME registration.
-      
+
       Please configure in host_vars or group_vars:
         cert_issuer_email: admin@exnada.com
       ============================================================================
@@ -56,11 +56,11 @@
       ERROR: GoDaddy API credentials are not configured!
       ============================================================================
       The cert_issuer role requires GoDaddy API key and secret for ACME DNS-01 challenge.
-      
+
       Please set both in all_secrets.yml:
         godaddy_api_key: "your-api-key"
         godaddy_api_secret: "your-api-secret"
-      
+
       Get your credentials from: https://developer.godaddy.com/keys
       See all_secrets.yml.example for template.
       ============================================================================
@@ -83,7 +83,7 @@
       ERROR: Docker is not installed!
       ============================================================================
       The cert_issuer role requires Docker to be installed.
-      
+
       Please ensure the docker_host role has been applied.
       ============================================================================
     success_msg: "✓ Docker is installed"
@@ -293,7 +293,7 @@
       ============================================================================
       You can manually run the certificate issuance script:
         sudo /etc/lego/lego-renew.sh
-      
+
       Or use the diagnostic script:
         sudo /path/to/diagnose-cert-issuer.sh
       ============================================================================
@@ -307,13 +307,13 @@
       ============================================================================
       Lego renewal timer: {{ 'active' if timer_status.rc == 0 else 'inactive' }}
       Certificates: {{ 'Issued and deployed' if (cert_file_check.stat.exists or (cert_issued_check.stat.exists | default(false))) else 'Not yet issued' }}
-      
+
       {% if cert_file_check.stat.exists or (cert_issued_check.stat.exists | default(false)) %}
       ✓ Certificates are in place at: {{ edge_ingress_data_dir }}/certs/
       {% else %}
       ⚠ Certificates not yet issued. They will be issued automatically on next run.
       {% endif %}
-      
+
       {% if cert_issuer_ca_server == 'staging' %}
       ⚠ Using Let's Encrypt STAGING (test certificates)
       To switch to production, set cert_issuer_ca_server: production

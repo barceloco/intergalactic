@@ -23,7 +23,7 @@
       ERROR: internal_dns_domain is not configured!
       ============================================================================
       The internal_dns role requires internal_dns_domain to be set.
-      
+
       Please configure in host_vars or group_vars:
         internal_dns_domain: exnada.com
       ============================================================================
@@ -62,7 +62,7 @@
     success_msg: "✓ internal_dns_private_hosts is valid ({{ internal_dns_private_hosts | length }} host(s))"
 
 - name: Validate Tailscale is connected
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
   command: tailscale status
@@ -82,7 +82,7 @@
       ============================================================================
       The internal_dns role requires Tailscale to be connected to detect
       the Tailscale IP address for DNS records.
-      
+
       Please ensure:
       1. The tailscale role has been applied
       2. Tailscale is connected (run: tailscale status)
@@ -91,7 +91,7 @@
     success_msg: "✓ Tailscale is connected"
 
 - name: Get Tailscale IPv4 address
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
   command: tailscale ip -4
@@ -99,7 +99,7 @@
   changed_when: false
 
 - name: Validate Tailscale IP was retrieved
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
   assert:
@@ -112,10 +112,10 @@
       ERROR: Failed to retrieve valid Tailscale IPv4 address!
       ============================================================================
       The tailscale ip -4 command did not return a valid IPv4 address.
-      
+
       Command output: {{ tailscale_ip_result.stdout | default('empty') }}
       Command error: {{ tailscale_ip_result.stderr | default('none') }}
-      
+
       Please check:
       1. Tailscale is connected: tailscale status
       2. Tailscale has an IPv4 address assigned
@@ -123,14 +123,14 @@
     success_msg: "✓ Tailscale IPv4 address detected: {{ tailscale_ip_result.stdout }}"
 
 - name: Set Tailscale IP fact for current host
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
   set_fact:
     tailscale_ip: "{{ tailscale_ip_result.stdout.strip() }}"
 
 - name: Get Tailscale status for all peers
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
   command: tailscale status
@@ -138,14 +138,14 @@
   changed_when: false
 
 - name: Initialize host IPs dictionary
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
   set_fact:
     internal_dns_host_ips: "{{ dict() }}"
 
 - name: Extract Tailscale IP for each host using shell script
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
   shell: |
@@ -156,7 +156,7 @@
   failed_when: false
 
 - name: Build host IPs dictionary from extracted IPs
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
   set_fact:
@@ -171,7 +171,7 @@
     internal_dns_host_ips: "{{ internal_dns_host_ips | default({}) }}"
 
 - name: Override DNS IPs for reverse-proxied hosts (resolve to rigel for HTTP/HTTPS)
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
     - edge_ingress_enabled | default(false)
@@ -187,7 +187,7 @@
     internal_dns_host_ips: "{{ internal_dns_host_ips | default({}) }}"
 
 - name: Merge manual IP mappings if provided
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
     - internal_dns_manual_host_ips is defined
@@ -195,7 +195,7 @@
     internal_dns_host_ips: "{{ internal_dns_host_ips | combine(internal_dns_manual_host_ips) }}"
 
 - name: Use current host IP as fallback for hosts not found
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
   set_fact:
@@ -210,7 +210,7 @@
     internal_dns_host_ips: "{{ internal_dns_host_ips | default({}) }}"
 
 - name: Display resolved host IPs
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)
   debug:
@@ -295,9 +295,9 @@
       ERROR: CoreDNS container is not running!
       ============================================================================
       The CoreDNS container failed to start or is not running.
-      
+
       Status: {{ coredns_status_check.stdout | default('unknown') }}
-      
+
       Please check:
       1. Docker is running: systemctl status docker
       2. CoreDNS logs: docker logs {{ internal_dns_container_name }}

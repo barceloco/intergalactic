@@ -34,7 +34,7 @@
   failed_when: false
 
 - name: Check Traefik can reach backends
-  when: 
+  when:
     - edge_ingress_enabled | default(false)
     - final_routes is defined
     - final_routes | length > 0
@@ -66,13 +66,13 @@
           WARNING: Traefik cannot reach backend for {{ item.item.host }}!
           ============================================================================
           Backend URL: {{ item.item.backend_resolved | default(item.item.backend) }}
-          
+
           This may be normal if:
           1. Backend service is not running yet
           2. Backend is on a different host and network connectivity is not ready
           3. Backend health endpoint is not available
           4. Docker container cannot resolve Tailscale hostnames (DNS issue)
-          
+
           Please verify:
           1. Backend service is running
           2. Network connectivity between Traefik and backend
@@ -84,7 +84,7 @@
       ignore_errors: true
 
 - name: Validate certificate file exists and has correct permissions
-  when: 
+  when:
     - edge_ingress_enabled | default(false)
     - not (edge_ingress_disable_tls | default(false))
   tags: [validation]
@@ -93,7 +93,7 @@
   register: acme_file_check
 
 - name: Check ACME file permissions
-  when: 
+  when:
     - edge_ingress_enabled | default(false)
     - not (edge_ingress_disable_tls | default(false))
     - acme_file_check.stat.exists
@@ -107,7 +107,7 @@
       ============================================================================
       Expected: 0600 (rw-------) - decimal: 384
       Current: {{ "%04o" | format(acme_file_check.stat.mode | int) }} (decimal: {{ acme_file_check.stat.mode | int }})
-      
+
       This will be fixed automatically on the next playbook run.
       The fix task ensures permissions are set correctly.
       ============================================================================
@@ -115,7 +115,7 @@
   ignore_errors: true
 
 - name: Test HTTPS endpoint (if routes are configured)
-  when: 
+  when:
     - edge_ingress_enabled | default(false)
     - final_routes is defined
     - final_routes | length > 0
@@ -135,7 +135,7 @@
   ignore_errors: true
 
 - name: Report HTTPS test result
-  when: 
+  when:
     - edge_ingress_enabled | default(false)
     - https_test is defined
     - https_test.status is defined

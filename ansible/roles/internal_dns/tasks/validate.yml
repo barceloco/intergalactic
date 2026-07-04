@@ -29,9 +29,9 @@
       ERROR: DNS resolution test failed!
       ============================================================================
       CoreDNS is running but cannot resolve {{ internal_dns_domain }}.
-      
+
       Test output: {{ dns_test_result.stdout | default('empty') }}
-      
+
       Please check:
       1. DNS zone file is correct: {{ internal_dns_data_dir }}/db.{{ internal_dns_domain }}
       2. CoreDNS logs: docker logs {{ internal_dns_container_name }}
@@ -40,7 +40,7 @@
     success_msg: "✓ DNS resolution test passed for {{ internal_dns_domain }}"
 
 - name: Test DNS resolution of internal hosts
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - internal_dns_private_hosts is defined
     - internal_dns_private_hosts | length > 0
@@ -51,7 +51,7 @@
   loop: "{{ internal_dns_private_hosts }}"
 
 - name: Validate internal host DNS resolution
-  when: 
+  when:
     - internal_dns_enabled | default(false)
     - internal_dns_private_hosts is defined
     - internal_dns_private_hosts | length > 0
@@ -64,9 +64,9 @@
       ERROR: DNS resolution failed for {{ item.item }}.{{ internal_dns_domain }}!
       ============================================================================
       CoreDNS cannot resolve this internal host.
-      
+
       Test output: {{ item.stdout | default('empty') }}
-      
+
       Please check:
       1. Host is in DNS zone file: {{ internal_dns_data_dir }}/db.{{ internal_dns_domain }}
       2. Host IP mapping is correct

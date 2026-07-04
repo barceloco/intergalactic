@@ -9,7 +9,7 @@
         update_cache: true
         cache_valid_time: 3600
       changed_when: false
-    
+
     # Mock tailscale status command to pretend already connected
     # This prevents the role from trying to actually connect (which would fail in tests)
     - name: Create mock tailscale script for testing

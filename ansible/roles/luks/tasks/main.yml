@@ -20,7 +20,7 @@
 - name: Display cryptsetup version
   debug:
     msg: "cryptsetup version: {{ cryptsetup_version.stdout | default('not installed') }}"
-  when: 
+  when:
     - enable_luks | default(false)
     - cryptsetup_version.rc == 0
 
@@ -31,10 +31,10 @@
       LUKS Configuration Complete
       ============================================================================
       cryptsetup is installed and ready for use.
-      
+
       This enables mounting external LUKS-encrypted devices (USB drives, network storage).
       Internal partitions are not encrypted.
-      
+
       For manual LUKS operations:
       - List devices: lsblk
       - Check if encrypted: cryptsetup isLuks <device>
