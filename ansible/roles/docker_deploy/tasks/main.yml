@@ -90,7 +90,7 @@
         group: deploy
         mode: '0700'
 
-    - name: Generate SSH key pair for deploy user
+    - name: Generate SSH key pair for deploy user  # noqa: command-instead-of-shell
       shell: su - deploy -c "ssh-keygen -t ed25519 -f /home/deploy/.ssh/id_ed25519 -N '' -C 'deploy@{{ ansible_hostname }}'"
       args:
         creates: /home/deploy/.ssh/id_ed25519

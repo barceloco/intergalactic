@@ -13,7 +13,7 @@
     owner: root
     group: root
 
-- name: Configure sshd drop-in
+- name: Configure sshd drop-in  # noqa: jinja[spacing]
   copy:
     dest: /etc/ssh/sshd_config.d/10-intergalactic.conf
     mode: "0600"

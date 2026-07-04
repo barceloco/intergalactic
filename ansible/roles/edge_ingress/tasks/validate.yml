@@ -23,7 +23,6 @@
   register: traefik_api_test
   changed_when: false
   failed_when: false
-  ignore_errors: true
 
 - name: Validate Traefik configuration syntax
   when: edge_ingress_enabled | default(false)
@@ -81,7 +80,7 @@
           ============================================================================
         success_msg: "✓ Backend connectivity test passed for {{ item.item.host }}"
       loop: "{{ backend_connectivity_test.results | default([]) }}"
-      ignore_errors: true
+      failed_when: false
 
 - name: Validate certificate file exists and has correct permissions
   when:
@@ -112,7 +111,7 @@
       The fix task ensures permissions are set correctly.
       ============================================================================
     success_msg: "✓ ACME file has correct permissions"
-  ignore_errors: true
+  failed_when: false
 
 - name: Test HTTPS endpoint (if routes are configured)
   when:
@@ -132,7 +131,6 @@
   register: https_test
   changed_when: false
   failed_when: false
-  ignore_errors: true
 
 - name: Report HTTPS test result
   when:

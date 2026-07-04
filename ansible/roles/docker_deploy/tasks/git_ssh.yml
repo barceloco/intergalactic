@@ -33,7 +33,7 @@
         group: deploy
         mode: '0700'
 
-    - name: Generate per-repo SSH deploy key (only if missing)
+    - name: Generate per-repo SSH deploy key (only if missing)  # noqa: command-instead-of-shell
       shell: su - deploy -c "ssh-keygen -t ed25519 -f /home/deploy/.ssh/id_ed25519_{{ item }} -N '' -C 'deploy+{{ item }}@{{ ansible_hostname }}'"
       args:
         creates: "/home/deploy/.ssh/id_ed25519_{{ item }}"

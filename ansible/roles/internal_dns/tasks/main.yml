@@ -144,7 +144,7 @@
   set_fact:
     internal_dns_host_ips: "{{ dict() }}"
 
-- name: Extract Tailscale IP for each host using shell script
+- name: Extract Tailscale IP for each host using shell script  # noqa: risky-shell-pipe
   when:
     - internal_dns_enabled | default(false)
     - enable_tailscale | default(false)

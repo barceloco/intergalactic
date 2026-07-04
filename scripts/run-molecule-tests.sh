@@ -62,13 +62,20 @@ for role in "${ROLES_TO_TEST[@]}"; do
         continue
     fi
     
-    # Run Molecule in container with Docker socket access
-    if docker run --rm -it \
+    # Run Molecule in container with Docker socket access.
+    # Allocate a TTY only when one is available, so this also works
+    # non-interactively (CI, background runs); "-it" fails with "the input
+    # device is not a TTY" when there is no terminal.
+    tty_flag="-i"; [ -t 1 ] && tty_flag="-it"
+    # The image entrypoint cd's to /repo/ansible, which overrides `-w`, so cd
+    # into the role explicitly inside the command instead (same entrypoint
+    # quirk fixed in validate-playbooks.sh and run-linting.sh).
+    if docker run --rm ${tty_flag} \
         -v "${SCRIPT_DIR}:/repo" \
         -v /var/run/docker.sock:/var/run/docker.sock \
-        -w "/repo/${ROLE_DIR}" \
+        -e ANSIBLE_ROLES_PATH=/repo/ansible/roles \
         "${IMAGE}" \
-        molecule test; then
+        sh -c "cd /repo/${ROLE_DIR} && molecule test"; then
         echo "✓ ${role}: PASSED"
         PASSED=$((PASSED + 1))
     else

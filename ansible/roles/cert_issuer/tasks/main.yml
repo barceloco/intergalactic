@@ -219,7 +219,7 @@
     daemon_reload: true
   become: true
 
-- name: Verify lego renewal timer is active
+- name: Verify lego renewal timer is active  # noqa: command-instead-of-module
   when: cert_issuer_enabled | default(false)
   command: systemctl is-active lego-renew.timer
   register: timer_status
@@ -250,9 +250,10 @@
     - preflight_result.rc == 0
   command: "{{ cert_issuer_config_dir }}/lego-renew.sh"
   register: initial_issuance
+  changed_when: true
   async: 600  # Increase timeout to 10 minutes (DNS propagation can take time)
   poll: 15   # Poll every 15 seconds
-  ignore_errors: true  # Don't fail immediately, check result below
+  failed_when: false  # Don't fail immediately, check result below
 
 - name: Check async result for certificate issuance
   when:

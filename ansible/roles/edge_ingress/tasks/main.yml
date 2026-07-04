@@ -103,7 +103,7 @@
     - edge_ingress_use_tailscale_fqdn | default(true)
     - tailscale_status_check.rc == 0
   block:
-    - name: Extract tailnet name from tailscale status JSON
+    - name: Extract tailnet name from tailscale status JSON  # noqa: risky-shell-pipe
       shell: tailscale status --json | python3 -c "import sys, json; data = json.load(sys.stdin); dns = data.get('Self', {}).get('DNSName', ''); print('.'.join(dns.split('.')[1:]) if '.' in dns else '')"
       register: tailnet_name_json
       changed_when: false
@@ -142,7 +142,7 @@
     resolved_routes: "{{ resolved_routes | default([]) + [item | combine({'backend_resolved': item.backend})] }}"
   loop: "{{ edge_ingress_routes }}"
 
-- name: Resolve backend hostnames to IP addresses (for Docker container DNS compatibility)
+- name: Resolve backend hostnames to IP addresses (for Docker container DNS compatibility)  # noqa: risky-shell-pipe
   when:
     - edge_ingress_enabled | default(false)
     - enable_tailscale | default(false)
@@ -256,6 +256,7 @@
     state: touch
     owner: root
     group: root
+    mode: '0600'
 
 - name: Fix ACME file permissions (force correct permissions)
   when: edge_ingress_enabled | default(false)

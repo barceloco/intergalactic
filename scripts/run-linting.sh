@@ -28,7 +28,7 @@ ERRORS=0
 if [ "$MODE" = "all" ] || [ "$MODE" = "ansible-lint" ]; then
     echo "Running ansible-lint..."
     if docker run --rm -v "${SCRIPT_DIR}:/repo" "${IMAGE}" \
-        sh -c 'cd /repo && ansible-lint ansible/ --exclude ansible/molecule/ --exclude ansible/.cache/'; then
+        sh -c 'cd /repo && ANSIBLE_ROLES_PATH=/repo/ansible/roles ansible-lint ansible/ --exclude ansible/molecule/ --exclude ansible/.cache/'; then
         echo "✓ ansible-lint: PASSED"
     else
         echo "✗ ansible-lint: FAILED"

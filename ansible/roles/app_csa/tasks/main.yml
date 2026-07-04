@@ -34,6 +34,7 @@
       args:
         chdir: "{{ csa_dir }}"
       when: csa_repo.changed
+      changed_when: true
       # Building the Python image on a Pi is slow; only rebuild on an actual code
       # change. `up` below still builds on first deploy if the image is missing.
 

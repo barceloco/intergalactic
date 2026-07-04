@@ -11,7 +11,7 @@ galaxy_info:
   galaxy_tags:
     - docker
     - deploy
-    - user-management
+    - usermanagement
 
 dependencies:
   - role: docker_host

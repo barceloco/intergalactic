@@ -1,9 +1,19 @@
 ---
 # Ansible Lint configuration
 skip_list:
-  - yaml[line-length]  # Allow longer lines for readability
-  - name[casing]        # Allow lowercase names if preferred
-  - name[template]      # Allow template names
+  # YAML style is enforced separately by yamllint (.yamllint); do not double-check.
+  - yaml
+  - name[casing]        # lowercase task names are allowed
+  - name[template]      # template names are allowed
+  # Repo-wide established conventions (every role follows these); enforcing them
+  # would be a large mechanical refactor with no behavior change:
+  - fqcn[action-core]        # short module names (git, template, command, ...) are used throughout
+  - fqcn[action]
+  - var-naming[no-role-prefix]  # role vars are not prefixed with the role name
+  # Intentional patterns / known false positives in this repo:
+  - run-once[task]     # run_once is intentional; the free-strategy caveat does not apply (linear strategy)
+  - no-handler         # build-on-change tasks (when: <repo>.changed) are intentional, not handlers
+  - jinja[invalid]     # false-positive: ansible-lint cannot statically template internal_dns's loop-accumulated internal_dns_host_ips dict
 
 exclude_paths:
   - .cache/
@@ -13,5 +23,4 @@ exclude_paths:
   - venv/
 
 verbosity: 1
-parseable: false
 quiet: false

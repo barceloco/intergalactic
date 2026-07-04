@@ -10,7 +10,7 @@ galaxy_info:
         - all
   galaxy_tags:
     - traefik
-    - reverse-proxy
+    - reverseproxy
     - https
     - acme
     - tailscale
