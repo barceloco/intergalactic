@@ -2,6 +2,30 @@
 # Deploy/run csa via its own docker compose. Runs as the deploy user, who owns
 # /srv/csa and is in the docker group. The csa repo is only pulled (read), never
 # modified. csa has no named data volumes, so nothing is guarded here.
+- name: Check the deploy user exists (created by docker_deploy)
+  when: csa_enabled | default(false)
+  become: true
+  command: id deploy
+  register: csa_deploy_user
+  changed_when: false
+  failed_when: false
+
+- name: Fail with guidance if the deploy user is missing
+  when: csa_enabled | default(false)
+  assert:
+    that:
+      - csa_deploy_user.rc == 0
+    fail_msg: |
+      ============================================================================
+      ERROR: the 'deploy' user does not exist.
+      ============================================================================
+      The csa role runs as the 'deploy' user, created by the docker_deploy role.
+      Set enable_docker_deploy: true for this host and ensure the production
+      deploy runs docker_deploy first (it is ordered before app roles in the
+      production playbook).
+      ============================================================================
+    success_msg: "✓ deploy user present"
+
 - name: Deploy csa service
   when: csa_enabled | default(false)
   become: true

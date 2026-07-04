@@ -3,6 +3,30 @@
 # user, who owns /srv/docgen and is in the docker group. The docgen and
 # docgen-exnada repos are only pulled (read), never modified. Data volumes
 # (docgen_pgdata, docgen_doc_storage) are never touched.
+- name: Check the deploy user exists (created by docker_deploy)
+  when: docgen_enabled | default(false)
+  become: true
+  command: id deploy
+  register: docgen_deploy_user
+  changed_when: false
+  failed_when: false
+
+- name: Fail with guidance if the deploy user is missing
+  when: docgen_enabled | default(false)
+  assert:
+    that:
+      - docgen_deploy_user.rc == 0
+    fail_msg: |
+      ============================================================================
+      ERROR: the 'deploy' user does not exist.
+      ============================================================================
+      The docgen role runs as the 'deploy' user, created by the docker_deploy
+      role. Set enable_docker_deploy: true for this host and ensure the
+      production deploy runs docker_deploy first (it is ordered before app roles
+      in the production playbook).
+      ============================================================================
+    success_msg: "✓ deploy user present"
+
 - name: Deploy docgen service
   when: docgen_enabled | default(false)
   become: true
