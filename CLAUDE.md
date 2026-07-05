@@ -199,6 +199,12 @@ scripts/
 
 ## Important Patterns and Conventions
 
+### Server Roles and App Branches
+
+**Vega is the production server; Rigel is the dev server.** As a rule of thumb, an app served from vega tracks its production branch and one served from rigel tracks its dev branch. The route topology already follows this: vega backs the production `aispector`/`callosal`/`docgen` hosts, while rigel backs the `dev`/`demo`/`csa` instances.
+
+**Every served app names its branch explicitly.** Ansible-managed apps set `<app>_repo_ref` in the host's host_vars (default `main`) — e.g. `csa_repo_ref` in `host_vars/rigel.yml`, `docgen_repo_ref` in `host_vars/vega.yml`. Do not rely on the silent `main` default: set the branch even when it is `main`, so which branch a host serves is always visible in the repo. Choose the branch per the Vega=prod / Rigel=dev convention above.
+
 ### Inventory Management
 
 **Bootstrap Inventory** (`hosts-bootstrap.yml`):

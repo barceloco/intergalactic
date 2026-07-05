@@ -24,6 +24,8 @@ docker_deploy_git_repos:
 # DOCGEN_ADMINS (a Tailscale-IP allow-list) is kept in the gitignored
 # all_secrets.yml as docgen_admins, so no IP lands in the committed repo.
 docgen_enabled: true
+docgen_repo_ref: main    # branch to serve; vega is the production server (see convention in CLAUDE.md)
+docgen_brand_ref: main   # docgen-exnada brand repo branch
 docgen_env:
   DOCGEN_ADMINS: "{{ docgen_admins }}"
   DOCGEN_PORT: "8048"   # deterministic: 8000 + D+O+C+G+E+N (moved off 8420)
