@@ -1,0 +1,125 @@
+---
+# Observability stack (Prometheus + Grafana + blackbox_exporter). Runs as the
+# deploy user, who owns /srv/observability and is in the docker group. The named
+# data volumes (Prometheus history, Grafana state) are never wiped by this role.
+
+- name: Check the deploy user exists (created by docker_deploy)
+  when: observability_enabled | default(false)
+  become: true
+  command: id deploy
+  register: observability_deploy_user
+  changed_when: false
+  failed_when: false
+
+- name: Fail with guidance if the deploy user is missing
+  when: observability_enabled | default(false)
+  assert:
+    that:
+      - observability_deploy_user.rc == 0
+    fail_msg: |
+      ============================================================================
+      ERROR: the 'deploy' user does not exist.
+      ============================================================================
+      The observability role runs as the 'deploy' user, created by the
+      docker_deploy role. Set enable_docker_deploy: true for this host and ensure
+      the production deploy runs docker_deploy first.
+      ============================================================================
+    success_msg: "✓ deploy user present"
+
+- name: Deploy the observability stack
+  when: observability_enabled | default(false)
+  become: true
+  become_user: deploy
+  block:
+    - name: Ensure observability directory tree exists
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ observability_dir }}"
+        - "{{ observability_dir }}/grafana/provisioning/datasources"
+        - "{{ observability_dir }}/grafana/provisioning/dashboards"
+        - "{{ observability_dir }}/grafana/dashboards"
+
+    - name: Render Prometheus config
+      template:
+        src: prometheus.yml.j2
+        dest: "{{ observability_dir }}/prometheus.yml"
+        mode: '0644'
+      register: obs_prometheus_cfg
+
+    - name: Render blackbox config
+      template:
+        src: blackbox.yml.j2
+        dest: "{{ observability_dir }}/blackbox.yml"
+        mode: '0644'
+      register: obs_blackbox_cfg
+
+    - name: Render Grafana datasource provisioning
+      template:
+        src: grafana/provisioning/datasources/datasource.yml.j2
+        dest: "{{ observability_dir }}/grafana/provisioning/datasources/datasource.yml"
+        mode: '0644'
+
+    - name: Render Grafana dashboard provider
+      template:
+        src: grafana/provisioning/dashboards/provider.yml.j2
+        dest: "{{ observability_dir }}/grafana/provisioning/dashboards/provider.yml"
+        mode: '0644'
+
+    - name: Deploy Grafana dashboards (auto-reloaded from disk by Grafana)
+      copy:
+        src: grafana/dashboards/fleet-overview.json
+        dest: "{{ observability_dir }}/grafana/dashboards/fleet-overview.json"
+        mode: '0644'
+
+    - name: Render docker compose file
+      template:
+        src: docker-compose.yml.j2
+        dest: "{{ observability_dir }}/docker-compose.yml"
+        mode: '0644'
+      register: obs_compose
+
+    - name: Assert Prometheus + Grafana data volumes exist (data-loss guardrail)
+      command: "docker volume inspect {{ item }}"
+      changed_when: false
+      loop:
+        - "{{ observability_prometheus_volume }}"
+        - "{{ observability_grafana_volume }}"
+      when: observability_expect_existing_data | default(false)
+      # Fails loudly if a data volume is missing on a host expected to already
+      # hold history, so a fresh `up` cannot silently start with empty data. Set
+      # observability_expect_existing_data: false for a genuine first deploy.
+
+    - name: Bring the observability stack up (docker compose up -d)
+      command: docker compose up -d --remove-orphans
+      args:
+        chdir: "{{ observability_dir }}"
+      register: obs_up
+      changed_when: >-
+        'Recreat' in (obs_up.stdout + obs_up.stderr)
+        or 'Creat' in (obs_up.stdout + obs_up.stderr)
+        or 'Start' in (obs_up.stdout + obs_up.stderr)
+
+    - name: Restart Prometheus and blackbox if their config changed
+      command: docker compose restart prometheus blackbox
+      args:
+        chdir: "{{ observability_dir }}"
+      when:
+        - not (obs_up.changed | default(false))
+        - (obs_prometheus_cfg.changed | default(false)) or (obs_blackbox_cfg.changed | default(false))
+      changed_when: true
+      # Mounted config content changes do not recreate the container, so reload
+      # the config-driven services explicitly (only when they were not just
+      # created above, and only when their config actually changed).
+
+    - name: Wait for Grafana to answer on its health endpoint
+      uri:
+        url: "http://127.0.0.1:{{ observability_grafana_port }}/api/health"
+        status_code: [200]
+      register: obs_grafana_health
+      retries: 30
+      delay: 5
+      until: obs_grafana_health.status is defined and obs_grafana_health.status == 200
+      # Grafana's /api/health returns 200 once it is serving.

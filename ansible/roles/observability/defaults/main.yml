@@ -1,0 +1,46 @@
+---
+# Observability stack: Prometheus + Grafana + blackbox_exporter, deployed via
+# docker compose as the deploy user (like the app roles). Runs on the edge /
+# control-plane host (rigel) and probes every edge route end-to-end plus scrapes
+# infra metrics. Every config below is rendered from templates in this role, so
+# the whole monitoring setup lives in the repo (transparency by construction).
+observability_enabled: false
+
+# Config + compose live under the deploy user's /srv (which it owns).
+observability_dir: /srv/observability
+
+# Pinned image versions: reproducible builds are a longevity concern. Bump
+# deliberately, never float :latest.
+observability_prometheus_image: "prom/prometheus:v3.1.0"
+observability_grafana_image: "grafana/grafana:11.4.5"
+observability_blackbox_image: "prom/blackbox-exporter:v0.26.0"
+
+# Ports come from group_vars/ports.yml (named there already).
+observability_prometheus_port: "{{ port_prometheus | default('9090') }}"
+observability_grafana_port: "{{ port_grafana | default('3000') }}"
+observability_blackbox_port: "9115"
+
+# Grafana's public URL (the internal admin page, behind Tailscale + Traefik).
+# Used so Grafana builds correct absolute links.
+observability_grafana_domain: "monitor.{{ edge_ingress_domain | default('exnada.com') }}"
+
+# Metrics retention. 90 days is plenty for a small fleet and bounds disk use.
+observability_prometheus_retention: "90d"
+
+# End-to-end probe targets. Defaults to the hosts declared in this host's
+# edge_ingress_routes, so synthetic probing follows the SAME single source of
+# truth as DNS and the Traefik routers. Override to add/remove targets.
+observability_probe_routes: "{{ edge_ingress_routes | default([]) }}"
+
+# Scrape Traefik's own Prometheus metrics endpoint. Empty until Traefik metrics
+# are enabled in edge_ingress (a follow-on layer); set to e.g. "rigel:8082" then.
+observability_traefik_metrics_target: ""
+
+observability_restart_policy: unless-stopped
+
+# Data-loss guardrail (same pattern as app_docgen): named volumes that must
+# already exist on a host expected to hold history. Set to false for a genuine
+# first deploy so the volumes get created.
+observability_expect_existing_data: false
+observability_prometheus_volume: observability_prometheus_data
+observability_grafana_volume: observability_grafana_data

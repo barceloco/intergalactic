@@ -45,6 +45,11 @@
     - role: monitoring_docker
       tags: [production, monitoring]
 
+    # 5b. Observability stack (Prometheus + Grafana + blackbox). Probes every
+    # edge route end-to-end and serves the Grafana admin page via Traefik.
+    - role: observability
+      tags: [production, monitoring, observability]
+
     # 6. LUKS support for external encrypted devices
     - role: luks
       tags: [production, security]

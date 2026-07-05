@@ -23,6 +23,7 @@ docker_deploy_tcp_ports:
   - 9000   # MinIO
   - 9001   # MinIO
   - 8023   # csa -> csa.exnada.com
+  - 3000   # Grafana (observability) -> monitor.exnada.com
 # Configure Docker to use CoreDNS for DNS resolution (so containers can resolve Tailscale hostnames)
 docker_deploy_dns_servers:
   - 127.0.0.1  # CoreDNS (for Tailscale hostname resolution)
@@ -40,8 +41,15 @@ docker_deploy_git_repos:
 # .env with CSA_PORT (compose maps ${CSA_PORT:-8000}:8000), and runs docker
 # compose up --build. The csa repo is pulled (read), never modified.
 csa_enabled: true
+csa_repo_ref: main   # branch to serve (see the Vega=prod / Rigel=dev convention in CLAUDE.md)
 csa_env:
   CSA_PORT: "8023"   # deterministic: 8000 + C+S+A
+
+# Observability stack (observability role): Prometheus + Grafana + blackbox on
+# rigel, the control-plane host. Probes every edge route end-to-end and serves
+# the Grafana admin page at monitor.exnada.com. Data lives in named volumes.
+observability_enabled: true
+observability_expect_existing_data: false   # first deploy creates the volumes; set true afterward
 
 # Internal DNS configuration
 internal_dns_enabled: true
@@ -95,3 +103,6 @@ edge_ingress_routes:
     backend: http://vega:8048
   - host: immich.exnada.com
     backend: http://100.120.170.43:2283
+  - host: monitor.exnada.com
+    backend: http://rigel:3000
+    health_path: /api/health

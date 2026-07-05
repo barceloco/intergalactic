@@ -1,0 +1,12 @@
+# Rendered by the observability role. Grafana's Prometheus datasource, wired to
+# the prometheus service in the same compose network. Provisioned (not clicked),
+# so it is reproducible and lives in the repo.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

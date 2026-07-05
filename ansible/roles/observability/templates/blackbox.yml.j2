@@ -1,0 +1,34 @@
+# Rendered by the observability role. blackbox_exporter probe modules.
+modules:
+  # Default HTTP probe used for edge routes. Requires TLS and validates the
+  # certificate (fail_if_not_ssl + no insecure skip), so a pass also confirms
+  # the wildcard cert is valid. 403 counts as up: some apps return it to callers
+  # not on their allow-list, which still proves the app is serving.
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes: [200, 204, 301, 302, 307, 308, 403]
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+      tls_config:
+        insecure_skip_verify: false
+
+  # Stricter variant for apps that must return exactly 200 (e.g. a /health path).
+  http_200_strict:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+
+  # DNS resolution check for the internal domain via the fleet resolver.
+  dns_a:
+    prober: dns
+    timeout: 5s
+    dns:
+      query_name: "{{ edge_ingress_domain | default('exnada.com') }}"
+      query_type: A

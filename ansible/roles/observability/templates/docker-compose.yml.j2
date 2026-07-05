@@ -1,0 +1,62 @@
+# Rendered by the observability role. Prometheus + Grafana + blackbox_exporter.
+# Edit the role, not this file on the host.
+name: observability
+
+services:
+  prometheus:
+    image: {{ observability_prometheus_image }}
+    container_name: observability-prometheus
+    restart: {{ observability_restart_policy }}
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time={{ observability_prometheus_retention }}"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - {{ observability_prometheus_volume }}:/prometheus
+    ports:
+      # Localhost-only: Grafana reaches Prometheus over the compose network, so
+      # binding to 127.0.0.1 keeps it off Tailscale/LAN. A published port would
+      # otherwise bypass the host firewall via Docker's own NAT rules.
+      - "127.0.0.1:{{ observability_prometheus_port }}:9090"
+    depends_on:
+      - blackbox
+
+  blackbox:
+    image: {{ observability_blackbox_image }}
+    container_name: observability-blackbox
+    restart: {{ observability_restart_policy }}
+    command:
+      - "--config.file=/etc/blackbox/blackbox.yml"
+    volumes:
+      - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    ports:
+      # Localhost-only: Prometheus reaches blackbox over the compose network.
+      - "127.0.0.1:{{ observability_blackbox_port }}:9115"
+
+  grafana:
+    image: {{ observability_grafana_image }}
+    container_name: observability-grafana
+    restart: {{ observability_restart_policy }}
+    environment:
+      GF_SERVER_ROOT_URL: "https://{{ observability_grafana_domain }}"
+      GF_SERVER_DOMAIN: "{{ observability_grafana_domain }}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+{% if observability_grafana_admin_password is defined %}
+      GF_SECURITY_ADMIN_PASSWORD: "{{ observability_grafana_admin_password }}"
+{% endif %}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - {{ observability_grafana_volume }}:/var/lib/grafana
+    ports:
+      - "{{ observability_grafana_port }}:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  {{ observability_prometheus_volume }}:
+    name: {{ observability_prometheus_volume }}
+  {{ observability_grafana_volume }}:
+    name: {{ observability_grafana_volume }}
