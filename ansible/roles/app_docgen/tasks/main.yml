@@ -40,15 +40,16 @@
         update: true
       register: docgen_repo
 
-    - name: Capture the git tag at the deployed docgen commit (if any)  # noqa: command-instead-of-module
-      command: git tag --points-at {{ docgen_repo.after }}
+    - name: Describe the deployed docgen commit against the nearest tag  # noqa: command-instead-of-module
+      command: git describe --tags
       args:
         chdir: "{{ docgen_dir }}"
       register: docgen_tag
       changed_when: false
-      # git tag --points-at has no git-module equivalent, hence command. Empty
-      # when the commit carries no tag; surfaced as the tag label in
-      # app_build_info so the dashboard shows a release tag when one exists.
+      failed_when: false
+      # git describe shows the nearest tag (and how far past it the commit is, or
+      # just the tag when exactly on it); empty when the history has no tags.
+      # failed_when: false so a tagless repo never fails the deploy.
 
     - name: Ensure docgen-exnada brand repo present at the configured ref (pull only)
       git:

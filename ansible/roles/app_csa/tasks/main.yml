@@ -39,15 +39,17 @@
         update: true
       register: csa_repo
 
-    - name: Capture the git tag at the deployed csa commit (if any)  # noqa: command-instead-of-module
-      command: git tag --points-at {{ csa_repo.after }}
+    - name: Describe the deployed csa commit against the nearest tag  # noqa: command-instead-of-module
+      command: git describe --tags
       args:
         chdir: "{{ csa_dir }}"
       register: csa_tag
       changed_when: false
-      # git tag --points-at has no git-module equivalent, hence command. Empty
-      # when the commit carries no tag; surfaced as the tag label in
-      # app_build_info so the dashboard shows a release tag when one exists.
+      failed_when: false
+      # git describe shows the nearest tag (and how far past it the commit is, or
+      # just the tag when exactly on it); empty when the history has no tags.
+      # failed_when: false so a tagless repo never fails the deploy. Surfaced as
+      # the tag label in app_build_info.
 
     - name: Render csa .env (gitignored; sets CSA_PORT for the compose port mapping)
       template:

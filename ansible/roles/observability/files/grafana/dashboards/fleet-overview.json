@@ -75,9 +75,10 @@
     {
       "id": 4,
       "type": "table",
-      "title": "Deployed build provenance (repo / branch / commit)",
+      "title": "Deployed build provenance (click a ⇅ to sort by that column)",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "showHeader": true, "sortBy": [ { "displayName": "Host ⇅", "desc": false } ] },
       "targets": [
         { "refId": "A", "expr": "app_build_info", "instant": true, "format": "table" }
       ],
@@ -87,7 +88,7 @@
           "options": {
             "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true },
             "indexByName": { "app": 0, "route": 1, "instance": 2, "branch": 3, "commit": 4, "tag": 5, "repo": 6 },
-            "renameByName": { "app": "App", "route": "Route", "instance": "Host", "branch": "Branch", "commit": "Commit", "tag": "Tag", "repo": "Repo" }
+            "renameByName": { "app": "App ⇅", "route": "Route ⇅", "instance": "Host ⇅", "branch": "Branch ⇅", "commit": "Commit ⇅", "tag": "Tag ⇅", "repo": "Repo ⇅" }
           }
         }
       ]

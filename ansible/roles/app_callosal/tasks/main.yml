@@ -39,13 +39,15 @@
         update: true
       register: callosal_repo
 
-    - name: Capture the git tag at the deployed callosal commit (if any)  # noqa: command-instead-of-module
-      command: git tag --points-at {{ callosal_repo.after }}
+    - name: Describe the deployed callosal commit against the nearest tag  # noqa: command-instead-of-module
+      command: git describe --tags
       args:
         chdir: "{{ callosal_dir }}"
       register: callosal_tag
       changed_when: false
-      # git tag --points-at has no git-module equivalent, hence command.
+      failed_when: false
+      # git describe shows the nearest tag and distance (or just the tag when
+      # exactly on it); empty when the history has no tags.
 
     - name: Check whether the callosal container is already running
       command: docker ps -q --filter "name=^{{ callosal_container_name }}$" --filter status=running
