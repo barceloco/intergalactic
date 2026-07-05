@@ -76,6 +76,28 @@
           }
         }
       ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Traefik request rate by service (req/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (service) (rate(traefik_service_requests_total[5m]))", "legendFormat": "{{service}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Traefik 5xx rate by service (req/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (service) (rate(traefik_service_requests_total{code=~\"5..\"}[5m]))", "legendFormat": "{{service}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
     }
   ]
 }

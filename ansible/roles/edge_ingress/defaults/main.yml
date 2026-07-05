@@ -8,6 +8,10 @@ edge_ingress_acme_polling_interval: 10      # How often to check DNS propagation
 edge_ingress_acme_dns_ttl: 600              # TTL for ACME challenge TXT records (seconds)
 edge_ingress_use_tailscale_fqdn: true
 edge_ingress_tailnet_name: ""
+# Expose Traefik's own Prometheus metrics on a dedicated entrypoint for the
+# observability stack. Opt-in: enabling it recreates the Traefik container once.
+edge_ingress_metrics_enabled: false
+edge_ingress_metrics_port: "8082"
 edge_ingress_backend_timeout_connect: 30s
 edge_ingress_backend_timeout_response: 60s
 edge_ingress_health_check_interval: 10s

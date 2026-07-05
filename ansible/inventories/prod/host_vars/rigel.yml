@@ -25,6 +25,7 @@ docker_deploy_tcp_ports:
   - 8023   # csa -> csa.exnada.com
   - 3000   # Grafana (observability) -> monitor.exnada.com
   - 9100   # node_exporter (Prometheus scrapes host + provenance metrics)
+  - 8082   # Traefik metrics (Prometheus scrapes rigel:8082)
 # Configure Docker to use CoreDNS for DNS resolution (so containers can resolve Tailscale hostnames)
 docker_deploy_dns_servers:
   - 127.0.0.1  # CoreDNS (for Tailscale hostname resolution)
@@ -55,6 +56,12 @@ observability_expect_existing_data: false   # first deploy creates the volumes; 
 # node_exporter (host metrics + the textfile dir app roles write app_build_info
 # provenance into, scraped by Prometheus).
 node_exporter_enabled: true
+
+# Expose Traefik's own Prometheus metrics (per-router request rates, status
+# codes) and have the observability stack scrape them. Enabling recreates the
+# Traefik container once.
+edge_ingress_metrics_enabled: true
+observability_traefik_metrics_target: "rigel:8082"
 
 # Internal DNS configuration
 internal_dns_enabled: true
