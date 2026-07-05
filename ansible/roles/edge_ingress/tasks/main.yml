@@ -328,6 +328,19 @@
     state: started
     daemon_reload: yes
 
+- name: Converge Traefik to its compose (recreate if the running container drifted)
+  when: edge_ingress_enabled | default(false)
+  command: docker compose -f {{ edge_ingress_data_dir }}/docker-compose.yml up -d
+  register: edge_traefik_converge
+  changed_when: >-
+    'Recreat' in (edge_traefik_converge.stdout + edge_traefik_converge.stderr)
+    or 'Creat' in (edge_traefik_converge.stdout + edge_traefik_converge.stderr)
+    or 'Start' in (edge_traefik_converge.stdout + edge_traefik_converge.stderr)
+  # docker compose up -d recreates the container when its config differs from the
+  # compose file, so a compose change always converges the running Traefik even
+  # if the restart handler did not fire (e.g. the file was rendered on an earlier
+  # run). Idempotent: a no-op when the container already matches.
+
 - name: Verify Traefik container is running
   when: edge_ingress_enabled | default(false)
   command: docker ps --filter name={{ edge_ingress_container_name }} --format "{{ '{{' }}.Status{{ '}}' }}"
