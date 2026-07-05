@@ -28,10 +28,11 @@ docgen_repo_ref: main    # branch to serve; vega is the production server (see c
 docgen_brand_ref: main   # docgen-exnada brand repo branch
 docgen_route: docgen.exnada.com   # domain this instance is served at (shown in provenance)
 
-# callosal prod instance (callosal.exnada.com). Pinned to the branch currently
-# deployed here; change this line and redeploy (--tags callosal) to switch.
+# callosal prod instance (callosal.exnada.com). vega is production, so it tracks
+# main. dev was fast-forwarded into main on 2026-07-05, so main == dev's tip;
+# rigel's demo.exnada.com stays the only dev-branch deployment in the fleet.
 callosal_enabled: true
-callosal_repo_ref: dev
+callosal_repo_ref: main
 callosal_route: callosal.exnada.com   # domain this instance is served at (shown in provenance)
 
 # aispector prod instance (aispector.exnada.com). Stateful stack. On main (the
