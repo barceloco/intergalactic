@@ -38,6 +38,8 @@
         mode: '0755'
       loop:
         - "{{ observability_dir }}"
+        - "{{ observability_dir }}/targets"
+        - "{{ observability_dir }}/rules"
         - "{{ observability_dir }}/grafana/provisioning/datasources"
         - "{{ observability_dir }}/grafana/provisioning/dashboards"
         - "{{ observability_dir }}/grafana/dashboards"
@@ -55,6 +57,34 @@
         dest: "{{ observability_dir }}/blackbox.yml"
         mode: '0644'
       register: obs_blackbox_cfg
+
+    - name: Render node_exporter scrape targets (file_sd from the inventory)
+      template:
+        src: targets/node.yml.j2
+        dest: "{{ observability_dir }}/targets/node.yml"
+        mode: '0644'
+      # Prometheus watches file_sd files and picks up target changes without a
+      # restart, so adding a host to the inventory needs no further action here.
+
+    - name: Render blackbox probe targets (file_sd from edge_ingress_routes)
+      template:
+        src: targets/blackbox.yml.j2
+        dest: "{{ observability_dir }}/targets/blackbox.yml"
+        mode: '0644'
+
+    - name: Deploy Prometheus alert rules
+      copy:
+        src: rules/alerts.yml
+        dest: "{{ observability_dir }}/rules/alerts.yml"
+        mode: '0644'
+      register: obs_rules
+
+    - name: Render Alertmanager config
+      template:
+        src: alertmanager.yml.j2
+        dest: "{{ observability_dir }}/alertmanager.yml"
+        mode: '0644'
+      register: obs_alertmanager_cfg
 
     - name: Render Grafana datasource provisioning
       template:
@@ -102,17 +132,22 @@
         or 'Creat' in (obs_up.stdout + obs_up.stderr)
         or 'Start' in (obs_up.stdout + obs_up.stderr)
 
-    - name: Restart Prometheus and blackbox if their config changed
-      command: docker compose restart prometheus blackbox
+    - name: Restart config-driven services if their config or rules changed
+      command: docker compose restart prometheus blackbox alertmanager
       args:
         chdir: "{{ observability_dir }}"
       when:
         - not (obs_up.changed | default(false))
-        - (obs_prometheus_cfg.changed | default(false)) or (obs_blackbox_cfg.changed | default(false))
+        - >-
+          (obs_prometheus_cfg.changed | default(false))
+          or (obs_blackbox_cfg.changed | default(false))
+          or (obs_rules.changed | default(false))
+          or (obs_alertmanager_cfg.changed | default(false))
       changed_when: true
-      # Mounted config content changes do not recreate the container, so reload
-      # the config-driven services explicitly (only when they were not just
-      # created above, and only when their config actually changed).
+      # Mounted config/rule content changes do not recreate the container, so
+      # reload the config-driven services explicitly (only when they were not
+      # just created above, and only when something actually changed). file_sd
+      # target files are auto-reloaded by Prometheus and are not included here.
 
     - name: Wait for Grafana to answer on its health endpoint
       uri:

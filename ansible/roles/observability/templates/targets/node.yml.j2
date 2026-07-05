@@ -1,0 +1,13 @@
+# Rendered by the observability role from the ansible inventory (file_sd).
+# Every host with node_exporter_enabled is scraped for host metrics and the
+# app_build_info provenance. Add a host to the inventory with node_exporter
+# enabled and it appears here on the next deploy -- no hand-editing of targets.
+{% for host in groups['all'] | sort %}
+{% if hostvars[host].node_exporter_enabled | default(false) %}
+{# Address hosts by their <host>.<domain> name: Prometheus resolves via CoreDNS,
+   which serves the internal domain but not the Tailscale *.ts.net names. #}
+- targets: ["{{ host }}.{{ edge_ingress_domain | default('exnada.com') }}:{{ hostvars[host].node_exporter_port | default('9100') }}"]
+  labels:
+    instance: "{{ host }}"
+{% endif %}
+{% endfor %}

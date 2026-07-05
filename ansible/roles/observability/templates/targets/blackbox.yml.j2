@@ -1,0 +1,8 @@
+# Rendered by the observability role from edge_ingress_routes (the same source
+# of truth as DNS and the Traefik routers, file_sd). Add a route and it is
+# probed automatically -- no hand-editing of targets.
+{% for r in observability_probe_routes %}
+- targets: ["https://{{ r.host }}{{ r.health_path | default('/') }}"]
+  labels:
+    route: "{{ r.host }}"
+{% endfor %}

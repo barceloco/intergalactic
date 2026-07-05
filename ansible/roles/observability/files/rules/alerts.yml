@@ -1,0 +1,31 @@
+# Prometheus alert rules for the fleet. Edit here in the observability role.
+# The {{ }} below are Prometheus alert templating, not ansible/Jinja.
+groups:
+  - name: fleet
+    rules:
+      - alert: RouteDown
+        expr: probe_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Route {{ $labels.route }} is down"
+          description: "End-to-end probe for {{ $labels.route }} has failed for 2 minutes (DNS, Traefik, TLS, or the app itself)."
+
+      - alert: HostDown
+        expr: up{job="node"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "node_exporter on {{ $labels.instance }} is down"
+          description: "Prometheus cannot scrape node_exporter on {{ $labels.instance }} for 2 minutes."
+
+      - alert: CertExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 14
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS certificate for {{ $labels.route }} expires soon"
+          description: "The certificate for {{ $labels.route }} expires in under 14 days."

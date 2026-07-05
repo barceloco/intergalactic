@@ -1,0 +1,20 @@
+# Rendered by the observability role. Alertmanager groups and routes fired
+# alerts. Set observability_alert_slack_webhook (in all_secrets.yml) to receive
+# notifications; without it, alerts still fire and are visible in the UI.
+route:
+  receiver: default
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: default
+{% if (observability_alert_slack_webhook | default('')) | length > 0 %}
+    slack_configs:
+      - api_url: "{{ observability_alert_slack_webhook }}"
+        channel: "{{ observability_alert_slack_channel | default('#alerts') }}"
+        send_resolved: true
+        title: "{% raw %}{{ .CommonAnnotations.summary }}{% endraw %}"
+        text: "{% raw %}{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}{% endraw %}"
+{% endif %}

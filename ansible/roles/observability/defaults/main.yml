@@ -14,6 +14,7 @@ observability_dir: /srv/observability
 observability_prometheus_image: "prom/prometheus:v3.1.0"
 observability_grafana_image: "grafana/grafana:11.4.5"
 observability_blackbox_image: "prom/blackbox-exporter:v0.26.0"
+observability_alertmanager_image: "prom/alertmanager:v0.28.1"
 
 # Ports come from group_vars/ports.yml (named there already).
 observability_prometheus_port: "{{ port_prometheus | default('9090') }}"
@@ -36,12 +37,16 @@ observability_probe_routes: "{{ edge_ingress_routes | default([]) }}"
 # are enabled in edge_ingress (a follow-on layer); set to e.g. "rigel:8082" then.
 observability_traefik_metrics_target: ""
 
-# Hosts running node_exporter, scraped for host metrics plus the app_build_info
-# provenance (repo/branch/commit) each host's app roles write to the textfile
-# collector. Default to the two fleet hosts.
-observability_node_targets:
-  - "rigel:9100"
-  - "vega:9100"
+# node_exporter targets are discovered from the ansible inventory (every host
+# with node_exporter_enabled) via a generated file_sd file, not hand-listed.
+
+# Alerting: Alertmanager receives fired alert rules and routes notifications.
+# Set observability_alert_slack_webhook (in all_secrets.yml) to send to Slack;
+# without it, alerts still fire and are visible in the Alertmanager UI.
+observability_alerting_enabled: true
+observability_alertmanager_port: "{{ port_alertmanager | default('9093') }}"
+observability_alertmanager_volume: observability_alertmanager_data
+observability_cert_expiry_warning_days: 14
 
 observability_restart_policy: unless-stopped
 

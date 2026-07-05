@@ -1,46 +1,54 @@
 # Rendered by the observability role. Edit the role, not this file on the host.
+# Scrape targets come from file_sd files generated from the ansible inventory
+# (node.yml) and edge_ingress_routes (blackbox.yml), so adding a host or a route
+# is picked up automatically with no hand-editing here.
 global:
   scrape_interval: 30s
   evaluation_interval: 30s
+
+{% if observability_alerting_enabled | default(true) %}
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["127.0.0.1:{{ observability_alertmanager_port | default('9093') }}"]
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+{% endif %}
 
 scrape_configs:
   # Prometheus scraping itself.
   - job_name: prometheus
     static_configs:
-      - targets: ["localhost:9090"]
+      - targets: ["localhost:{{ observability_prometheus_port }}"]
 
-  # End-to-end synthetic probes of every edge route: https://<host><health_path>.
-  # A success here proves CoreDNS resolved the name, Traefik terminated TLS and
-  # routed it, and the app answered. Targets are derived from edge_ingress_routes
-  # so probing shares the single source of truth with DNS and the Traefik routers.
+  # End-to-end synthetic probes of every edge route. Targets are discovered from
+  # a file_sd file generated from edge_ingress_routes. A success proves CoreDNS
+  # resolved the name, Traefik terminated TLS, and the app answered.
   - job_name: blackbox-http
     metrics_path: /probe
     params:
       module: [http_2xx]
-    static_configs:
-      - targets:
-{% for r in observability_probe_routes %}
-          - "https://{{ r.host }}{{ r.health_path | default('/') }}"
-{% endfor %}
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/blackbox.yml
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
       - source_labels: [__param_target]
         target_label: instance
       - target_label: __address__
-        replacement: "blackbox:{{ observability_blackbox_port }}"
+        replacement: "localhost:{{ observability_blackbox_port }}"
 
-  # node_exporter on each fleet host: host metrics plus app_build_info provenance
-  # (repo/branch/commit ansible deployed), exposed via the textfile collector.
+  # node_exporter on every fleet host, discovered from the inventory: host
+  # metrics plus the app_build_info provenance.
   - job_name: node
-    static_configs:
-      - targets:
-{% for t in observability_node_targets %}
-          - "{{ t }}"
-{% endfor %}
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/node.yml
 
 {% if (observability_traefik_metrics_target | default('')) | length > 0 %}
-  # Traefik's own metrics: per-router/service health, request rates, status codes.
+  # Traefik's own metrics: per-router/service request rates and status codes.
   - job_name: traefik
     static_configs:
       - targets: ["{{ observability_traefik_metrics_target }}"]

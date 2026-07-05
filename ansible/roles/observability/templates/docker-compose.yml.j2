@@ -1,48 +1,71 @@
 # Rendered by the observability role. Prometheus + Grafana + blackbox_exporter.
 # Edit the role, not this file on the host.
+#
+# All three run on the host network (like Traefik and CoreDNS). A bridge-network
+# container cannot reach the fleet's routes (rigel:443 is only accepted on the
+# tailscale0 interface) or other hosts over Tailscale, and blackbox needs both.
+# On the host network the services address each other over localhost.
 name: observability
 
 services:
+  blackbox:
+    image: {{ observability_blackbox_image }}
+    container_name: observability-blackbox
+    restart: {{ observability_restart_policy }}
+    network_mode: host
+    command:
+      - "--config.file=/etc/blackbox/blackbox.yml"
+      - "--web.listen-address=127.0.0.1:{{ observability_blackbox_port }}"
+    volumes:
+      - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
+
+  alertmanager:
+    image: {{ observability_alertmanager_image }}
+    container_name: observability-alertmanager
+    restart: {{ observability_restart_policy }}
+    network_mode: host
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.listen-address=127.0.0.1:{{ observability_alertmanager_port }}"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - {{ observability_alertmanager_volume }}:/alertmanager
+
   prometheus:
     image: {{ observability_prometheus_image }}
     container_name: observability-prometheus
     restart: {{ observability_restart_policy }}
+    network_mode: host
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time={{ observability_prometheus_retention }}"
       - "--web.enable-lifecycle"
+      # Bind to localhost only: Grafana reaches it over localhost, and it stays
+      # off Tailscale/LAN without relying on the firewall.
+      - "--web.listen-address=127.0.0.1:{{ observability_prometheus_port }}"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./targets:/etc/prometheus/targets:ro
+      - ./rules:/etc/prometheus/rules:ro
       - {{ observability_prometheus_volume }}:/prometheus
-    ports:
-      # Localhost-only: Grafana reaches Prometheus over the compose network, so
-      # binding to 127.0.0.1 keeps it off Tailscale/LAN. A published port would
-      # otherwise bypass the host firewall via Docker's own NAT rules.
-      - "127.0.0.1:{{ observability_prometheus_port }}:9090"
     depends_on:
       - blackbox
-
-  blackbox:
-    image: {{ observability_blackbox_image }}
-    container_name: observability-blackbox
-    restart: {{ observability_restart_policy }}
-    command:
-      - "--config.file=/etc/blackbox/blackbox.yml"
-    volumes:
-      - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
-    ports:
-      # Localhost-only: Prometheus reaches blackbox over the compose network.
-      - "127.0.0.1:{{ observability_blackbox_port }}:9115"
+      - alertmanager
 
   grafana:
     image: {{ observability_grafana_image }}
     container_name: observability-grafana
     restart: {{ observability_restart_policy }}
+    network_mode: host
     environment:
       GF_SERVER_ROOT_URL: "https://{{ observability_grafana_domain }}"
       GF_SERVER_DOMAIN: "{{ observability_grafana_domain }}"
+      GF_SERVER_HTTP_PORT: "{{ observability_grafana_port }}"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # Land on the fleet dashboard instead of Grafana's default home page.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fleet-overview.json
 {% if observability_grafana_admin_password is defined %}
       GF_SECURITY_ADMIN_PASSWORD: "{{ observability_grafana_admin_password }}"
 {% endif %}
@@ -50,8 +73,6 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - {{ observability_grafana_volume }}:/var/lib/grafana
-    ports:
-      - "{{ observability_grafana_port }}:3000"
     depends_on:
       - prometheus
 
@@ -60,3 +81,5 @@ volumes:
     name: {{ observability_prometheus_volume }}
   {{ observability_grafana_volume }}:
     name: {{ observability_grafana_volume }}
+  {{ observability_alertmanager_volume }}:
+    name: {{ observability_alertmanager_volume }}
