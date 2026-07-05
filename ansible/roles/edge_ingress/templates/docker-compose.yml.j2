@@ -14,15 +14,9 @@ services:
       - "--providers.docker=false"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
-{% if edge_ingress_metrics_enabled | default(false) %}
-      # Prometheus metrics on a dedicated entrypoint, scraped by the observability
-      # stack. Additive; enabling this recreates the Traefik container once.
-      - "--entrypoints.metrics.address=:{{ edge_ingress_metrics_port | default('8082') }}"
-      - "--metrics.prometheus=true"
-      - "--metrics.prometheus.entrypoint=metrics"
-      - "--metrics.prometheus.addrouterslabels=true"
-      - "--metrics.prometheus.addserviceslabels=true"
-{% endif %}
+      # The metrics entrypoint (:8082) and Prometheus config live in traefik.yml,
+      # not here: that static config file is authoritative for entryPoints, so a
+      # CLI-only metrics entrypoint is silently ignored (it never binds).
       - "--log.level=DEBUG"
       - "--log.format=json"
     environment:

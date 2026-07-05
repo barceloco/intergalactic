@@ -19,6 +19,14 @@ entryPoints:
   websecure:
     address: ":443"
     # HTTPS-only entrypoint - all traffic must use this
+{% if edge_ingress_metrics_enabled | default(false) %}
+
+  metrics:
+    # Prometheus metrics entrypoint, scraped by the observability stack. Defined
+    # here (not only as a CLI flag) because this static config file is
+    # authoritative for entryPoints; a CLI-only metrics entrypoint is ignored.
+    address: ":{{ edge_ingress_metrics_port | default('8082') }}"
+{% endif %}
 
 certificatesResolvers:
   letsencrypt:
@@ -35,6 +43,14 @@ certificatesResolvers:
       caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
 {% else %}
       caServer: "https://acme-v02.api.letsencrypt.org/directory"
+{% endif %}
+
+{% if edge_ingress_metrics_enabled | default(false) %}
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addRoutersLabels: true
+    addServicesLabels: true
 {% endif %}
 
 providers:

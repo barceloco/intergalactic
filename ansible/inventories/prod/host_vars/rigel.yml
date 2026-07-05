@@ -74,7 +74,7 @@ node_exporter_enabled: true
 # codes) and have the observability stack scrape them. Enabling recreates the
 # Traefik container once.
 edge_ingress_metrics_enabled: true
-observability_traefik_metrics_target: "rigel:8082"
+observability_traefik_metrics_target: "localhost:8082"   # Prometheus + Traefik share rigel's host network
 
 # Internal DNS configuration
 internal_dns_enabled: true
