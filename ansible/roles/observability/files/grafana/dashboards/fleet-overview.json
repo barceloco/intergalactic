@@ -85,8 +85,9 @@
         {
           "id": "organize",
           "options": {
-            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true },
-            "renameByName": {}
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true },
+            "indexByName": { "app": 0, "route": 1, "instance": 2, "branch": 3, "commit": 4, "tag": 5, "repo": 6 },
+            "renameByName": { "app": "App", "route": "Route", "instance": "Host", "branch": "Branch", "commit": "Commit", "tag": "Tag", "repo": "Repo" }
           }
         }
       ]

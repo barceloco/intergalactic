@@ -106,7 +106,7 @@
     content: |
       # HELP app_build_info Repo, branch, and commit ansible deployed per app.
       # TYPE app_build_info gauge
-      app_build_info{app="csa",repo="{{ csa_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ csa_repo_ref }}",commit="{{ csa_repo.after }}",tag="{{ (csa_tag.stdout_lines | first | default('')) if csa_tag is defined else '' }}"} 1
+      app_build_info{app="csa",route="{{ csa_route | default('') }}",repo="{{ csa_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ csa_repo_ref }}",commit="{{ csa_repo.after }}",tag="{{ (csa_tag.stdout_lines | first | default('')) if csa_tag is defined else '' }}"} 1
   # Runs as root (outside the deploy block) so it can write node_exporter's
   # textfile dir; the running commit then surfaces in Prometheus/Grafana. Skipped
   # where node_exporter is not deployed.

@@ -116,6 +116,6 @@
     content: |
       # HELP app_build_info Repo, branch, and commit ansible deployed per app.
       # TYPE app_build_info gauge
-      app_build_info{app="docgen",repo="{{ docgen_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ docgen_repo_ref }}",commit="{{ docgen_repo.after }}",tag="{{ (docgen_tag.stdout_lines | first | default('')) if docgen_tag is defined else '' }}"} 1
+      app_build_info{app="docgen",route="{{ docgen_route | default('') }}",repo="{{ docgen_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ docgen_repo_ref }}",commit="{{ docgen_repo.after }}",tag="{{ (docgen_tag.stdout_lines | first | default('')) if docgen_tag is defined else '' }}"} 1
   # Runs as root (outside the deploy block) so it can write node_exporter's
   # textfile dir; skipped where node_exporter is not deployed.
