@@ -1,0 +1,12 @@
+---
+# Prometheus node_exporter: host metrics plus a textfile collector that app
+# roles write deployment provenance (app_build_info) into. Installed from the
+# Debian package (prometheus-node-exporter), which runs it as a systemd service
+# on :9100 and reads *.prom files from the directory below by default.
+node_exporter_enabled: false
+
+# The package's default textfile collector directory. App roles drop
+# app_build_info.prom files here; node_exporter exposes them as metrics.
+node_exporter_textfile_dir: /var/lib/prometheus/node-exporter
+
+node_exporter_port: "{{ port_node_exporter | default('9100') }}"

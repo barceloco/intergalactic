@@ -22,6 +22,12 @@
     - role: docker_deploy
       tags: [production, services]
 
+    # 1a. node_exporter: host metrics plus the textfile dir that app roles write
+    # deployment provenance (app_build_info) into. Before the app roles so the
+    # directory exists when they write.
+    - role: node_exporter
+      tags: [production, monitoring]
+
     # 1b. csa application service. After docker_deploy so the deploy user's
     # github-csa SSH alias/key exist before the csa repo is pulled.
     - role: app_csa

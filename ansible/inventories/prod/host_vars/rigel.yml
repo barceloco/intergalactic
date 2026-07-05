@@ -24,6 +24,7 @@ docker_deploy_tcp_ports:
   - 9001   # MinIO
   - 8023   # csa -> csa.exnada.com
   - 3000   # Grafana (observability) -> monitor.exnada.com
+  - 9100   # node_exporter (Prometheus scrapes host + provenance metrics)
 # Configure Docker to use CoreDNS for DNS resolution (so containers can resolve Tailscale hostnames)
 docker_deploy_dns_servers:
   - 127.0.0.1  # CoreDNS (for Tailscale hostname resolution)
@@ -50,6 +51,10 @@ csa_env:
 # the Grafana admin page at monitor.exnada.com. Data lives in named volumes.
 observability_enabled: true
 observability_expect_existing_data: false   # first deploy creates the volumes; set true afterward
+
+# node_exporter (host metrics + the textfile dir app roles write app_build_info
+# provenance into, scraped by Prometheus).
+node_exporter_enabled: true
 
 # Internal DNS configuration
 internal_dns_enabled: true

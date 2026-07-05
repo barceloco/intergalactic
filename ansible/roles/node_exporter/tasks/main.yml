@@ -1,0 +1,28 @@
+---
+- name: Install node_exporter (Prometheus host metrics)
+  when: node_exporter_enabled | default(false)
+  become: true
+  apt:
+    name: prometheus-node-exporter
+    state: present
+    update_cache: true
+
+- name: Ensure the textfile collector directory exists
+  when: node_exporter_enabled | default(false)
+  become: true
+  file:
+    path: "{{ node_exporter_textfile_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  # App roles write app_build_info here as root (0644); node_exporter reads it
+  # as the prometheus user, so world-readable files in a 0755 dir are enough.
+
+- name: Enable and start node_exporter
+  when: node_exporter_enabled | default(false)
+  become: true
+  systemd:
+    name: prometheus-node-exporter
+    enabled: true
+    state: started

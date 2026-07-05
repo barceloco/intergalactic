@@ -57,6 +57,25 @@
         { "refId": "A", "expr": "(probe_ssl_earliest_cert_expiry - time()) / 86400", "legendFormat": "{{instance}}" }
       ],
       "fieldConfig": { "defaults": { "unit": "d" }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Deployed build provenance (repo / branch / commit)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "app_build_info", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true },
+            "renameByName": {}
+          }
+        }
+      ]
     }
   ]
 }

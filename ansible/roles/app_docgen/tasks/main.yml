@@ -93,3 +93,19 @@
       until: docgen_health.status is defined and docgen_health.status in [200, 403, 404]
       # Any HTTP response proves docgen is serving; 403 just means the caller is
       # not on the allow-list, which still confirms the app is up.
+
+- name: Publish docgen deployment provenance (app_build_info for Prometheus)
+  when:
+    - docgen_enabled | default(false)
+    - node_exporter_enabled | default(false)
+    - docgen_repo.after is defined
+  become: true
+  copy:
+    dest: "{{ node_exporter_textfile_dir | default('/var/lib/prometheus/node-exporter') }}/docgen.prom"
+    mode: '0644'
+    content: |
+      # HELP app_build_info Repo, branch, and commit ansible deployed per app.
+      # TYPE app_build_info gauge
+      app_build_info{app="docgen",repo="{{ docgen_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ docgen_repo_ref }}",commit="{{ docgen_repo.after }}"} 1
+  # Runs as root (outside the deploy block) so it can write node_exporter's
+  # textfile dir; skipped where node_exporter is not deployed.

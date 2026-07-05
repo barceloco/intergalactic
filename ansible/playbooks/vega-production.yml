@@ -18,6 +18,10 @@
       import_tasks: shared/production-validation.yml
       tags: always
   roles:
+    # node_exporter: host metrics + the textfile dir app_docgen writes deployment
+    # provenance into. In roles: so it runs before the docgen task below.
+    - role: node_exporter
+      tags: [production, monitoring]
     - role: monitoring_docker
       tags: [production, monitoring]
     - role: luks
