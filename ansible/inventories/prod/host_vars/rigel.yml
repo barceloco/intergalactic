@@ -44,6 +44,19 @@ docker_deploy_git_repos:
 # compose up --build. The csa repo is pulled (read), never modified.
 csa_enabled: true
 csa_repo_ref: main   # branch to serve (see the Vega=prod / Rigel=dev convention in CLAUDE.md)
+csa_route: csa.exnada.com   # domain this instance is served at (shown in provenance)
+
+# callosal demo instance (demo.exnada.com). Pinned to the branch currently
+# deployed here; change this line and redeploy (--tags callosal) to switch.
+callosal_enabled: true
+callosal_repo_ref: dev
+callosal_route: demo.exnada.com   # domain this instance is served at (shown in provenance)
+
+# aispector: no rigel/dev instance right now -- only vega (prod) runs aispector.
+# Removed 2026-07-05. To bring a dev instance back: re-add aispector_enabled/
+# repo_ref/route here, the dev.exnada.com route below, and the app_aispector role
+# in rigel-production.yml.
+
 csa_env:
   CSA_PORT: "8023"   # deterministic: 8000 + C+S+A
 
@@ -107,9 +120,6 @@ edge_ingress_routes:
     health_path: /health
   - host: demo.exnada.com
     backend: "http://rigel:{{ port_api_alt | default('8001') }}"
-    health_path: /health
-  - host: dev.exnada.com
-    backend: http://rigel:8000
     health_path: /health
   - host: docgen.exnada.com
     backend: http://vega:8048

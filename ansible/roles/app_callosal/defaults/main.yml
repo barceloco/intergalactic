@@ -1,0 +1,25 @@
+---
+# Deploy/run callosal via its OWN Makefile (docker build + docker run), modeled
+# on app_csa. callosal's code and its SQLite database both live inside the
+# bind-mounted checkout (annotations/v2_analysis.db), so there is no named docker
+# volume to guard -- but the role must NEVER invoke callosal's destructive make
+# targets (callosal-clean / callosal-db-reset), and the DB is gitignored so a
+# pull cannot touch it.
+callosal_enabled: false
+
+# Repo pulled (read-only) as the deploy user. The github-callosal SSH alias and
+# deploy key are already provisioned via docker_deploy_git_repos.
+callosal_repo_url: "git@github-callosal:barceloco/callosal.git"
+callosal_dir: /srv/callosal
+
+# Branch this host serves. Set explicitly per host (see CLAUDE.md "Server Roles
+# and App Branches"). Change it and redeploy to move this instance to another
+# branch; the value also shows up in the monitor dashboard's provenance table.
+callosal_repo_ref: main
+
+# Container + image names and the published port all come from callosal's own
+# Makefile (callosal-image-built=callosal-v2:latest, callosal-port=8001). They
+# are named here only for the running-container check; the Makefile is the source
+# of truth, so do not diverge from it.
+callosal_container_name: callosal-serve
+callosal_port: "8001"

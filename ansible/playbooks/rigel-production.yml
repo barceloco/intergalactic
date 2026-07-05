@@ -33,6 +33,13 @@
     - role: app_csa
       tags: [production, services, csa]
 
+    # 1c. callosal application service (demo.exnada.com). After docker_deploy so
+    # the deploy user's github-callosal SSH alias/key exist before the pull.
+    - role: app_callosal
+      tags: [production, services, callosal]
+
+    # (no aispector on rigel right now -- only vega runs aispector; see host_vars)
+
     # 2. Internal DNS (CoreDNS) - must be available for certificate validation
     - role: internal_dns
       tags: [production, services]

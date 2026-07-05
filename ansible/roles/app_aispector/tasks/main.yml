@@ -1,0 +1,147 @@
+---
+# Deploy/run aispector via its own Makefile. Runs as the deploy user (owns
+# /srv/aispector, in the docker group). The monorepo is only pulled (read). The
+# Postgres/Redis/MinIO named volumes are sacred: asserted to exist, never managed.
+# This role does not render an .env or change the container UID: the image runs as
+# its native user (uid 1000) and the DB/MinIO keep the compose defaults, so live
+# data is never touched. NOTE: the app's Templates page writes config files as that
+# container user, so switching aispector to a different ref while those files carry
+# uncommitted Templates edits needs the Configs chowned to deploy first (container
+# UID and git owner differ). Committing config edits avoids this. A one-off force
+# (aispector_git_force=true) discards such local edits when you intend to.
+- name: Check the deploy user exists (created by docker_deploy)
+  when: aispector_enabled | default(false)
+  become: true
+  command: id deploy
+  register: aispector_deploy_user
+  changed_when: false
+  failed_when: false
+
+- name: Fail with guidance if the deploy user is missing
+  when: aispector_enabled | default(false)
+  assert:
+    that:
+      - aispector_deploy_user.rc == 0
+    fail_msg: |
+      ============================================================================
+      ERROR: the 'deploy' user does not exist.
+      ============================================================================
+      The aispector role runs as the 'deploy' user, created by the docker_deploy
+      role. Set enable_docker_deploy: true for this host and ensure the production
+      deploy runs docker_deploy first (it is ordered before app roles).
+      ============================================================================
+    success_msg: "✓ deploy user present"
+
+- name: Assert aispector data volumes exist (data-loss guardrail)
+  when:
+    - aispector_enabled | default(false)
+    - aispector_expect_existing_data | default(true)
+  become: true
+  command: "docker volume inspect {{ item }}"
+  changed_when: false
+  loop: "{{ aispector_data_volumes }}"
+  # Fails loudly if the Postgres/Redis/MinIO data is missing on a host expected to
+  # hold it, so a deploy can never silently start on an empty store. Set
+  # aispector_expect_existing_data: false only for a genuine first-ever bring-up.
+
+- name: Deploy aispector service
+  when: aispector_enabled | default(false)
+  become: true
+  become_user: deploy
+  block:
+    - name: Read the currently checked-out aispector commit  # noqa: command-instead-of-module
+      command: git rev-parse HEAD
+      args:
+        chdir: "{{ aispector_dir }}"
+      register: aispector_head_before
+      changed_when: false
+
+    - name: Resolve the configured ref to its current remote commit  # noqa: command-instead-of-module
+      command: git ls-remote origin {{ aispector_repo_ref }}
+      args:
+        chdir: "{{ aispector_dir }}"
+      register: aispector_remote
+      changed_when: false
+
+    - name: Pull aispector to the configured ref (only when the commit must move)
+      git:
+        repo: "{{ aispector_repo_url }}"
+        dest: "{{ aispector_dir }}"
+        version: "{{ aispector_repo_ref }}"
+        update: true
+        force: "{{ aispector_git_force | default(false) }}"
+      register: aispector_pull
+      when:
+        - aispector_remote.stdout | trim != ''
+        - aispector_head_before.stdout != (aispector_remote.stdout.split() | first)
+      # Skips the pull entirely when the checkout is already at the ref's tip, so a
+      # host carrying local uncommitted config (e.g. vega's tuned context.json) is
+      # a clean no-op that is never clobbered. When the commit really must move,
+      # git force=no still refuses over local modifications -- correct: resolve
+      # them first rather than silently discard prod config.
+
+    - name: Read the deployed aispector commit  # noqa: command-instead-of-module
+      command: git rev-parse HEAD
+      args:
+        chdir: "{{ aispector_dir }}"
+      register: aispector_head
+      changed_when: false
+
+    - name: Capture the git tag at the deployed aispector commit (if any)  # noqa: command-instead-of-module
+      command: git tag --points-at HEAD
+      args:
+        chdir: "{{ aispector_dir }}"
+      register: aispector_tag
+      changed_when: false
+
+    - name: Check whether the aispector api container is already running
+      command: docker ps -q --filter "name=^{{ aispector_api_container }}$" --filter status=running
+      register: aispector_running
+      changed_when: false
+
+    - name: Decide whether aispector needs a (re)deploy
+      set_fact:
+        # Redeploy only when a pull actually moved the commit or the api is down.
+        # A checkout already at the ref (pull skipped) against a running stack is a
+        # true no-op: no rebuild, no restart, the stateful stack left untouched.
+        aispector_redeploy: "{{ (aispector_pull.changed | default(false)) or (aispector_running.stdout | trim) == '' }}"
+
+    - name: Build the aispector image (make, only on code change / api down)
+      command: "make {{ aispector_build_target }}"
+      args:
+        chdir: "{{ aispector_server_dir }}"
+      when: aispector_redeploy | bool
+      changed_when: true
+
+    - name: Bring the aispector stack up (make, only on code change / api down)
+      command: "make {{ aispector_up_target }}"
+      args:
+        chdir: "{{ aispector_server_dir }}"
+      when: aispector_redeploy | bool
+      changed_when: true
+      # The Makefile auto-detects the platform and selects the compose files, so
+      # this handles vega's bridge+celery shape and rigel's host-network shape.
+      # A real redeploy on rigel's non-standard shape should be watched the first
+      # time; the verify below fails loudly if the api does not come back up.
+
+    - name: Verify the aispector api container is running
+      command: docker ps -q --filter "name=^{{ aispector_api_container }}$" --filter status=running
+      register: aispector_verify
+      changed_when: false
+      failed_when: (aispector_verify.stdout | trim) == ''
+
+- name: Publish aispector deployment provenance (app_build_info for Prometheus)
+  when:
+    - aispector_enabled | default(false)
+    - node_exporter_enabled | default(false)
+    - aispector_head.stdout is defined
+  become: true
+  copy:
+    dest: "{{ node_exporter_textfile_dir | default('/var/lib/prometheus/node-exporter') }}/aispector.prom"
+    mode: '0644'
+    content: |
+      # HELP app_build_info Repo, branch, and commit ansible deployed per app.
+      # TYPE app_build_info gauge
+      app_build_info{app="aispector",route="{{ aispector_route | default('') }}",repo="{{ aispector_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ aispector_repo_ref }}",commit="{{ aispector_head.stdout }}",tag="{{ (aispector_tag.stdout_lines | first | default('')) if aispector_tag is defined else '' }}"} 1
+  # Runs as root (outside the deploy block) to write node_exporter's textfile dir,
+  # so aispector's repo/branch/commit surfaces in the monitor provenance table.

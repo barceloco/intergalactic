@@ -1,0 +1,45 @@
+---
+# Deploy/run aispector: the aispector-server compose stack that lives in a
+# subdirectory of the aispector monorepo. Modeled on app_docgen, but this is a
+# STATEFUL stack (Postgres + Redis + MinIO). The named volumes below are sacred:
+# asserted to exist, never managed or recreated by this role. A deploy only pulls
+# code and, on a code change, runs the app's own build/up (which does not touch
+# the volumes).
+aispector_enabled: false
+
+# Monorepo pulled (read-only) as the deploy user; the compose stack is in the
+# aispector-server subdir. The github-aispector SSH alias/key are already
+# provisioned via docker_deploy_git_repos.
+aispector_repo_url: "git@github-aispector:exnada/aispector.git"
+aispector_dir: /srv/aispector
+aispector_server_dir: "{{ aispector_dir }}/aispector-server"
+
+# Branch this host serves. Set explicitly per host (see CLAUDE.md "Server Roles
+# and App Branches"). Change it and redeploy (--tags aispector) to switch; the
+# value also shows in the monitor dashboard's provenance table.
+aispector_repo_ref: main
+
+# Host port the api serves on (matches the edge route backend).
+aispector_port: "8000"
+
+# Sacred named data volumes -- asserted to exist before any (re)deploy so a run
+# can never silently start on an empty database or object store. NEVER recreated.
+aispector_data_volumes:
+  - aispector-server_postgres_data
+  - aispector-server_redis_data
+  - aispector-server_minio_data
+aispector_expect_existing_data: true
+
+# Redeploy (only on a code change or if the api is down) is driven by aispector's
+# own Makefile, which auto-detects the platform (linux vs raspberry-pi) and picks
+# the right compose files -- so the same role handles vega's bridge+celery shape
+# and rigel's host-network shape. This role deliberately does NOT render an .env:
+# both hosts run on the compose defaults, and injecting different credentials
+# would orphan the live Postgres/MinIO data.
+aispector_build_target: build
+aispector_up_target: up
+aispector_api_container: aispector-api
+
+# One-off escape hatch: set aispector_git_force=true (via -e) to discard local
+# working-tree edits when deliberately switching refs. Default false (safe).
+aispector_git_force: false

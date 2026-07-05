@@ -47,3 +47,17 @@
       import_role:
         name: app_docgen
       tags: [production, services, docgen]
+
+    # callosal service (callosal.exnada.com). Same pattern: after git_ssh, manages
+    # callosal's lifecycle only, never its SQLite data inside the checkout.
+    - name: Deploy callosal service
+      import_role:
+        name: app_callosal
+      tags: [production, services, callosal]
+
+    # aispector service (aispector.exnada.com). Stateful stack; the role asserts
+    # its Postgres/Redis/MinIO volumes exist and never manages them.
+    - name: Deploy aispector service
+      import_role:
+        name: app_aispector
+      tags: [production, services, aispector]
