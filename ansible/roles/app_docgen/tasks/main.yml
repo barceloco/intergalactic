@@ -40,6 +40,16 @@
         update: true
       register: docgen_repo
 
+    - name: Capture the git tag at the deployed docgen commit (if any)  # noqa: command-instead-of-module
+      command: git tag --points-at {{ docgen_repo.after }}
+      args:
+        chdir: "{{ docgen_dir }}"
+      register: docgen_tag
+      changed_when: false
+      # git tag --points-at has no git-module equivalent, hence command. Empty
+      # when the commit carries no tag; surfaced as the tag label in
+      # app_build_info so the dashboard shows a release tag when one exists.
+
     - name: Ensure docgen-exnada brand repo present at the configured ref (pull only)
       git:
         repo: "{{ docgen_brand_url }}"
@@ -106,6 +116,6 @@
     content: |
       # HELP app_build_info Repo, branch, and commit ansible deployed per app.
       # TYPE app_build_info gauge
-      app_build_info{app="docgen",repo="{{ docgen_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ docgen_repo_ref }}",commit="{{ docgen_repo.after }}"} 1
+      app_build_info{app="docgen",repo="{{ docgen_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ docgen_repo_ref }}",commit="{{ docgen_repo.after }}",tag="{{ (docgen_tag.stdout_lines | first | default('')) if docgen_tag is defined else '' }}"} 1
   # Runs as root (outside the deploy block) so it can write node_exporter's
   # textfile dir; skipped where node_exporter is not deployed.
