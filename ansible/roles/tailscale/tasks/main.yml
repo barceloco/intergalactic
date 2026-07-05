@@ -85,6 +85,20 @@
       set_fact:
         tailscale_args: "{{ tailscale_args + ['--advertise-routes=' + (tailscale_advertise_routes | join(','))] }}"
 
+    - name: Add ACL tags if configured (tagged devices never have key expiry)
+      when:
+        - tailscale_status_check.rc != 0
+        - (tailscale_tags | default([])) | length > 0
+      set_fact:
+        tailscale_args: "{{ tailscale_args + ['--advertise-tags=' + (tailscale_tags | join(','))] }}"
+      # A tagged node is treated as infrastructure and its key does not expire,
+      # so setting tailscale_tags (e.g. ['tag:server']) makes every newly
+      # provisioned host expiry-proof automatically. Requires the tag and its
+      # tagOwners to exist in the Tailscale ACL, and the auth key to be allowed
+      # to apply it. Only applied on first connect (the role skips `up` on an
+      # already-connected node), so existing nodes need a one-time re-auth or
+      # the admin-console "disable key expiry" toggle.
+
     - name: Bring up tailscale
       when: tailscale_status_check.rc != 0
       command:

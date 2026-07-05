@@ -1,0 +1,72 @@
+---
+# Disable Tailscale key expiry for the fleet nodes via the Tailscale API, so a
+# node's key can never lapse and silently drop it off the tailnet (which makes
+# its apps unreachable over Tailscale while LAN/SSH still work -- the mpnas
+# incident, 2026-07-04).
+#
+# Disabling expiry is a control-plane action: a node cannot do it to itself, so
+# this runs against the Tailscale API from localhost, not over SSH. It is
+# idempotent -- a re-run only touches nodes that still have expiry enabled.
+#
+# Requires in all_secrets.yml:
+#   tailscale_api_token   # Tailscale admin console -> Settings -> Keys ->
+#                         # generate an API access token with device write scope
+#
+# Run:  ./scripts/disable-tailscale-key-expiry.sh
+- name: Disable Tailscale key expiry for fleet nodes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/../inventories/prod/group_vars/all_secrets.yml"
+  vars:
+    # Device hostnames whose key expiry should be disabled. Defaults to the
+    # fleet; extend as hosts are added.
+    tailscale_no_expiry_hosts:
+      - rigel
+      - vega
+      - mpnas
+  tasks:
+    - name: Require a Tailscale API token
+      ansible.builtin.assert:
+        that:
+          - (tailscale_api_token | default('')) | length > 0
+        fail_msg: >-
+          Set tailscale_api_token in all_secrets.yml. Create it in the Tailscale
+          admin console (Settings -> Keys -> API access tokens) with device
+          write scope.
+
+    - name: List tailnet devices
+      ansible.builtin.uri:
+        url: https://api.tailscale.com/api/v2/tailnet/-/devices
+        headers:
+          Authorization: "Bearer {{ tailscale_api_token }}"
+      register: ts_devices
+
+    - name: Show fleet devices that still have key expiry enabled
+      ansible.builtin.debug:
+        msg: >-
+          Will disable expiry on:
+          {{ ts_devices.json.devices
+             | selectattr('hostname', 'in', tailscale_no_expiry_hosts)
+             | rejectattr('keyExpiryDisabled', 'defined')
+             | map(attribute='hostname') | list
+           + ts_devices.json.devices
+             | selectattr('hostname', 'in', tailscale_no_expiry_hosts)
+             | selectattr('keyExpiryDisabled', 'equalto', false)
+             | map(attribute='hostname') | list }}
+
+    - name: Disable key expiry on fleet devices that still have it enabled
+      ansible.builtin.uri:
+        url: "https://api.tailscale.com/api/v2/device/{{ item.id }}/key"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ tailscale_api_token }}"
+        body_format: json
+        body:
+          keyExpiryDisabled: true
+      loop: "{{ ts_devices.json.devices | selectattr('hostname', 'in', tailscale_no_expiry_hosts) | list }}"
+      loop_control:
+        label: "{{ item.hostname }}"
+      when: not (item.keyExpiryDisabled | default(false))
+      changed_when: true

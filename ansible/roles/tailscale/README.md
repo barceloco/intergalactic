@@ -27,6 +27,7 @@ Installs and configures Tailscale mesh VPN for secure network connectivity.
 | `tailscale_authkey` | (required) | Tailscale authentication key (from all_secrets.yml) |
 | `tailscale_advertise_exit_node` | `false` | Advertise as exit node |
 | `tailscale_advertise_routes` | `[]` | List of routes to advertise |
+| `tailscale_tags` | `[]` | ACL tags to advertise (e.g. `['tag:server']`). Tagged devices never have key expiry, so this makes newly provisioned nodes expiry-proof. Requires the tag + tagOwners in the Tailscale ACL. Applied only on first connect. |
 
 ## Dependencies
 
