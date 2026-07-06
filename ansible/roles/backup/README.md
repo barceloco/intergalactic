@@ -1,6 +1,15 @@
 # backup Role
 
-Provides automated backup and restore capabilities for critical configuration files and data.
+> **Scope: configuration only, and not currently active.** This role backs up
+> CoreDNS and Traefik config files and their systemd units, all already
+> reproducible from this repo. It does **not** back up the stateful application
+> data (Postgres, MinIO, callosal SQLite) or `acme.json`, and it writes only to
+> local `/opt/backups` (no off-host copy). It is not enabled (`backup_enabled`
+> defaults to `false`) and not wired into any playbook. To protect the actual
+> data, see [`docs/backup-strategy.md`](../../../docs/backup-strategy.md).
+
+Provides automated backup and restore of critical **configuration** files (not
+application data).
 
 ## What This Role Does
 

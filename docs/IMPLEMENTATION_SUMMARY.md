@@ -124,8 +124,18 @@ All five phases have been fully implemented with production-ready components.
 ## Phase 5: Operational Improvements ✅
 
 ### Backup and Recovery
-- **Backup Role**: `ansible/roles/backup/`
-  - Automated daily backups
+
+> **Scope and status.** This role backs up **configuration only** (CoreDNS and
+> Traefik configs plus their systemd units, all already reproducible from this
+> repo). It does **not** protect the stateful application data (Postgres, MinIO,
+> callosal SQLite, `acme.json`). It is also **dormant**: `backup_enabled` is
+> never set and the role is not imported into any playbook, so it does not run on
+> any host. To protect the actual data, see
+> [`backup-strategy.md`](backup-strategy.md) (a recommended design, not yet
+> implemented).
+
+- **Backup Role**: `ansible/roles/backup/` (config-only, currently not enabled)
+  - Daily backups when enabled
   - Configurable retention
   - Systemd timer integration
 
