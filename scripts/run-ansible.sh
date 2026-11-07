@@ -6,6 +6,7 @@ set -euo pipefail
 #   ./scripts/run-ansible.sh prod rigel bootstrap      # Phase 1: Initial access setup
 #   ./scripts/run-ansible.sh prod rigel foundation    # Phase 2: Network + security
 #   ./scripts/run-ansible.sh prod rigel production    # Phase 3: Application services
+#   ./scripts/run-ansible.sh prod rigel upgrade       # OS upgrade report (add -e os_upgrade_apply=true)
 
 ENV_NAME="${1:-prod}"
 HOST="${2:-rigel}"
@@ -74,8 +75,27 @@ case "${PHASE}" in
     echo ""
     echo "Verifying Tailscale connectivity..."
     ;;
+  upgrade)
+    INVENTORY_FILE="inventories/${ENV_NAME}/hosts-production.yml"
+    PLAYBOOK="os-upgrade"
+    SSH_USER="ansible"
+    echo "============================================================================"
+    echo "OS UPGRADE - apt full-upgrade within the current release"
+    echo "============================================================================"
+    echo "Connection: Tailscale network ONLY"
+    echo "Default: report only. Apply: -e os_upgrade_apply=true  Reboot too: -e os_upgrade_reboot=true"
+    echo "============================================================================"
+    ;;
+  audit)
+    INVENTORY_FILE="inventories/${ENV_NAME}/hosts-production.yml"
+    PLAYBOOK="host-audit"
+    SSH_USER="ansible"
+    echo "============================================================================"
+    echo "HOST AUDIT - read-only report of disks, containers, served repos, units"
+    echo "============================================================================"
+    ;;
   *)
-    echo "ERROR: Invalid phase '${PHASE}'. Must be: bootstrap, foundation, or production"
+    echo "ERROR: Invalid phase '${PHASE}'. Must be: bootstrap, foundation, production, upgrade, or audit"
     echo ""
     echo "Usage:"
     echo "  ./scripts/run-ansible.sh <env> <host> <phase>"
@@ -84,6 +104,8 @@ case "${PHASE}" in
     echo "  bootstrap   - Phase 1: Initial access setup (local IP, armand user)"
     echo "  foundation  - Phase 2: Network + security (local IP, ansible user)"
     echo "  production  - Phase 3: Application services (Tailscale ONLY, ansible user)"
+    echo "  upgrade     - OS package upgrade, no reboot (Tailscale ONLY, ansible user)"
+    echo "  audit       - Read-only report of what the host actually runs"
     exit 1
     ;;
 esac
@@ -135,6 +157,12 @@ if [[ $# -gt 3 ]]; then
   # Pass remaining arguments to ansible-playbook
   shift 3
   ANSIBLE_ARGS=("$@")
+fi
+if [[ "${PHASE}" == "upgrade" ]]; then
+  # os-upgrade.yml is host-agnostic; the host argument selects the target.
+  ANSIBLE_ARGS+=(-e "upgrade_hosts=${HOST}")
+elif [[ "${PHASE}" == "audit" ]]; then
+  ANSIBLE_ARGS+=(-e "audit_hosts=${HOST}")
 fi
 
 # Run the playbook

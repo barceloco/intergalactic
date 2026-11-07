@@ -42,6 +42,7 @@ To run scripts on rigel from your local Mac, use the `run-on-rigel.sh` wrapper:
 - `bootstrap` - Phase 1: Initial access setup (creates ansible user, disables password auth)
 - `foundation` - Phase 2: Network + security (Tailscale, firewall, Docker, monitoring)
 - `production` - Phase 3: Application services (DNS, ingress, deploy user, advanced features)
+- `upgrade` - OS package upgrade within the current Debian release (`playbooks/os-upgrade.yml`). Reboots only with `-e os_upgrade_reboot=true`.
 
 **Examples**:
 ```bash
@@ -49,6 +50,17 @@ To run scripts on rigel from your local Mac, use the `run-on-rigel.sh` wrapper:
 ./scripts/run-ansible.sh prod rigel foundation
 ./scripts/run-ansible.sh prod rigel production
 ```
+
+**OS upgrades** (one host at a time, rigel before vega):
+```bash
+./scripts/run-ansible.sh prod rigel upgrade                          # list pending upgrades only
+./scripts/run-ansible.sh prod rigel upgrade -e os_upgrade_apply=true # apt full-upgrade, no reboot
+```
+The apply run snapshots package versions to `/var/backups/os-upgrade/`, keeps
+local config files, upgrades Tailscale last in a detached job (Ansible connects
+over it), and fails if Docker, Tailscale, or any previously running container is
+not back up. It reports whether a reboot is pending: kernel and firmware fixes
+are not active until the host reboots.
 
 ### `run-edge-ingress.sh` ⚡
 
@@ -467,7 +479,7 @@ To run scripts on rigel from your local Mac, use the `run-on-rigel.sh` wrapper:
 
 ### `setup-partitions.sh`
 
-**Purpose**: Interactive helper script for partitioning 128GB drives
+**Purpose**: Interactive helper script for partitioning 128GB drives (optional layout; no current host uses it, see `docs/architecture/fleet-state.md`)
 
 **Usage**:
 ```bash

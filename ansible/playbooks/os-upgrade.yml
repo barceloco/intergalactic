@@ -1,0 +1,274 @@
+---
+# OS package upgrade for one fleet host, within the current Debian release.
+#
+# Run through the wrapper, one host at a time (rigel first: it is dev):
+#   ./scripts/run-ansible.sh prod rigel upgrade                       # report only
+#   ./scripts/run-ansible.sh prod rigel upgrade -e os_upgrade_apply=true
+#
+# Default is REPORT ONLY: refresh the apt cache and list pending upgrades.
+# With os_upgrade_apply=true it runs `apt full-upgrade` (the Raspberry Pi
+# recommended path, so kernel and firmware packages are included), keeping
+# every locally modified config file. It never changes the Debian release.
+# Kernel and firmware fixes stay inactive until a reboot, which the run
+# reports. It reboots only when also given os_upgrade_reboot=true:
+#   ./scripts/run-ansible.sh prod rigel upgrade -e os_upgrade_apply=true -e os_upgrade_reboot=true
+# Before rebooting it refuses if any running container has no restart policy;
+# afterwards it fails unless every previously running container is back.
+#
+# Safety:
+# - The upgrade runs async on the host, so it finishes even if the SSH session
+#   drops when tailscaled or sshd restart during their own package upgrades.
+# - A dpkg selection snapshot is saved to /var/backups/os-upgrade/ first.
+# - Afterwards the play fails if Docker, Tailscale, or any container that was
+#   running before is not running again.
+- name: OS package upgrade
+  # Unset matches no host, so the playbook never runs fleet-wide by accident.
+  hosts: "{{ upgrade_hosts | default('no_host_selected') }}"
+  become: true
+  gather_facts: false
+  serial: 1
+  vars:
+    os_upgrade_apply: false
+    os_upgrade_reboot: false
+    os_upgrade_reboot_timeout_s: 900
+    os_upgrade_expected_release: trixie
+    os_upgrade_min_free_mb: 1024
+    os_upgrade_timeout_s: 3600
+  pre_tasks:
+    - name: Import host key verification tasks
+      import_tasks: shared/host-key-verification.yml
+      tags: always
+
+    - name: Import production validation tasks
+      import_tasks: shared/production-validation.yml
+      tags: always
+
+  tasks:
+    - name: Refuse to run outside the expected Debian release
+      assert:
+        that:
+          - ansible_distribution == 'Debian'
+          - ansible_distribution_release == os_upgrade_expected_release
+        fail_msg: >-
+          {{ inventory_hostname }} runs {{ ansible_distribution }}
+          {{ ansible_distribution_release }}, expected Debian
+          {{ os_upgrade_expected_release }}. This playbook only upgrades
+          within a release.
+
+    - name: Check free space on / and /boot/firmware
+      assert:
+        that:
+          - (item.size_available / 1048576) >= os_upgrade_min_free_mb
+            or item.mount == '/boot/firmware'
+          - (item.size_available / 1048576) >= 50
+        fail_msg: "Not enough free space on {{ item.mount }}"
+        quiet: true
+      loop: "{{ ansible_mounts | selectattr('mount', 'in', ['/', '/boot/firmware']) | list }}"
+      loop_control:
+        label: "{{ item.mount }} {{ (item.size_available / 1048576) | int }} MB free"
+
+    - name: Refresh apt cache
+      apt:
+        update_cache: true
+      changed_when: false
+
+    - name: List pending upgrades
+      command: apt list --upgradable
+      register: os_upgrade_pending
+      changed_when: false
+
+    - name: Show pending upgrades
+      debug:
+        msg: >-
+          {{ os_upgrade_pending.stdout_lines
+             | reject('match', '^Listing') | list }}
+
+    - name: Stop here unless os_upgrade_apply=true
+      meta: end_host
+      when: not (os_upgrade_apply | bool)
+
+    - name: Record running kernel and containers before the upgrade
+      shell: |
+        set -o pipefail
+        uname -r
+        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | sort
+      args:
+        executable: /bin/bash
+      register: os_upgrade_before
+      changed_when: false
+
+    - name: Create the snapshot directory
+      file:
+        path: /var/backups/os-upgrade
+        state: directory
+        mode: "0700"
+
+    - name: Snapshot installed package versions
+      shell: >
+        dpkg-query -W -f='${Package}\t${Version}\n'
+        > /var/backups/os-upgrade/{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}-packages.tsv
+      changed_when: true
+
+    # Ansible reaches the host over Tailscale, so tailscaled restarting mid-run
+    # would cut the session that polls the upgrade. Hold it, upgrade everything
+    # else, then upgrade it alone in a detached job and wait to reconnect.
+    - name: Upgrade everything except Tailscale
+      block:
+        - name: Hold tailscale during the main upgrade
+          dpkg_selections:
+            name: tailscale
+            selection: hold
+
+        - name: Run apt full-upgrade, keeping local config files
+          apt:
+            upgrade: dist
+            dpkg_options: force-confdef,force-confold
+          environment:
+            DEBIAN_FRONTEND: noninteractive
+            NEEDRESTART_MODE: l
+          async: "{{ os_upgrade_timeout_s }}"
+          poll: 15
+          register: os_upgrade_result
+      always:
+        - name: Release the tailscale hold
+          dpkg_selections:
+            name: tailscale
+            selection: install
+
+    - name: Upgrade tailscale in a detached job (survives the session drop)
+      apt:
+        name: tailscale
+        state: latest
+        only_upgrade: true
+        dpkg_options: force-confdef,force-confold
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      async: 600
+      poll: 0
+      register: os_upgrade_tailscale_job
+
+    - name: Wait for the Tailscale connection to come back
+      wait_for_connection:
+        delay: 15
+        timeout: 300
+
+    - name: Wait for the tailscale upgrade job to finish
+      async_status:
+        jid: "{{ os_upgrade_tailscale_job.ansible_job_id }}"
+      register: os_upgrade_tailscale_result
+      until: os_upgrade_tailscale_result.finished
+      retries: 40
+      delay: 15
+
+    - name: Collect post-upgrade state
+      shell: |
+        set -o pipefail
+        echo "reboot_required=$([ -f /var/run/reboot-required ] && echo yes || echo no)"
+        cat /var/run/reboot-required.pkgs 2>/dev/null | sed 's/^/reboot_pkg=/' | sort -u
+        # Processes still mapping a library or binary that the upgrade replaced.
+        for p in /proc/[0-9]*; do
+          if grep -qs '(deleted)' "$p/maps" 2>/dev/null \
+             && grep -s '(deleted)' "$p/maps" | grep -qE '\.so|/s?bin/'; then
+            echo "stale_process=$(cat "$p/comm" 2>/dev/null)"
+          fi
+        done | sort -u
+      args:
+        executable: /bin/bash
+      register: os_upgrade_after
+      changed_when: false
+
+    - name: Check Docker, Tailscale, and containers after the upgrade
+      shell: |
+        set -o pipefail
+        systemctl is-active docker
+        tailscale status --peers=false > /dev/null && echo tailscale=ok
+        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | sort
+      args:
+        executable: /bin/bash
+      register: os_upgrade_health
+      changed_when: false
+      retries: 12
+      delay: 10
+      until: >-
+        os_upgrade_health.rc == 0
+        and (os_upgrade_before.stdout_lines[1:]
+             | difference(os_upgrade_health.stdout_lines) | length == 0)
+
+    - name: Report
+      debug:
+        msg:
+          - "Kernel running: {{ os_upgrade_before.stdout_lines[0] }}"
+          - "Containers restored: {{ os_upgrade_before.stdout_lines[1:] | length }}"
+          - "{{ os_upgrade_after.stdout_lines }}"
+          - >-
+            {{ 'REBOOT PENDING: kernel/firmware/libc fixes are installed but not active until reboot.'
+               if 'reboot_required=yes' in os_upgrade_after.stdout_lines
+               else 'No reboot required.' }}
+
+    - name: Reboot and verify
+      when: os_upgrade_reboot | bool
+      block:
+        - name: Record each running container's restart policy
+          shell: |
+            set -o pipefail
+            docker ps -q | xargs -r docker inspect \
+              --format '{{ "{{" }}.Name{{ "}}" }} {{ "{{" }}.HostConfig.RestartPolicy.Name{{ "}}" }}' \
+              | sed 's#^/##' | sort
+          args:
+            executable: /bin/bash
+          register: os_upgrade_policies
+          changed_when: false
+
+        - name: Refuse to reboot if a running container would not come back
+          assert:
+            that: os_upgrade_unprotected | length == 0
+            fail_msg: >-
+              These running containers have no restart policy and would stay
+              down after a reboot: {{ os_upgrade_unprotected }}
+            success_msg: "{{ os_upgrade_policies.stdout_lines }}"
+          vars:
+            os_upgrade_unprotected: >-
+              {{ os_upgrade_policies.stdout_lines
+                 | reject('search', ' (always|unless-stopped|on-failure)$') | list }}
+
+        - name: Reboot
+          reboot:
+            reboot_timeout: "{{ os_upgrade_reboot_timeout_s }}"
+            post_reboot_delay: 30
+            msg: "Reboot after OS upgrade (ansible os-upgrade.yml)"
+
+        - name: Wait until Docker, Tailscale, and every previous container are back
+          shell: |
+            set -o pipefail
+            systemctl is-active docker
+            tailscale status --peers=false > /dev/null && echo tailscale=ok
+            docker ps --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}' | sort
+          args:
+            executable: /bin/bash
+          register: os_upgrade_post_reboot
+          changed_when: false
+          retries: 30
+          delay: 10
+          until: >-
+            os_upgrade_post_reboot.rc == 0
+            and (os_upgrade_before.stdout_lines[1:]
+                 | difference(os_upgrade_post_reboot.stdout_lines) | length == 0)
+
+        - name: Collect post-reboot state
+          shell: |
+            set -o pipefail
+            uname -r
+            echo "reboot_required=$([ -f /var/run/reboot-required ] && echo yes || echo no)"
+            systemctl --failed --no-legend --plain | awk '{print "failed_unit=" $1}'
+          args:
+            executable: /bin/bash
+          register: os_upgrade_post_state
+          changed_when: false
+
+        - name: Post-reboot report
+          debug:
+            msg:
+              - "Kernel before: {{ os_upgrade_before.stdout_lines[0] }}"
+              - "Kernel now: {{ os_upgrade_post_state.stdout_lines[0] }}"
+              - "Containers back: {{ os_upgrade_before.stdout_lines[1:] | length }} of {{ os_upgrade_before.stdout_lines[1:] | length }}"
+              - "{{ os_upgrade_post_state.stdout_lines[1:] }}"
