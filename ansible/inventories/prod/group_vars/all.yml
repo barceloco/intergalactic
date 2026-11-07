@@ -75,5 +75,6 @@ docker_deploy_git_repos: []
 # Docker data-root configuration
 # Docker stores all data (images, containers, volumes) in this directory
 # Default: /var/lib/docker (on root partition)
-# Recommended: /home/deploy/docker (on data partition, owned by deploy user)
+# Configured: /home/deploy/docker (owned by deploy user; on the root filesystem,
+# since no current host has a separate data partition)
 docker_data_root: "/home/deploy/docker"

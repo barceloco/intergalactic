@@ -428,7 +428,7 @@ make check-certs
 ### Docker Data-Root Configuration
 
 **Default**: `/var/lib/docker` (root partition - limited space)
-**Configured**: `/home/deploy/docker` (data partition - more space)
+**Configured**: `/home/deploy/docker` (on the root filesystem on the current hosts; no data partition exists)
 
 **Bind Mounts**:
 - `/srv` → `/home/deploy/srv` (service data)

@@ -14,8 +14,10 @@ The intergalactic infrastructure uses Tailscale VPN to provide secure, encrypted
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐              │
 │  │  rigel   │    │   vega   │    │  mpnas   │              │
 │  │          │    │          │    │          │              │
-│  │ CoreDNS  │◄───┤ AISpector│    │  NAS     │              │
-│  │ Traefik  │    │          │    │          │              │
+│  │ CoreDNS  │◄───┤ aispector│    │  NAS     │              │
+│  │ Traefik  │    │ callosal │    │  immich  │              │
+│  │ csa, demo│    │ docgen   │    │          │              │
+│  │ Grafana  │    │ Samba    │    │          │              │
 │  └──────────┘    └──────────┘    └──────────┘              │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
@@ -94,16 +96,30 @@ The intergalactic infrastructure uses Tailscale VPN to provide secure, encrypted
 
 ## Port Usage
 
+Observed on the hosts on 2026-11-04. Full detail and known drift:
+[fleet-state.md](fleet-state.md).
+
 ### rigel
 
 - **53**: CoreDNS (DNS)
 - **80**: Traefik (HTTP)
 - **443**: Traefik (HTTPS)
+- **8082**: Traefik metrics
+- **8001**: callosal dev (demo.exnada.com)
+- **8023**: csa (csa.exnada.com)
+- **3000**: Grafana (monitor.exnada.com); Prometheus, Alertmanager, and blackbox listen on localhost
+- **9100**: node_exporter
 
 ### vega
 
-- **8000**: AISpector service
+- **8000**: aispector API (aispector.exnada.com)
+- **8001**: callosal (callosal.exnada.com)
+- **8048**: docgen (docgen.exnada.com)
+- **139, 445**: Samba
+- **9100**: node_exporter
+- **5432, 6379, 9000, 9001**: aispector Postgres, Redis, MinIO (published on all interfaces; see drift in fleet-state.md)
 
 ### mpnas
 
-- **5000**: NAS services
+- **5000**: NAS services (not audited; mpnas is not Ansible-managed)
+- **2283**: immich (immich.exnada.com, via Traefik on rigel)

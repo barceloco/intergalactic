@@ -387,7 +387,7 @@ The playbook will display the Tailscale hostname. Update `hosts-production.yml` 
 
 **What this does:**
 - Sets up Docker deploy user and directory structure
-- Configures Docker data-root to `/home/deploy/docker` (on data partition)
+- Configures Docker data-root to `/home/deploy/docker`
 - Sets up bind mounts: `/srv` → `/home/deploy/srv`, `/var/log/apps` → `/home/deploy/logs/apps`
 - Deploys internal DNS (CoreDNS)
 - Deploys edge ingress (Traefik)
@@ -1012,7 +1012,13 @@ Set `enable_fail2ban: false` in `ansible/inventories/prod/group_vars/all.yml` or
 
 ### Partition Layout for 128GB Drives
 
-This project uses a standard 3-partition layout optimized for Raspberry Pi systems:
+> **Actual fleet:** no running host uses this layout. vega (NVMe) and rigel
+> (SD card) each have only a boot partition and one root partition, no separate
+> `/home`, and no internal encryption. See
+> [docs/architecture/fleet-state.md](docs/architecture/fleet-state.md). The
+> layout below is an optional design for new hosts.
+
+The optional 3-partition layout for new Raspberry Pi hosts:
 
 **Partition Layout:**
 - **Partition 1**: 1GB (FAT32, `/boot`) - Boot partition for kernel and initramfs
@@ -1125,7 +1131,7 @@ The production phase configures Docker to store all data in `/home/deploy/docker
 - `/srv` → `/home/deploy/srv` (service data accessible at standard location)
 - `/var/log/apps` → `/home/deploy/logs/apps` (application logs at standard location)
 
-All directories are owned by the `deploy` user and are on the data partition, keeping the root partition clean and organized.
+All directories are owned by the `deploy` user. On the current hosts they live on the root filesystem (there is no separate data partition).
 
 ---
 
