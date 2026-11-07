@@ -13,6 +13,7 @@
       - python3-apt
       - dnsutils  # Provides dig, nslookup for DNS testing
       - acl       # setfacl: lets ansible become an unprivileged user (e.g. deploy)
+      - hdparm    # disk inspection and power management (external drives)
     state: present
     update_cache: true
 
