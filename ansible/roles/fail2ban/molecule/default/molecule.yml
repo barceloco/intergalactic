@@ -5,18 +5,15 @@ driver:
   name: docker
 platforms:
   - name: instance
-    image: debian:bookworm-slim
+    # Debian 13 (trixie), matching the fleet, so the test exercises the same
+    # fail2ban version and config parser the hosts run.
+    image: geerlingguy/docker-debian13-ansible:latest
     pre_build_image: true
     privileged: true
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
     volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
-    command: "/lib/systemd/systemd"
-    tmpfs:
-      - /run
-      - /tmp
-    capabilities:
-      - SYS_ADMIN
-      - NET_ADMIN
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
 provisioner:
   name: ansible
   inventory:

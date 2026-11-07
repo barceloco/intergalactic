@@ -76,6 +76,14 @@
       changed_when: false
       failed_when: action_configured.rc != 0
 
+    - name: Verify fail2ban accepts its full configuration
+      command: fail2ban-client -t
+      changed_when: false
+
+    - name: Verify the offender action renders a literal printf format
+      command: grep -F 'printf "%%s %%s %%s\n"' /etc/fail2ban/action.d/intergalactic-log.conf
+      changed_when: false
+
     - name: Verify fail2ban service is enabled
       command: systemctl is-enabled fail2ban
       register: fail2ban_enabled_check

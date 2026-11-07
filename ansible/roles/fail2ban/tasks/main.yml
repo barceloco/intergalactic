@@ -22,6 +22,9 @@
       enabled = true
       port = {{ ssh_port }}
       logpath = %(sshd_log)s
+      action = %(action_)s
+               intergalactic-log[name=sshd]
+  notify: Restart fail2ban
 
 - name: Create persistent offender log directory
   file:
@@ -37,19 +40,20 @@
   copy:
     dest: /etc/fail2ban/action.d/intergalactic-log.conf
     mode: "0644"
+    # fail2ban reads this with Python interpolation: a literal % must be %%.
+    # An unescaped %s makes fail2ban refuse its whole config and exit.
     content: |
       [Definition]
-      actionban = /usr/bin/printf "%s %s %s\n" "$(date -Is)" "<name>" "<ip>" >> /var/log/intergalactic/fail2ban-offenders.log
+      actionban = /usr/bin/printf "%%s %%s %%s\n" "$(date -Is)" "<name>" "<ip>" >> /var/log/intergalactic/fail2ban-offenders.log
       actionunban = true
-
-- name: Enable extra action for sshd jail
-  blockinfile:
-    path: /etc/fail2ban/jail.local
-    insertafter: '^\[sshd\]'
-    block: |
-      action = %(action_)s
-               intergalactic-log[name=sshd]
   notify: Restart fail2ban
+
+# Fail the run on a config fail2ban cannot load, instead of leaving the
+# service silently dead (it was, for months, over an unescaped %).
+- name: Test the fail2ban configuration
+  command: fail2ban-client -t
+  register: fail2ban_config_test
+  changed_when: false
   when: enable_fail2ban | default(true)
 
 - name: Ensure fail2ban enabled and running
