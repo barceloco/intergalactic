@@ -70,6 +70,14 @@ This is the core architectural pattern. Understanding it is critical:
 # Phase 3: Production (application services via Tailscale)
 ./scripts/run-ansible.sh prod <hostname> production
 
+# OS package upgrade within the current release (never reboots).
+# Report only by default; one host at a time, rigel before vega.
+./scripts/run-ansible.sh prod <hostname> upgrade
+./scripts/run-ansible.sh prod <hostname> upgrade -e os_upgrade_apply=true
+
+# Read-only audit of what a host actually runs (disks, containers, repos, ports)
+./scripts/run-ansible.sh prod <hostname> audit
+
 # Migrate existing host to three-phase structure
 ./scripts/migrate-to-three-phase.sh <hostname> [tailscale-hostname]
 ```
@@ -187,15 +195,18 @@ scripts/
 
 #### Docker Data-Root
 - **Default**: `/var/lib/docker` (root partition)
-- **Configured**: `/home/deploy/docker` (data partition, owned by deploy user)
-- **Bind Mounts**:
+- **Configured**: `/home/deploy/docker` (owned by deploy user; on the root filesystem on both running hosts)
+- **Bind Mounts** (rigel only; vega's `/srv` is a real directory):
   - `/srv` → `/home/deploy/srv` (service data)
   - `/var/log/apps` → `/home/deploy/logs/apps` (application logs)
 
-#### Partition Layout (128GB Drives)
-- **Partition 1**: 1GB (FAT32, `/boot`) - Boot partition
-- **Partition 2**: 32GB (ext4, `/`) - Root filesystem
-- **Partition 3**: ~95GB (ext4, `/home`) - Data partition (Docker, user data, logs)
+#### Actual Disk Layout
+- **vega**: NVMe, 2 partitions (512MB `/boot/firmware`, 238GB `/`). **Not encrypted.**
+- **rigel**: SD card, 2 partitions (512MB `/boot/firmware`, 119GB `/`). **Not encrypted.**
+- No host has a separate `/home` partition; the 3-partition layout in README.md was never applied.
+- vega's external 6TB drives are LUKS-encrypted, unlocked by hand, and not persistent across reboots.
+- Full as-deployed state (apps, branches, ports, drift): `docs/architecture/fleet-state.md`.
+  Re-verify with `./scripts/run-ansible.sh prod <host> audit` (read-only).
 
 ## Important Patterns and Conventions
 
@@ -305,7 +316,7 @@ pre_tasks:
 
 ### Phase 2: Molecule (Short-term)
 - Role testing in isolated containers; tests convergence and idempotency
-- **Default run** (`./scripts/run-molecule-tests.sh`): firewall_nftables and docker_deploy, end-to-end in a container (docker_deploy includes real Docker-in-Docker)
+- **Default run** (`./scripts/run-molecule-tests.sh`): firewall_nftables, docker_deploy, and fail2ban, end-to-end in a container (docker_deploy includes real Docker-in-Docker; fail2ban runs `fail2ban-client -t` on trixie)
 - **By name only** (`./scripts/run-molecule-tests.sh <role>`): internal_dns and edge_ingress converge their full config but cannot start their systemd-managed CoreDNS/Traefik containers under nested systemd, so they are validated on a real host
 
 ### Phase 3: Testinfra (Long-term)

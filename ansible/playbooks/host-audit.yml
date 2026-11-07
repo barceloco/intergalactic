@@ -1,0 +1,78 @@
+---
+# Read-only audit of what a fleet host ACTUALLY runs, to reconcile the repo
+# with reality. Changes nothing on the host.
+#
+#   ./scripts/run-ansible.sh prod vega audit
+#
+# Reports: disk layout and encryption, crypttab/fstab, running containers with
+# their compose project and working directory, git checkouts that are served
+# (branch, commit, remote), app-related systemd units and timers, and
+# listening TCP ports.
+- name: Host audit (read-only)
+  hosts: "{{ audit_hosts | default('no_host_selected') }}"
+  become: true
+  gather_facts: false
+  serial: 1
+  pre_tasks:
+    - name: Import host key verification tasks
+      import_tasks: shared/host-key-verification.yml
+      tags: always
+
+    - name: Import production validation tasks
+      import_tasks: shared/production-validation.yml
+      tags: always
+
+  tasks:
+    - name: Collect host state
+      shell: |
+        # pipefail without -e: a section that finds nothing must not abort the rest.
+        set -o pipefail
+        section() { printf '\n### %s\n' "$1"; }
+        section "os"
+        . /etc/os-release; echo "$PRETTY_NAME"; uname -r
+        tr -d '\0' < /proc/device-tree/model 2>/dev/null; echo
+        section "lsblk"
+        lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS,MODEL
+        section "crypt devices open"
+        dmsetup ls --target crypt 2>/dev/null || true
+        section "crypttab (device/name columns only)"
+        awk '!/^#/ && NF {print $1, $2}' /etc/crypttab 2>/dev/null || echo "none"
+        section "fstab"
+        grep -vE '^\s*(#|$)' /etc/fstab | sed -E 's/(pass(word)?|cred(entials)?|user(name)?)=[^,[:space:]]*/\1=***/g'
+        section "docker data-root"
+        docker info --format '{{ "{{" }}.DockerRootDir{{ "}}" }}' 2>/dev/null
+        section "containers"
+        docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}|{{ "{{" }}.Image{{ "}}" }}|{{ "{{" }}.Status{{ "}}" }}|{{ "{{" }}.Label "com.docker.compose.project"{{ "}}" }}|{{ "{{" }}.Label "com.docker.compose.project.working_dir"{{ "}}" }}|{{ "{{" }}.Ports{{ "}}" }}' | sort
+        section "served git checkouts"
+        find /home /srv /opt -maxdepth 5 -name .git -type d 2>/dev/null | sort | while read -r g; do
+          d="${g%/.git}"
+          b=$(git -C "$d" -c safe.directory='*' rev-parse --abbrev-ref HEAD 2>/dev/null)
+          c=$(git -C "$d" -c safe.directory='*' log -1 --format='%h %cs' 2>/dev/null)
+          r=$(git -C "$d" -c safe.directory='*' remote get-url origin 2>/dev/null)
+          r=$(printf %s "$r" | sed -E 's#://[^/@]+@#://***@#')
+          echo "$d | $b | $c | $r"
+        done
+        section "systemd units (non-default, enabled)"
+        systemctl list-unit-files --state=enabled --no-legend --type=service,timer \
+          | awk '{print $1}' | grep -vE '^(systemd-|dbus|getty|ssh|cron|rsyslog|apt-|e2scrub|fstrim|logrotate|man-db|dpkg|NetworkManager|wpa_|bluetooth|avahi|triggerhappy|keyboard-|console-|rpi-|raspi-|sshswitch|regenerate_|udisks|ModemManager|polkit|serial-|bthelper|hciuart|dphys|userconfig|cloud-|nfs-|rpc)' || true
+        section "listening tcp"
+        ss -Hltn | awk '{print $4}' | sort -u
+        section "container restart policies"
+        docker ps -aq | xargs -r docker inspect \
+          --format '{{ "{{" }}.Name{{ "}}" }} {{ "{{" }}.HostConfig.RestartPolicy.Name{{ "}}" }}' | sed 's#^/##' | sort
+        section "fail2ban"
+        echo "service=$(systemctl is-active fail2ban 2>/dev/null)"
+        fail2ban-client status 2>/dev/null | grep -i 'jail list' || echo "fail2ban not responding"
+        section "failed units (last log lines)"
+        for u in $(systemctl --failed --no-legend --plain | awk '{print $1}'); do
+          echo "-- $u"
+          journalctl -b -u "$u" --no-pager -n 8 -o cat 2>/dev/null
+        done
+      args:
+        executable: /bin/bash
+      register: host_audit
+      changed_when: false
+
+    - name: Show audit
+      debug:
+        msg: "{{ host_audit.stdout_lines }}"
