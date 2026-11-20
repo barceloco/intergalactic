@@ -1,35 +1,184 @@
 ---
+# Behavioural test: the container plays the host (vega-like rules). Network
+# namespaces play the rest of the world:
+#   tsnet   behind "tailscale0": rigel (100.115.218.7) and another tailnet node
+#           (100.99.0.9)
+#   lannet  behind "lan0": a LAN machine (192.168.1.50), a non-LAN address on
+#           the same wire (10.77.0.5), and a spoofed rigel address
+#   ctr     a "container" on bridge br-test, reached through a DNAT'd published
+#           port, exactly the path Docker uses
+# Real TCP connections and pings are sent and compared with the policy.
 - name: Verify
   hosts: all
   become: true
   gather_facts: false
+  vars:
+    host_ts: 100.116.12.30
+    host_lan: 192.168.1.230
+    host_nonlan: 10.77.0.1
+    # [namespace, source address, destination, port, expected]
+    tcp_cases:
+      # Host services (input path)
+      - [tsnet, 100.115.218.7, "{{ host_ts }}", 22, open]
+      - [tsnet, 100.115.218.7, "{{ host_ts }}", 8000, open]
+      - [tsnet, 100.115.218.7, "{{ host_ts }}", 9100, open]
+      - [tsnet, 100.115.218.7, "{{ host_ts }}", 445, open]
+      - [tsnet, 100.115.218.7, "{{ host_ts }}", 5432, closed]
+      - [tsnet, 100.99.0.9, "{{ host_ts }}", 22, open]
+      - [tsnet, 100.99.0.9, "{{ host_ts }}", 445, open]
+      - [tsnet, 100.99.0.9, "{{ host_ts }}", 8000, closed]
+      - [tsnet, 100.99.0.9, "{{ host_ts }}", 9100, closed]
+      - [tsnet, 100.99.0.9, "{{ host_ts }}", 5432, closed]
+      - [lannet, 192.168.1.50, "{{ host_lan }}", 22, open]
+      - [lannet, 192.168.1.50, "{{ host_lan }}", 445, open]
+      - [lannet, 192.168.1.50, "{{ host_lan }}", 8000, closed]
+      - [lannet, 192.168.1.50, "{{ host_lan }}", 9100, closed]
+      - [lannet, 192.168.1.50, "{{ host_lan }}", 5432, closed]
+      - [lannet, 10.77.0.5, "{{ host_nonlan }}", 22, closed]
+      - [lannet, 10.77.0.5, "{{ host_nonlan }}", 445, closed]
+      # rigel's address arriving on the LAN wire is a spoof, never rigel
+      - [lannet, 100.115.218.7, "{{ host_lan }}", 8000, closed]
+      # Published container ports (forward path, DNAT 8048 and 5432 -> ctr:8000)
+      - [tsnet, 100.115.218.7, "{{ host_ts }}", 8048, open]
+      - [tsnet, 100.99.0.9, "{{ host_ts }}", 8048, closed]
+      - [lannet, 192.168.1.50, "{{ host_lan }}", 8048, closed]
+      - [tsnet, 100.115.218.7, "{{ host_ts }}", 5433, closed]
+      - [lannet, 192.168.1.50, "{{ host_lan }}", 5433, closed]
+    ping_cases:
+      - [tsnet, 100.99.0.9, "{{ host_ts }}", ok]
+      - [lannet, 192.168.1.50, "{{ host_lan }}", ok]
+      - [lannet, 10.77.0.5, "{{ host_nonlan }}", blocked]
   tasks:
-    - name: Verify nftables is installed
-      command: which nft
-      register: nft_check
-      changed_when: false
-      failed_when: nft_check.rc != 0
-
-    - name: Verify nftables service is running
+    - name: Verify nftables service is running and enabled
       command: systemctl is-active nftables
       register: nftables_status
       changed_when: false
       failed_when: nftables_status.stdout != "active"
 
-    - name: Verify nftables configuration exists
-      stat:
-        path: /etc/nftables.conf
-      register: nftables_config
-      failed_when: not nftables_config.stat.exists
-
-    - name: Verify nftables configuration syntax
+    - name: Verify the deployed configuration passes nft's syntax check
       command: nft -c -f /etc/nftables.conf
-      register: syntax_check
       changed_when: false
-      failed_when: syntax_check.rc != 0
 
-    - name: Verify firewall rules are loaded
-      command: nft list ruleset
-      register: ruleset_check
+    - name: Read the loaded ruleset
+      command: nft list table inet filter
+      register: ruleset
       changed_when: false
-      failed_when: ruleset_check.rc != 0 or ruleset_check.stdout | length == 0
+
+    - name: The blanket Tailscale accept is gone
+      assert:
+        that:
+          - ruleset.stdout is not search('iifname "tailscale0" accept')
+        fail_msg: "A bare 'iifname tailscale0 accept' would admit the whole tailnet to every port"
+
+    - name: Build the test network
+      shell: |
+        set -eu
+        sysctl -qw net.ipv4.ip_forward=1
+        for ns in tsnet lannet ctr; do ip netns add $ns; done
+        # Tailnet: the host side of the link is literally named tailscale0.
+        ip link add tailscale0 type veth peer name ts-peer netns tsnet
+        ip addr add {{ host_ts }}/10 dev tailscale0; ip link set tailscale0 up
+        ip -n tsnet addr add 100.115.218.7/10 dev ts-peer
+        ip -n tsnet addr add 100.99.0.9/10 dev ts-peer
+        ip -n tsnet link set ts-peer up; ip -n tsnet link set lo up
+        # LAN wire, carrying LAN and non-LAN sources.
+        ip link add lan0 type veth peer name lan-peer netns lannet
+        ip addr add {{ host_lan }}/24 dev lan0; ip addr add {{ host_nonlan }}/24 dev lan0
+        ip link set lan0 up
+        ip -n lannet addr add 192.168.1.50/24 dev lan-peer
+        ip -n lannet addr add 10.77.0.5/24 dev lan-peer
+        ip -n lannet addr add 100.115.218.7/32 dev lan-peer
+        ip -n lannet link set lan-peer up; ip -n lannet link set lo up
+        ip -n lannet route add {{ host_lan }}/32 dev lan-peer src 192.168.1.50
+        # Container on a Docker-style bridge, reached via DNAT.
+        ip link add br-test type bridge; ip addr add 172.31.0.1/24 dev br-test; ip link set br-test up
+        ip link add ctr-veth type veth peer name eth0 netns ctr
+        ip link set ctr-veth master br-test; ip link set ctr-veth up
+        ip -n ctr addr add 172.31.0.2/24 dev eth0; ip -n ctr link set eth0 up; ip -n ctr link set lo up
+        ip -n ctr route add default via 172.31.0.1
+        # Published ports the way Docker does it: 8048 is allowed (from rigel),
+        # 5433 is published but not allowed for anyone.
+        nft -f - <<'EOF'
+        table ip moltest_nat {
+          chain prerouting {
+            type nat hook prerouting priority dstnat;
+            tcp dport { 8048, 5433 } dnat to 172.31.0.2:8000
+          }
+        }
+        EOF
+        # Listeners: host services, and the app inside the container.
+        cat > /tmp/listen.py <<'EOF'
+        import socket, sys, threading
+        def serve(port):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(("0.0.0.0", port))
+            except OSError:
+                return  # already served (e.g. a real sshd on 22)
+            s.listen(16)
+            while True:
+                c, _ = s.accept(); c.close()
+        for p in sys.argv[1:]:
+            threading.Thread(target=serve, args=(int(p),), daemon=True).start()
+        threading.Event().wait()
+        EOF
+        nohup python3 /tmp/listen.py 22 8000 9100 445 5432 >/dev/null 2>&1 &
+        ip netns exec ctr nohup python3 /tmp/listen.py 8000 >/dev/null 2>&1 &
+        sleep 1
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Probe TCP from each source
+      command: >-
+        ip netns exec {{ item[0] }} python3 -c
+        "import socket,sys;s=socket.socket();s.settimeout(2);s.bind(('{{ item[1] }}',0));
+        print('open' if s.connect_ex(('{{ item[2] }}',{{ item[3] }}))==0 else 'closed')"
+      loop: "{{ tcp_cases }}"
+      loop_control:
+        label: "{{ item[1] }} -> {{ item[2] }}:{{ item[3] }} expect {{ item[4] }}"
+      register: tcp_results
+      changed_when: false
+
+    - name: Probe ping from each source
+      command: ip netns exec {{ item[0] }} ping -c1 -W1 -I {{ item[1] }} {{ item[2] }}
+      loop: "{{ ping_cases }}"
+      loop_control:
+        label: "{{ item[1] }} -> {{ item[2] }} expect {{ item[3] }}"
+      register: ping_results
+      changed_when: false
+      failed_when: false
+
+    - name: Every probe matches the policy
+      assert:
+        that: _mismatches | length == 0
+        fail_msg: "Firewall does not match the policy: {{ _mismatches }}"
+        success_msg: "{{ tcp_results.results | length }} TCP and {{ ping_results.results | length }} ping cases match"
+      vars:
+        _mismatches: >-
+          {%- set out = [] -%}
+          {%- for r in tcp_results.results -%}
+            {%- if r.stdout != r.item[4] -%}{{ out.append('tcp ' ~ r.item[1] ~ ' -> ' ~ r.item[2] ~ ':' ~ r.item[3] ~ ' was ' ~ r.stdout ~ ', expected ' ~ r.item[4]) }}{%- endif -%}
+          {%- endfor -%}
+          {%- for r in ping_results.results -%}
+            {%- set got = 'ok' if r.rc == 0 else 'blocked' -%}
+            {%- if got != r.item[3] -%}{{ out.append('ping ' ~ r.item[1] ~ ' -> ' ~ r.item[2] ~ ' was ' ~ got ~ ', expected ' ~ r.item[3]) }}{%- endif -%}
+          {%- endfor -%}
+          {{ out }}
+
+    - name: The retired all-sources variables are refused
+      block:
+        - name: Run the role with a legacy firewall_allow_tcp_ports
+          include_role:
+            name: firewall_nftables
+          vars:
+            firewall_allow_tcp_ports: [8000]
+        - name: Legacy variable was not refused
+          fail:
+            msg: "firewall_allow_tcp_ports must be refused, not applied"
+      rescue:
+        - name: Confirm the refusal came from the legacy-variable check
+          assert:
+            that: ansible_failed_result.msg is search('retired')
+            quiet: true

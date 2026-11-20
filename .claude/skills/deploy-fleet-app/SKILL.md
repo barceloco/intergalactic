@@ -88,7 +88,7 @@ ways; if the candidate appears in any, move to the next free port (for example
 
 1. Ports already declared for the host, in the repo:
    ```bash
-   grep -nE 'firewall_allow_tcp_ports|docker_deploy_tcp_ports' -A20 \
+   grep -nE 'firewall_rules' -A40 \
      ansible/inventories/prod/host_vars/<host>.yml
    # backends already pointed at this host:
    grep -nE "backend:.*<host>:" ansible/inventories/prod/host_vars/rigel.yml
@@ -164,21 +164,27 @@ only need to expose it, skip the role and do Steps 3-4 only.
 
 ## Step 3 -- Open the firewall port
 
-In `ansible/inventories/prod/host_vars/<host>.yml`, add `<port>` to the host's
-firewall port list. Use whichever list the host already uses: hosts running the
-full `docker_deploy` role (e.g. **rigel**) declare service ports in
-`docker_deploy_tcp_ports`, which the firewall role auto-merges into the allowed
-ports; hosts without it use `firewall_allow_tcp_ports` directly.
+The firewall is an allow-list on every interface, Tailscale included, and it
+covers Docker-published container ports too. Only Traefik needs to reach an app
+backend, and Traefik runs on rigel:
+
+- **App on rigel:** no firewall change. Traefik reaches it over loopback.
+- **App on any other host:** admit rigel only, in that host's
+  `ansible/inventories/prod/host_vars/<host>.yml`:
 
 ```yaml
-docker_deploy_tcp_ports:    # or firewall_allow_tcp_ports on hosts without docker_deploy
+firewall_rules:
   - ...
-  - <port>   # <name> -> <name>.<domain>
+  - port: <port>
+    from: [rigel]
+    comment: "<name> backend for Traefik on rigel -> <name>.<domain>"
 ```
 
-The firewall is a FOUNDATION role, so opening a port takes a separate
-`run-ansible.sh prod <host> foundation --tags security` run (over Tailscale),
-not the production run. This lets Traefik on rigel reach the app over Tailscale.
+Never use `from: [tailnet]` or `[lan]` for an app backend: users reach apps
+through Traefik, never directly. Review the result with
+`./scripts/render-firewall.sh <host>`. The firewall is a FOUNDATION role, so
+applying it takes a separate `run-ansible.sh prod <host> foundation --tags
+security` run (over Tailscale), not the production run.
 
 ## Step 4 -- Add the edge route (this is what gives you DNS and TLS for free)
 
@@ -285,8 +291,8 @@ reachable via `--tags docgen`).
 4. **Deploy key:** add `csa` to rigel's `docker_deploy_git_repos`, run production
    once to generate the key, register the printed pubkey as a read-only deploy
    key on the (private) ExNada/csa repo.
-5. **Firewall:** `host_vars/rigel.yml` -> `docker_deploy_tcp_ports: - 8023`;
-   apply with `run-ansible.sh prod rigel foundation --tags security`.
+5. **Firewall:** none. csa runs on rigel, where Traefik reaches it over
+   loopback; 8023 is not opened to the network.
 6. **Route:** `host_vars/rigel.yml` -> `edge_ingress_routes: - host:
    csa.exnada.com / backend: http://rigel:8023 / health_path: /health`.
 7. **Deploy + verify:** `run-ansible.sh prod rigel production`, then all three

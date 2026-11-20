@@ -58,11 +58,27 @@ enable_samba: true
 # Set it to match the system password if you want to use the same password
 # Future system password changes will sync to Samba automatically
 
-# Firewall configuration
-# Allow ports for services running on vega. SSH is NOT here: it is opened via
-# the Tailscale + LAN-subnet rules in the firewall template (see all.yml).
-firewall_allow_tcp_ports:
-  - 8000   # AISpector (port_api) → aispector.exnada.com
-  - 8001   # Callosal (port_api_alt) → callosal.exnada.com
-  - 8048   # Docgen → docgen.exnada.com (deterministic port; was 8420)
-  - 9100   # node_exporter (Prometheus on rigel scrapes host + provenance metrics)
+# Firewall: everything not listed here is dropped, from every source (SSH and
+# ping are built in; see group_vars/all.yml). The app backends and metrics are
+# reached only by rigel (Traefik and Prometheus run there), so only rigel's
+# Tailscale address is admitted.
+firewall_rules:
+  - port: 8000
+    from: [rigel]
+    comment: "AISpector (port_api) backend for Traefik on rigel -> aispector.exnada.com"
+  - port: 8001
+    from: [rigel]
+    comment: "Callosal (port_api_alt) backend for Traefik on rigel -> callosal.exnada.com"
+  - port: 8048
+    from: [rigel]
+    comment: "Docgen backend for Traefik on rigel -> docgen.exnada.com"
+  - port: 9100
+    from: [rigel]
+    comment: "node_exporter, scraped by Prometheus on rigel"
+  - port: [139, 445]
+    from: [tailnet, lan]
+    comment: "Samba (SMB)"
+  - port: [137, 138]
+    proto: udp
+    from: [tailnet, lan]
+    comment: "Samba (NetBIOS name and datagram service)"

@@ -24,8 +24,5 @@ provisioner:
           - name: armand
             authorized_keys:
               - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdYrr6ERlcqtG9507wmbYogvoh4WvDgFTOhjZ74QDFK ansible@control"
-        docker_deploy_tcp_ports:
-          - 8000
-          - 5432
 verifier:
   name: ansible

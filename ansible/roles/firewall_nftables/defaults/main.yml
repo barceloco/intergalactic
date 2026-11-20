@@ -1,0 +1,35 @@
+---
+# Allow-list firewall. Everything is denied on every interface, for the host
+# itself and for Docker-published container ports alike, unless a rule below
+# (or a built-in rule in the template) allows it from a named source.
+#
+# Built in, not configurable:
+#   - SSH from the tailnet AND from firewall_lan_subnet (lockout protection)
+#   - ping from the tailnet and from firewall_lan_subnet
+#   - IPv6 neighbour discovery on the local link
+#   - Tailscale's own transport, udp 41641, from anywhere (if enable_tailscale)
+#   - DNS 53 from the tailnet (if internal_dns_enabled)
+#   - HTTP/HTTPS 80/443 from the tailnet (if edge_ingress_enabled)
+
+# The local LAN. SSH and ping are always allowed from it; host rules may name
+# it as the source "lan". Must be set: SSH from the LAN is the
+# Tailscale-independent backup that prevents a lockout.
+firewall_lan_subnet: "192.168.1.0/24"
+
+# Tailscale IPv4 address of each fleet host, so a rule can allow one specific
+# host (for example rigel's Traefik) instead of the whole tailnet.
+fleet_tailscale_ipv4: {}
+
+# Host-specific rules. Each entry:
+#   port:    a port number or a list of port numbers
+#   proto:   tcp (default) or udp
+#   from:    list of sources: "tailnet", "lan", or a host name from
+#            fleet_tailscale_ipv4 (matched on tailscale0 and that host's IP)
+#   comment: why the port is open (required)
+# Example:
+#   firewall_rules:
+#     - { port: 8000, from: [rigel], comment: "aispector backend for Traefik on rigel" }
+firewall_rules: []
+
+# Rate limit for logging dropped packets (packets/second).
+firewall_rate_limit: 10

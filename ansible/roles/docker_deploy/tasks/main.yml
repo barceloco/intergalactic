@@ -315,11 +315,6 @@
   # Docker may change permissions when it starts, so we ensure they're correct
   # This allows deploy user (member of docker group) to read/list the directory
 
-- name: Set fact for docker_deploy_tcp_ports (for firewall integration)
-  when: enable_docker_deploy | default(false)
-  set_fact:
-    docker_deploy_tcp_ports: "{{ docker_deploy_tcp_ports | default([]) }}"
-
 - name: Read deploy user SSH public key
   when: enable_docker_deploy | default(false)
   slurp:

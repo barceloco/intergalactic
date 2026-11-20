@@ -15,17 +15,15 @@ enable_samba: true
 
 # Docker deployment configuration
 enable_docker_deploy: true
-docker_deploy_tcp_ports:
-  - 8000   # API
-  - 8001   # API
-  - 5432   # PostgreSQL
-  - 6379   # Redis
-  - 9000   # MinIO
-  - 9001   # MinIO
-  - 8023   # csa -> csa.exnada.com
-  - 3000   # Grafana (observability) -> monitor.exnada.com
-  - 9100   # node_exporter (Prometheus scrapes host + provenance metrics)
-  - 8082   # Traefik metrics (Prometheus scrapes rigel:8082)
+
+# Firewall: no extra ports. Tailnet clients get DNS (53) and HTTP/HTTPS (80,
+# 443) automatically from internal_dns_enabled / edge_ingress_enabled; SSH and
+# ping are built in (group_vars/all.yml). The app backends (8001 callosal-demo,
+# 8023 csa), Grafana 3000, Traefik metrics 8082 and node_exporter 9100 are
+# reached only by Traefik and Prometheus on this same host, over loopback, so
+# none is opened to the network. Samba is not running here, so it gets no rule
+# despite enable_samba below being set.
+firewall_rules: []
 # Configure Docker to use CoreDNS for DNS resolution (so containers can resolve Tailscale hostnames)
 docker_deploy_dns_servers:
   - 127.0.0.1  # CoreDNS (for Tailscale hostname resolution)

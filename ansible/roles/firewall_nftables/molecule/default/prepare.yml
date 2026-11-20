@@ -1,0 +1,13 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Install the tools verify.yml uses to build a test network
+      apt:
+        name:
+          - iproute2
+          - iputils-ping
+        state: present
+        update_cache: true

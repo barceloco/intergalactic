@@ -343,10 +343,11 @@ pre_tasks:
 - **Configuration**: Traefik ACME configured in `traefik.yml.j2`, uses GoDaddy DNS-01 challenge
 
 ### Firewall Configuration
-- **Default policy**: Deny all except explicitly allowed
-- **SSH**: Opened by two explicit, narrow paths only — the Tailscale interface and the local LAN subnet (`firewall_local_ssh_subnet`, default 192.168.1.0/24), both key-only. Intentionally NOT in `firewall_allow_tcp_ports` (that list opens ports to all sources). The LAN path is a Tailscale-independent backup so a mesh outage cannot lock out management.
-- **Tailscale**: UDP 41641 for initial connection, tailscale0 interface traffic allowed
-- **DNS/HTTP/HTTPS**: Only if internal_dns or edge_ingress enabled
+- **Policy**: allow-list on every interface, Tailscale included. Being on the tailnet grants nothing by itself; every port names its allowed sources.
+- **Covers containers**: Docker-published ports bypass the input chain (DNAT), so the same allow-list is enforced in the forward path. A `0.0.0.0` publish is NOT an exposure by itself, but bind backing services (databases, caches) to `127.0.0.1` anyway.
+- **Built in**: SSH from the tailnet AND the LAN (`firewall_lan_subnet`, the lockout backup; cannot be disabled); ping from the tailnet and the LAN; Tailscale transport UDP 41641; DNS 53 and HTTP/HTTPS 80/443 from the tailnet when internal_dns / edge_ingress are enabled.
+- **Per host**: `firewall_rules` in host_vars, each `{port, proto, from, comment}` with `from` in `tailnet`, `lan`, or a fleet host from `fleet_tailscale_ipv4` (e.g. `rigel` for Traefik/Prometheus backends). The retired `firewall_allow_tcp_ports`/`docker_deploy_tcp_ports` (all sources) are refused.
+- **Review before deploy**: `./scripts/render-firewall.sh <host>` renders, validates and `nft -c`-checks a host's rules without touching it.
 
 ### Docker Volume Mounts
 - **Always inspect container images** before mounting volumes
