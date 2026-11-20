@@ -16,13 +16,20 @@ enable_samba: true
 # Docker deployment configuration
 enable_docker_deploy: true
 
-# Firewall: no extra ports. Tailnet clients get DNS (53) and HTTP/HTTPS (80,
-# 443) automatically from internal_dns_enabled / edge_ingress_enabled; SSH and
-# ping are built in (group_vars/all.yml). The app backends (8001 callosal-demo,
-# 8023 csa) are reached only by Traefik on this same host, over loopback, so
-# neither is opened to the network. Samba is not running here, so it gets no
-# rule despite enable_samba above being set.
-firewall_rules: []
+# Firewall: tailnet clients get DNS (53) and HTTP/HTTPS (80, 443) automatically
+# from internal_dns_enabled / edge_ingress_enabled; SSH and ping are built in
+# (group_vars/all.yml). The app backends (8001 callosal-demo, 8023 csa) are
+# reached only by Traefik on this same host, over loopback, so neither is
+# opened to the network. Samba (enable_samba above) is open to the tailnet and
+# the LAN, as on vega.
+firewall_rules:
+  - port: [139, 445]
+    from: [tailnet, lan]
+    comment: "Samba (SMB)"
+  - port: [137, 138]
+    proto: udp
+    from: [tailnet, lan]
+    comment: "Samba (NetBIOS name and datagram service)"
 # Configure Docker to use CoreDNS for DNS resolution (so containers can resolve Tailscale hostnames)
 docker_deploy_dns_servers:
   - 127.0.0.1  # CoreDNS (for Tailscale hostname resolution)
