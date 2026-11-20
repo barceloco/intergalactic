@@ -92,7 +92,7 @@ These differ from what the repo intends. Each is a follow-up, not yet fixed:
   still in `docker_deploy_git_repos`. (Its ports 8000, 5432, 6379, 9000 and
   9001 were open to the whole LAN via `docker_deploy_tcp_ports`; the allow-list
   firewall retires that variable.)
-- **rigel: `enable_samba: true` has no effect.** rigel's production playbook does
-  not include the `samba` role and no Samba service runs.
+- **rigel: Samba was configured but never deployed** (`enable_samba: true`, but
+  the `samba` role was missing from rigel-production.yml). Added on 2026-11-19.
 - **Both: unattended-upgrades is enabled but not applying security updates.**
   On 2026-11-04, rigel had 61 and vega 141 pending packages from Debian security.

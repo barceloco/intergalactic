@@ -55,3 +55,8 @@
     # 6. LUKS support for external encrypted devices
     - role: luks
       tags: [production, security]
+
+    # 7. Samba file share (armand -> /crypt). Reachable from the tailnet and
+    # the LAN via firewall_rules in host_vars.
+    - role: samba
+      tags: [production, services, samba]

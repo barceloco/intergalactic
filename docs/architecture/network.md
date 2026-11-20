@@ -83,7 +83,7 @@ The app domains are tailnet-only: they have no public DNS records.
 - **Tailscale ACLs**: Control which hosts can communicate
 - **Firewall**: nftables allow-list on each host, on every interface including
   Tailscale and including Docker-published ports. LAN devices reach only SSH,
-  ping (and Samba on vega); see `firewall_rules` in host_vars
+  ping and Samba; see `firewall_rules` in host_vars
 - **SSH**: Key-based authentication
 
 ## Network Resilience
@@ -112,6 +112,7 @@ Observed on the hosts on 2026-11-04. Full detail and known drift:
 - **443**: Traefik (HTTPS)
 - **8001**: callosal dev (demo.exnada.com)
 - **8023**: csa (csa.exnada.com)
+- **139, 445**: Samba
 
 ### vega
 

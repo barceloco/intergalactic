@@ -25,7 +25,7 @@
     - role: desktop
       tags: [production, desktop]
     - role: samba
-      tags: [production, services]
+      tags: [production, services, samba]
   tasks:
     # Per-repo Git SSH for the hand-provisioned deploy user. Deliberately NOT
     # the full docker_deploy role: vega's /srv is a real directory holding the
