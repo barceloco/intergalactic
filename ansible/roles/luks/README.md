@@ -35,17 +35,9 @@ Installs cryptsetup for mounting external LUKS-encrypted devices.
 
 ## Mount Encrypted Device
 
-```bash
-# Open encrypted device
-sudo cryptsetup open /dev/sdX1 my-encrypted-drive
-
-# Mount the decrypted device
-sudo mount /dev/mapper/my-encrypted-drive /mnt
-
-# When done
-sudo umount /mnt
-sudo cryptsetup close my-encrypted-drive
-```
+This role does not mount anything. For how the fleet mounts external drives
+(naming, key handling, mount and unmount commands), see
+[docs/runbooks/external-encrypted-drives.md](../../../docs/runbooks/external-encrypted-drives.md).
 
 ## License
 
