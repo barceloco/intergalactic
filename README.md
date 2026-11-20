@@ -1099,22 +1099,7 @@ UUID=<partition3-uuid> /home ext4 defaults 0 2
 
 The `luks` role installs `cryptsetup` which enables mounting **external** LUKS-encrypted devices (USB drives, network storage). Internal partitions are **not encrypted**.
 
-**To mount an external encrypted device:**
-
-```bash
-# Check if device is encrypted
-sudo cryptsetup isLuks /dev/sdX1
-
-# Open encrypted device
-sudo cryptsetup open /dev/sdX1 my-encrypted-drive
-
-# Mount the decrypted device
-sudo mount /dev/mapper/my-encrypted-drive /mnt
-
-# When done, unmount and close
-sudo umount /mnt
-sudo cryptsetup close my-encrypted-drive
-```
+**How we use external hard drives:** see [docs/runbooks/external-encrypted-drives.md](docs/runbooks/external-encrypted-drives.md). Drives are unlocked and mounted by hand from the operator's machine over SSH, with the key piped on stdin. Each drive mounts at `/crypt/<name>` as `/dev/mapper/dm-<name>` and is addressed by PARTUUID. Mounts do not persist across reboots, and drive keys are not stored in this repo.
 
 ### Docker Data-Root and Directory Structure
 
