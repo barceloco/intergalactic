@@ -64,74 +64,18 @@ over it), and fails if Docker, Tailscale, or any previously running container is
 not back up. It reports whether a reboot is pending: kernel and firmware fixes
 are not active until the host reboots.
 
-### `run-edge-ingress.sh` ⚡
+### Updating only Traefik and DNS on rigel
 
-**Purpose**: Quick deployment/update of edge_ingress (Traefik) role only - **much faster** for iteration
+There is no separate script: scope the normal wrapper with tags. This runs
+docker_deploy (a no-op when current), internal_dns and edge_ingress, and skips
+the app roles so no app is pulled or rebuilt:
 
-**Usage**:
 ```bash
-./scripts/run-edge-ingress.sh [env] [hostname]
+./scripts/run-ansible.sh prod rigel production --tags services --skip-tags csa,callosal
 ```
 
-**What it does**:
-- Runs only the `edge_ingress` role
-- Skips validation and health-check tags (faster)
-- Uses same Docker setup as `run-ansible.sh`
-
-**Examples**:
-```bash
-# Quick Traefik update on rigel
-./scripts/run-edge-ingress.sh prod rigel
-
-# With additional Ansible arguments
-./scripts/run-edge-ingress.sh prod rigel --check  # dry-run
-./scripts/run-edge-ingress.sh prod rigel -v      # verbose
-```
-
-**When to use**:
-- Testing Traefik configuration changes
-- Updating ACME certificate settings
-- Iterating on routing configuration
-- **Much faster** than running full production playbook
-
-**To run validation separately**:
-```bash
-./scripts/run-ansible.sh prod rigel production --tags validation,health-check
-```
-
-**Features**:
-- Automatically selects correct inventory file based on phase
-- Handles SSH key mounting for Docker container
-- Provides phase-specific guidance and next steps
-- Validates Tailscale connectivity for production phase
-- Supports Ansible tags and other options for faster iteration
-
-**Faster Iteration with Tags**:
-```bash
-# Run only validation/health-check tasks (skip deployment)
-./scripts/run-ansible.sh prod rigel production --tags validation,health-check
-
-# Skip validation tasks (deploy only)
-./scripts/run-ansible.sh prod rigel production --skip-tags validation
-
-# Run only edge_ingress role
-./scripts/run-ansible.sh prod rigel production --tags edge_ingress
-
-# Start at a specific task (useful when debugging)
-./scripts/run-ansible.sh prod rigel production --start-at-task "Deploy Traefik systemd service"
-
-# Run only tasks that changed (idempotency check)
-./scripts/run-ansible.sh prod rigel production --check --diff
-```
-
-**Available Tags**:
-- `validation` - All validation tasks (health checks, connectivity tests)
-- `health-check` - Health check tasks only
-- `production` - All production phase tasks
-- `services` - Service deployment tasks
-- `monitoring` - Monitoring-related tasks
-- `security` - Security-related tasks
-- Role-specific tags: `edge_ingress`, `internal_dns`, `docker_deploy`, etc.
+Host-key verification always runs. (The former `run-edge-ingress.sh` disabled
+it and also ran the app roles; it was removed.)
 
 ## Validation and Verification Scripts
 
