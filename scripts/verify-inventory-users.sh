@@ -14,13 +14,15 @@ if [[ ! -f "${BOOTSTRAP_INV}" ]] || [[ ! -f "${PRODUCTION_INV}" ]]; then
   exit 1
 fi
 
-# Check if Python 3 and PyYAML are available
-if ! command -v python3 &> /dev/null; then
-  echo "ERROR: python3 not found"
-  exit 1
+# Run the check inside the ansible runner image (Python + PyYAML), never on the
+# host. The image's entrypoint is bypassed so paths resolve from the repo root.
+RUNNER="intergalactic-ansible-runner:latest"
+if ! docker image inspect "${RUNNER}" > /dev/null 2>&1; then
+  docker build -q -t "${RUNNER}" "${SCRIPT_DIR}/docker/ansible-runner" > /dev/null
 fi
 
-python3 << 'PYTHON_SCRIPT'
+set +e
+docker run --rm -i -v "${SCRIPT_DIR}:/repo:ro" -w /repo --entrypoint python3 "${RUNNER}" - << 'PYTHON_SCRIPT'
 import sys
 import yaml
 
