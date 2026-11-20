@@ -40,17 +40,6 @@
         update: true
       register: docgen_repo
 
-    - name: Describe the deployed docgen commit against the nearest tag  # noqa: command-instead-of-module
-      command: git describe --tags
-      args:
-        chdir: "{{ docgen_dir }}"
-      register: docgen_tag
-      changed_when: false
-      failed_when: false
-      # git describe shows the nearest tag (and how far past it the commit is, or
-      # just the tag when exactly on it); empty when the history has no tags.
-      # failed_when: false so a tagless repo never fails the deploy.
-
     - name: Ensure docgen-exnada brand repo present at the configured ref (pull only)
       git:
         repo: "{{ docgen_brand_url }}"
@@ -104,19 +93,3 @@
       until: docgen_health.status is defined and docgen_health.status in [200, 403, 404]
       # Any HTTP response proves docgen is serving; 403 just means the caller is
       # not on the allow-list, which still confirms the app is up.
-
-- name: Publish docgen deployment provenance (app_build_info for Prometheus)
-  when:
-    - docgen_enabled | default(false)
-    - node_exporter_enabled | default(false)
-    - docgen_repo.after is defined
-  become: true
-  copy:
-    dest: "{{ node_exporter_textfile_dir | default('/var/lib/prometheus/node-exporter') }}/docgen.prom"
-    mode: '0644'
-    content: |
-      # HELP app_build_info Repo, branch, and commit ansible deployed per app.
-      # TYPE app_build_info gauge
-      app_build_info{app="docgen",route="{{ docgen_route | default('') }}",repo="{{ docgen_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ docgen_repo_ref }}",commit="{{ docgen_repo.after }}",tag="{{ (docgen_tag.stdout_lines | first | default('')) if docgen_tag is defined else '' }}"} 1
-  # Runs as root (outside the deploy block) so it can write node_exporter's
-  # textfile dir; skipped where node_exporter is not deployed.

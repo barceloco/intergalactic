@@ -94,8 +94,17 @@ case "${PHASE}" in
     echo "HOST AUDIT - read-only report of disks, containers, served repos, units"
     echo "============================================================================"
     ;;
+  remove-observability)
+    INVENTORY_FILE="inventories/${ENV_NAME}/hosts-production.yml"
+    PLAYBOOK="remove-observability"
+    SSH_USER="ansible"
+    echo "============================================================================"
+    echo "REMOVE OBSERVABILITY - one-time teardown of Prometheus/Grafana/node_exporter"
+    echo "Deletes the stored metrics and dashboards. Irreversible."
+    echo "============================================================================"
+    ;;
   *)
-    echo "ERROR: Invalid phase '${PHASE}'. Must be: bootstrap, foundation, production, upgrade, or audit"
+    echo "ERROR: Invalid phase '${PHASE}'. Must be: bootstrap, foundation, production, upgrade, audit, or remove-observability"
     echo ""
     echo "Usage:"
     echo "  ./scripts/run-ansible.sh <env> <host> <phase>"
@@ -106,6 +115,7 @@ case "${PHASE}" in
     echo "  production  - Phase 3: Application services (Tailscale ONLY, ansible user)"
     echo "  upgrade     - OS package upgrade, no reboot (Tailscale ONLY, ansible user)"
     echo "  audit       - Read-only report of what the host actually runs"
+    echo "  remove-observability - One-time teardown of the retired monitoring stack"
     exit 1
     ;;
 esac
@@ -163,6 +173,8 @@ if [[ "${PHASE}" == "upgrade" ]]; then
   ANSIBLE_ARGS+=(-e "upgrade_hosts=${HOST}")
 elif [[ "${PHASE}" == "audit" ]]; then
   ANSIBLE_ARGS+=(-e "audit_hosts=${HOST}")
+elif [[ "${PHASE}" == "remove-observability" ]]; then
+  ANSIBLE_ARGS+=(-e "target_hosts=${HOST}")
 fi
 
 # Run the playbook

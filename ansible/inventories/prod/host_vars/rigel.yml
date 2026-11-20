@@ -19,10 +19,9 @@ enable_docker_deploy: true
 # Firewall: no extra ports. Tailnet clients get DNS (53) and HTTP/HTTPS (80,
 # 443) automatically from internal_dns_enabled / edge_ingress_enabled; SSH and
 # ping are built in (group_vars/all.yml). The app backends (8001 callosal-demo,
-# 8023 csa), Grafana 3000, Traefik metrics 8082 and node_exporter 9100 are
-# reached only by Traefik and Prometheus on this same host, over loopback, so
-# none is opened to the network. Samba is not running here, so it gets no rule
-# despite enable_samba below being set.
+# 8023 csa) are reached only by Traefik on this same host, over loopback, so
+# neither is opened to the network. Samba is not running here, so it gets no
+# rule despite enable_samba above being set.
 firewall_rules: []
 # Configure Docker to use CoreDNS for DNS resolution (so containers can resolve Tailscale hostnames)
 docker_deploy_dns_servers:
@@ -42,37 +41,19 @@ docker_deploy_git_repos:
 # compose up --build. The csa repo is pulled (read), never modified.
 csa_enabled: true
 csa_repo_ref: main   # branch to serve (see the Vega=prod / Rigel=dev convention in CLAUDE.md)
-csa_route: csa.exnada.com   # domain this instance is served at (shown in provenance)
 
 # callosal demo instance (demo.exnada.com). Pinned to the branch currently
 # deployed here; change this line and redeploy (--tags callosal) to switch.
 callosal_enabled: true
 callosal_repo_ref: dev
-callosal_route: demo.exnada.com   # domain this instance is served at (shown in provenance)
 
 # aispector: no rigel/dev instance right now -- only vega (prod) runs aispector.
-# Removed 2026-07-05. To bring a dev instance back: re-add aispector_enabled/
-# repo_ref/route here, the dev.exnada.com route below, and the app_aispector role
-# in rigel-production.yml.
+# Removed 2026-07-05. To bring a dev instance back: re-add aispector_enabled and
+# aispector_repo_ref here, the dev.exnada.com route below, and the app_aispector
+# role in rigel-production.yml.
 
 csa_env:
   CSA_PORT: "8023"   # deterministic: 8000 + C+S+A
-
-# Observability stack (observability role): Prometheus + Grafana + blackbox on
-# rigel, the control-plane host. Probes every edge route end-to-end and serves
-# the Grafana admin page at monitor.exnada.com. Data lives in named volumes.
-observability_enabled: true
-observability_expect_existing_data: false   # first deploy creates the volumes; set true afterward
-
-# node_exporter (host metrics + the textfile dir app roles write app_build_info
-# provenance into, scraped by Prometheus).
-node_exporter_enabled: true
-
-# Expose Traefik's own Prometheus metrics (per-router request rates, status
-# codes) and have the observability stack scrape them. Enabling recreates the
-# Traefik container once.
-edge_ingress_metrics_enabled: true
-observability_traefik_metrics_target: "localhost:8082"   # Prometheus + Traefik share rigel's host network
 
 # Internal DNS configuration
 internal_dns_enabled: true
@@ -123,6 +104,3 @@ edge_ingress_routes:
     backend: http://vega:8048
   - host: immich.exnada.com
     backend: http://100.120.170.43:2283
-  - host: monitor.exnada.com
-    backend: http://rigel:3000
-    health_path: /api/health

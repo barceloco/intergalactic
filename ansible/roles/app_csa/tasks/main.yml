@@ -39,18 +39,6 @@
         update: true
       register: csa_repo
 
-    - name: Describe the deployed csa commit against the nearest tag  # noqa: command-instead-of-module
-      command: git describe --tags
-      args:
-        chdir: "{{ csa_dir }}"
-      register: csa_tag
-      changed_when: false
-      failed_when: false
-      # git describe shows the nearest tag (and how far past it the commit is, or
-      # just the tag when exactly on it); empty when the history has no tags.
-      # failed_when: false so a tagless repo never fails the deploy. Surfaced as
-      # the tag label in app_build_info.
-
     - name: Render csa .env (gitignored; sets CSA_PORT for the compose port mapping)
       template:
         src: csa.env.j2
@@ -95,20 +83,3 @@
       delay: 5
       until: csa_health.status is defined and csa_health.status == 200
       # Generous retries: a fresh build plus uvicorn startup on a Pi is slow.
-
-- name: Publish csa deployment provenance (app_build_info for Prometheus)
-  when:
-    - csa_enabled | default(false)
-    - node_exporter_enabled | default(false)
-    - csa_repo.after is defined
-  become: true
-  copy:
-    dest: "{{ node_exporter_textfile_dir | default('/var/lib/prometheus/node-exporter') }}/csa.prom"
-    mode: '0644'
-    content: |
-      # HELP app_build_info Repo, branch, and commit ansible deployed per app.
-      # TYPE app_build_info gauge
-      app_build_info{app="csa",route="{{ csa_route | default('') }}",repo="{{ csa_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ csa_repo_ref }}",commit="{{ csa_repo.after }}",tag="{{ (csa_tag.stdout_lines | first | default('')) if csa_tag is defined else '' }}"} 1
-  # Runs as root (outside the deploy block) so it can write node_exporter's
-  # textfile dir; the running commit then surfaces in Prometheus/Grafana. Skipped
-  # where node_exporter is not deployed.

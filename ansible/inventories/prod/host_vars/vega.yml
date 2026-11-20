@@ -26,27 +26,20 @@ docker_deploy_git_repos:
 docgen_enabled: true
 docgen_repo_ref: main    # branch to serve; vega is the production server (see convention in CLAUDE.md)
 docgen_brand_ref: main   # docgen-exnada brand repo branch
-docgen_route: docgen.exnada.com   # domain this instance is served at (shown in provenance)
 
 # callosal prod instance (callosal.exnada.com). vega is production, so it tracks
 # main. dev was fast-forwarded into main on 2026-07-05, so main == dev's tip;
 # rigel's demo.exnada.com stays the only dev-branch deployment in the fleet.
 callosal_enabled: true
 callosal_repo_ref: main
-callosal_route: callosal.exnada.com   # domain this instance is served at (shown in provenance)
 
 # aispector prod instance (aispector.exnada.com). Stateful stack. On main (the
 # feature work was merged into main 2026-07-05); change + redeploy to switch.
 aispector_enabled: true
 aispector_repo_ref: main
-aispector_route: aispector.exnada.com   # domain this instance is served at
 docgen_env:
   DOCGEN_ADMINS: "{{ docgen_admins }}"
   DOCGEN_PORT: "8048"   # deterministic: 8000 + D+O+C+G+E+N (moved off 8420)
-
-# node_exporter (host metrics + the textfile dir app_docgen writes app_build_info
-# provenance into, scraped by Prometheus on rigel).
-node_exporter_enabled: true
 
 # LUKS/cryptsetup: Installed for mounting external encrypted devices
 # No configuration needed - cryptsetup is installed and ready to use
@@ -59,9 +52,8 @@ enable_samba: true
 # Future system password changes will sync to Samba automatically
 
 # Firewall: everything not listed here is dropped, from every source (SSH and
-# ping are built in; see group_vars/all.yml). The app backends and metrics are
-# reached only by rigel (Traefik and Prometheus run there), so only rigel's
-# Tailscale address is admitted.
+# ping are built in; see group_vars/all.yml). The app backends are reached only
+# by Traefik on rigel, so only rigel's Tailscale address is admitted.
 firewall_rules:
   - port: 8000
     from: [rigel]
@@ -72,9 +64,6 @@ firewall_rules:
   - port: 8048
     from: [rigel]
     comment: "Docgen backend for Traefik on rigel -> docgen.exnada.com"
-  - port: 9100
-    from: [rigel]
-    comment: "node_exporter, scraped by Prometheus on rigel"
   - port: [139, 445]
     from: [tailnet, lan]
     comment: "Samba (SMB)"

@@ -43,6 +43,8 @@ To run scripts on rigel from your local Mac, use the `run-on-rigel.sh` wrapper:
 - `foundation` - Phase 2: Network + security (Tailscale, firewall, Docker, monitoring)
 - `production` - Phase 3: Application services (DNS, ingress, deploy user, advanced features)
 - `upgrade` - OS package upgrade within the current Debian release (`playbooks/os-upgrade.yml`). Reboots only with `-e os_upgrade_reboot=true`.
+- `audit` - Read-only report of what a host actually runs (`playbooks/host-audit.yml`).
+- `remove-observability` - One-time teardown of the retired monitoring stack (`playbooks/remove-observability.yml`): removes the Prometheus/Alertmanager/Grafana/blackbox containers and their data volumes, and purges `prometheus-node-exporter`. Irreversible; idempotent.
 
 **Examples**:
 ```bash

@@ -80,20 +80,6 @@
       # git force=no still refuses over local modifications -- correct: resolve
       # them first rather than silently discard prod config.
 
-    - name: Read the deployed aispector commit  # noqa: command-instead-of-module
-      command: git rev-parse HEAD
-      args:
-        chdir: "{{ aispector_dir }}"
-      register: aispector_head
-      changed_when: false
-
-    - name: Capture the git tag at the deployed aispector commit (if any)  # noqa: command-instead-of-module
-      command: git tag --points-at HEAD
-      args:
-        chdir: "{{ aispector_dir }}"
-      register: aispector_tag
-      changed_when: false
-
     - name: Check whether the aispector api container is already running
       command: docker ps -q --filter "name=^{{ aispector_api_container }}$" --filter status=running
       register: aispector_running
@@ -129,19 +115,3 @@
       register: aispector_verify
       changed_when: false
       failed_when: (aispector_verify.stdout | trim) == ''
-
-- name: Publish aispector deployment provenance (app_build_info for Prometheus)
-  when:
-    - aispector_enabled | default(false)
-    - node_exporter_enabled | default(false)
-    - aispector_head.stdout is defined
-  become: true
-  copy:
-    dest: "{{ node_exporter_textfile_dir | default('/var/lib/prometheus/node-exporter') }}/aispector.prom"
-    mode: '0644'
-    content: |
-      # HELP app_build_info Repo, branch, and commit ansible deployed per app.
-      # TYPE app_build_info gauge
-      app_build_info{app="aispector",route="{{ aispector_route | default('') }}",repo="{{ aispector_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ aispector_repo_ref }}",commit="{{ aispector_head.stdout }}",tag="{{ (aispector_tag.stdout_lines | first | default('')) if aispector_tag is defined else '' }}"} 1
-  # Runs as root (outside the deploy block) to write node_exporter's textfile dir,
-  # so aispector's repo/branch/commit surfaces in the monitor provenance table.

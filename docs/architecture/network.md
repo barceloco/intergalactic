@@ -110,11 +110,8 @@ Observed on the hosts on 2026-11-04. Full detail and known drift:
 - **53**: CoreDNS (DNS)
 - **80**: Traefik (HTTP)
 - **443**: Traefik (HTTPS)
-- **8082**: Traefik metrics
 - **8001**: callosal dev (demo.exnada.com)
 - **8023**: csa (csa.exnada.com)
-- **3000**: Grafana (monitor.exnada.com); Prometheus, Alertmanager, and blackbox listen on localhost
-- **9100**: node_exporter
 
 ### vega
 
@@ -122,7 +119,6 @@ Observed on the hosts on 2026-11-04. Full detail and known drift:
 - **8001**: callosal (callosal.exnada.com)
 - **8048**: docgen (docgen.exnada.com)
 - **139, 445**: Samba
-- **9100**: node_exporter
 - **5432, 6379, 9000, 9001**: aispector Postgres, Redis, MinIO (published on all interfaces; see drift in fleet-state.md)
 
 ### mpnas

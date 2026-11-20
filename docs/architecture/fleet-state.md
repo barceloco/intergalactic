@@ -14,7 +14,7 @@ the hosts. Re-verify at any time:
 | Host | Hardware | Role | Status |
 |---|---|---|---|
 | vega | Raspberry Pi 5, 256 GB NVMe | Production app server | Running |
-| rigel | Raspberry Pi 4, 128 GB SD card | Dev app server, edge (Traefik, CoreDNS), observability | Running |
+| rigel | Raspberry Pi 4, 128 GB SD card | Dev app server, edge (Traefik, CoreDNS) | Running |
 | mpnas | NAS, not Ansible-managed | immich backend behind rigel's Traefik | Not managed here |
 | alpheratz, deneb | Pi 3, Pi 1 | Foundation-only, minimal | Offline since early 2026 |
 | saiph, g1, ngc604 | Pi 1 | Inventory placeholders, no playbooks | Never deployed |
@@ -55,12 +55,11 @@ restarts with Docker (`restart: unless-stopped`).
 | docgen.exnada.com | vega:8048 | docgen + Postgres (brand from `/srv/docgen-exnada`) | `/srv/docgen` | main | `app_docgen` |
 | demo.exnada.com | rigel:8001 | callosal (`callosal-serve`) | `/srv/callosal` | dev | `app_callosal` |
 | csa.exnada.com | rigel:8023 | csa | `/srv/csa` | main | `app_csa` |
-| monitor.exnada.com | rigel:3000 | Grafana (with Prometheus, Alertmanager, blackbox) | `/srv/observability` | n/a | `observability` |
 | immich.exnada.com | mpnas:2283 | immich | not managed here | n/a | route only |
 
 Edge services on rigel are systemd-managed containers: `traefik.service`
-(`/opt/traefik`, ports 80, 443, 8082 metrics) and `coredns.service`
-(`/opt/coredns`, port 53). Both hosts run `prometheus-node-exporter` on 9100.
+(`/opt/traefik`, ports 80, 443) and `coredns.service`
+(`/opt/coredns`, port 53).
 
 ## Other Services
 

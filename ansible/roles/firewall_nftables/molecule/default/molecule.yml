@@ -37,7 +37,7 @@ provisioner:
             comment: "published container port for Traefik on rigel"
           - port: 9100
             from: [rigel]
-            comment: "node_exporter for Prometheus on rigel"
+            comment: "metrics endpoint scraped from rigel"
           - port: [139, 445]
             from: [tailnet, lan]
             comment: "Samba (SMB)"
