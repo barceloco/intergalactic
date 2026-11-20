@@ -133,6 +133,20 @@ are not active until the host reboots.
 
 ## Validation and Verification Scripts
 
+### `render-firewall.sh`
+
+**Purpose**: Shows exactly which nftables rules a host would get, before deploying
+
+**Usage**:
+```bash
+./scripts/render-firewall.sh <host>
+```
+
+**What it does**:
+- Renders the host's ruleset from the inventory (`firewall_rules`, built-in SSH/ping/Tailscale rules) without connecting to the host
+- Runs the same validation as the `firewall_nftables` role (refuses the retired all-sources variables, unknown sources, missing comments)
+- Syntax-checks the result with `nft -c` on Debian trixie, then prints it
+
 ### `validate-playbooks.sh`
 
 **Purpose**: Validates all Ansible playbooks for syntax errors

@@ -106,18 +106,15 @@ monitoring_tcp_ports:
 # USAGE EXAMPLES
 # ============================================================================
 
-# Example 1: Firewall configuration
-# firewall_allow_tcp_ports: "{{ infrastructure_tcp_ports + database_tcp_ports }}"
+# Example 1: Firewall rule admitting Traefik on rigel to an app backend
+# firewall_rules:
+#   - port: "{{ port_api }}"
+#     from: [rigel]
+#     comment: "API backend for Traefik on rigel"
+# Backing services (Postgres, Redis, MinIO) get no rule: bind them to
+# 127.0.0.1 in the app's compose file.
 
-# Example 2: Docker deploy ports
-# docker_deploy_tcp_ports:
-#   - "{{ port_api }}"
-#   - "{{ port_postgresql }}"
-#   - "{{ port_redis }}"
-#   - "{{ port_minio }}"
-#   - "{{ port_minio_console }}"
-
-# Example 3: Reference individual ports
+# Example 2: Reference individual ports
 # backend_url: "http://{{ backend_host }}:{{ port_api }}"
 
 # ============================================================================

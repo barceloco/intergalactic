@@ -33,8 +33,7 @@ if sudo grep -q "8001" /etc/nftables.conf 2>/dev/null; then
 else
     echo -e "${RED}✗${NC} Port 8001 is NOT in /etc/nftables.conf"
     echo ""
-    echo "Current firewall_allow_tcp_ports rules:"
-    sudo grep -A 2 "firewall_allow_tcp_ports" /etc/nftables.conf || echo "Could not find firewall_allow_tcp_ports"
+    echo "Port 8001 must be in vega's firewall_rules (host_vars/vega.yml), admitted from rigel."
 fi
 echo ""
 

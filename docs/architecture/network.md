@@ -61,10 +61,14 @@ The intergalactic infrastructure uses Tailscale VPN to provide secure, encrypted
 
 ### External Access
 
-1. User requests `https://aispector.exnada.com`
-2. Public DNS resolves to rigel's public IP
-3. HTTPS connection to Traefik
-4. Traefik routes to backend via Tailscale
+The app domains are tailnet-only: they have no public DNS records.
+
+1. A tailnet device requests `https://aispector.exnada.com`
+2. Tailscale DNS sends the query to CoreDNS on rigel, which answers with
+   rigel's Tailscale IP
+3. HTTPS connection to Traefik on rigel, over Tailscale
+4. Traefik routes to the backend: locally on rigel, or over Tailscale to
+   vega, whose firewall admits only rigel's address on the backend ports
 
 ## Security
 
@@ -77,7 +81,9 @@ The intergalactic infrastructure uses Tailscale VPN to provide secure, encrypted
 ### Access Control
 
 - **Tailscale ACLs**: Control which hosts can communicate
-- **Firewall**: nftables on each host
+- **Firewall**: nftables allow-list on each host, on every interface including
+  Tailscale and including Docker-published ports. LAN devices reach only SSH,
+  ping (and Samba on vega); see `firewall_rules` in host_vars
 - **SSH**: Key-based authentication
 
 ## Network Resilience

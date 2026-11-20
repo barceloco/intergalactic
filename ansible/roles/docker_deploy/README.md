@@ -11,7 +11,6 @@ Sets up a dedicated `deploy` user for Docker container deployment with SSH acces
 - Configures passwordless sudo for `deploy` user
 - Optionally configures Docker daemon DNS servers
 - Optionally sets environment variables for `deploy` user
-- Integrates with firewall (exposes `docker_deploy_tcp_ports`)
 
 ## Requirements
 
@@ -20,21 +19,18 @@ Sets up a dedicated `deploy` user for Docker container deployment with SSH acces
 - Root/sudo access (role uses `become: true`)
 - `armand` user must exist in `human_users` with SSH keys configured
 - Docker must be installed (via `docker_host` role)
-- `firewall_nftables` role should run after this role to pick up `docker_deploy_tcp_ports`
 
 ## Role Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `enable_docker_deploy` | `false` | Enable this role (set to `true` in host_vars) |
-| `docker_deploy_tcp_ports` | `[]` | List of TCP ports to expose via firewall (e.g., `[8000, 5432, 6379]`) |
 | `docker_deploy_dns_servers` | `[]` | Optional: List of DNS servers for Docker daemon (e.g., `["8.8.8.8", "8.8.4.4"]`) |
 | `docker_deploy_env_vars` | `{}` | Optional: Dict of environment variables for deploy user (e.g., `{"API_KEY": "value"}`) |
 
 ## Dependencies
 
 - **docker_host**: Docker must be installed before this role runs
-- **firewall_nftables**: Should run after this role to pick up `docker_deploy_tcp_ports`
 
 ## Directory Structure Created
 
@@ -54,18 +50,12 @@ Sets up a dedicated `deploy` user for Docker container deployment with SSH acces
 ```yaml
 # In host_vars/rigel.yml
 enable_docker_deploy: true
-docker_deploy_tcp_ports:
-  - 8000   # API
-  - 5432   # PostgreSQL
-  - 6379   # Redis
 ```
 
 ### With Docker DNS Configuration
 
 ```yaml
 enable_docker_deploy: true
-docker_deploy_tcp_ports:
-  - 8000
 docker_deploy_dns_servers:
   - 8.8.8.8
   - 8.8.4.4
@@ -122,7 +112,9 @@ The role will copy these SSH keys to the `deploy` user.
 
 ## Firewall Integration
 
-The role sets `docker_deploy_tcp_ports` fact which is automatically merged into `firewall_allow_tcp_ports` by the `firewall_nftables` role. Ensure `firewall_nftables` runs after `docker_deploy`.
+This role opens no ports. Container ports are governed by the
+`firewall_nftables` allow-list (host_vars `firewall_rules`), which also covers
+Docker-published ports.
 
 ## Security Considerations
 

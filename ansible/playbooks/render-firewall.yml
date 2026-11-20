@@ -1,0 +1,22 @@
+---
+# Render a host's firewall rules from the real inventory, without connecting to
+# the host, so they can be reviewed before a deploy. Runs the same validation
+# as the firewall_nftables role. Use the wrapper:
+#   ./scripts/render-firewall.sh <host>
+- name: Render firewall rules
+  hosts: "{{ render_hosts | default('no_host_selected') }}"
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Validate firewall variables
+      include_role:
+        name: firewall_nftables
+        tasks_from: validate.yml
+        # Expose the role defaults (e.g. firewall_rules: []) to the render task.
+        public: true
+
+    - name: Render the ruleset
+      template:
+        src: ../roles/firewall_nftables/templates/nftables.conf.j2
+        dest: "{{ render_out_dir }}/{{ inventory_hostname }}.nft"
+        mode: "0644"

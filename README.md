@@ -698,7 +698,7 @@ cat ~/.ssh/known_hosts | grep 192.168.1.40
 
 #### Firewall issues
 - **Cannot access services**: Check firewall rules: `sudo nft list ruleset`
-- **Port not open**: Verify port is in `firewall_allow_tcp_ports`
+- **Port not open**: Verify the port and its source are in the host's `firewall_rules`; review with `./scripts/render-firewall.sh <host>`. Drops are logged as `nft-in-drop:` (host) and `nft-fwd-drop:` (containers) in `journalctl -k`
 - **Tailscale services not accessible**: Check `internal_dns_enabled` or `edge_ingress_enabled` are set
 
 #### DNS issues

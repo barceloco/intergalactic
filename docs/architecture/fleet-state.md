@@ -90,8 +90,9 @@ These differ from what the repo intends. Each is a follow-up, not yet fixed:
   `smartmontools` also fails (no SMART-capable disk on an SD card). Harmless noise.
 - **rigel: leftover aispector.** aispector was removed from rigel on 2026-07-05,
   but `/srv/aispector` (dev, last commit 2026-01-14) remains, `aispector` is
-  still in `docker_deploy_git_repos`, and ports 8000, 5432, 6379, 9000, 9001
-  stay open in `docker_deploy_tcp_ports`.
+  still in `docker_deploy_git_repos`. (Its ports 8000, 5432, 6379, 9000 and
+  9001 were open to the whole LAN via `docker_deploy_tcp_ports`; the allow-list
+  firewall retires that variable.)
 - **rigel: `enable_samba: true` has no effect.** rigel's production playbook does
   not include the `samba` role and no Samba service runs.
 - **Both: unattended-upgrades is enabled but not applying security updates.**

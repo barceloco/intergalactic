@@ -1,243 +1,84 @@
 # firewall_nftables Role
 
-Configures nftables firewall with default-deny policy and explicit allow rules for specified ports and services.
+An allow-list firewall. Every interface, Tailscale included, denies by default,
+and every open port names the sources allowed to reach it. The same allow-list
+covers Docker-published container ports.
 
-## What This Role Does
+## Policy
 
-- Installs `nftables` package
-- Deploys firewall rules based on configured ports and services
-- Enables and starts nftables service
-- Validates firewall configuration syntax
-- Integrates with Tailscale (allows SSH, DNS, HTTP, HTTPS on `tailscale0` interface)
-- Integrates with docker_deploy (merges `docker_deploy_tcp_ports` into allowed ports)
+| Traffic | Allowed from |
+|---|---|
+| SSH (`ssh_port`) | tailnet and `firewall_lan_subnet`, always (the LAN path is the lockout backup and cannot be disabled) |
+| Ping | tailnet and `firewall_lan_subnet` |
+| IPv6 neighbour discovery | the local link (hop limit 255) |
+| Tailscale transport, udp 41641 | anywhere (if `enable_tailscale`) |
+| DNS 53 tcp/udp | tailnet (if `internal_dns_enabled`) |
+| HTTP/HTTPS 80, 443 | tailnet (if `edge_ingress_enabled`) |
+| Anything in `firewall_rules` | the sources that rule names |
+| Everything else | dropped and logged (rate-limited) |
 
-## Requirements
+## Why containers need special handling
 
-- Debian distribution (tested on Debian trixie/testing)
-- Ansible 2.9+
-- Root/sudo access (role uses `become: true`)
-- Network access for package installation
+Docker publishes a port by rewriting its destination (DNAT) before routing, so
+the packet goes through the **forward** path and never reaches the input chain.
+An input-only firewall therefore leaves every `0.0.0.0` publish open to the LAN
+and the tailnet. This role filters new DNAT'd connections in the forward chain
+against the same allow-list, matching the port the client originally connected
+to (`ct original proto-dst`), since Docker rewrites it. A drop in this table is
+final even though Docker's own chains accept the packet later. Container
+traffic on Docker bridges (`docker0`, `br-*`) and replies stay untouched.
 
-## Role Variables
+## Variables
 
 | Variable | Default | Description |
-|----------|---------|-------------|
-| `firewall_allow_tcp_ports` | `[22]` | List of TCP ports to allow (SSH port 22 is always included) |
-| `firewall_allow_udp_ports` | `[]` | List of UDP ports to allow (Tailscale UDP 41641 added if `enable_tailscale: true`) |
-| `firewall_rate_limit` | `10` | Rate limit for dropped packets (packets/second) |
-| `ssh_port` | `22` | SSH port number (used in firewall rules) |
-| `enable_tailscale` | `false` | Enable Tailscale-specific firewall rules |
-| `internal_dns_enabled` | `false` | Enable DNS ports (53 TCP/UDP) on Tailscale interface |
-| `edge_ingress_enabled` | `false` | Enable HTTP/HTTPS ports (80/443 TCP) on Tailscale interface |
-| `docker_deploy_tcp_ports` | `[]` | Automatically merged into `firewall_allow_tcp_ports` (from docker_deploy role) |
+|---|---|---|
+| `firewall_lan_subnet` | `192.168.1.0/24` | The local LAN (source `lan`). Required. |
+| `fleet_tailscale_ipv4` | `{}` | Host name to Tailscale IPv4, so a rule can admit one host |
+| `firewall_rules` | `[]` | Per-host rules, see below |
+| `firewall_rate_limit` | `10` | Max logged drops per second |
+| `enable_tailscale`, `enable_docker`, `internal_dns_enabled`, `edge_ingress_enabled` | | Enable the matching built-in rules |
 
-## Firewall Rules
-
-### Default Policy
-- **Input**: DROP (default-deny)
-- **Forward**: DROP
-- **Output**: ACCEPT
-
-### Always Allowed
-- Loopback traffic (`lo` interface)
-- Established and related connections
-- SSH port (from `ssh_port` variable, default 22)
-
-### Conditionally Allowed (Based on Variables)
-
-**Tailscale Interface (`tailscale0`)** - If `enable_tailscale: true`:
-- SSH (port from `ssh_port`)
-- DNS (53 TCP/UDP) - If `internal_dns_enabled: true`
-- HTTP (80 TCP) - If `edge_ingress_enabled: true`
-- HTTPS (443 TCP) - If `edge_ingress_enabled: true`
-
-**All Interfaces**:
-- TCP ports from `firewall_allow_tcp_ports`
-- UDP ports from `firewall_allow_udp_ports`
-- Tailscale UDP 41641 (if `enable_tailscale: true`)
-
-### Rate Limiting
-- Dropped packets are rate-limited to prevent log flooding
-- Rate limit: `firewall_rate_limit` packets/second (default: 10)
-
-## Dependencies
-
-- **docker_deploy**: If used, `docker_deploy_tcp_ports` are automatically merged into allowed ports
-- **tailscale**: Should run before this role if Tailscale is enabled
-
-## Usage Examples
-
-### Basic Usage (SSH Only)
+Each `firewall_rules` entry:
 
 ```yaml
-# In group_vars/all.yml or host_vars
-firewall_allow_tcp_ports:
-  - "{{ ssh_port }}"
+firewall_rules:
+  - port: 8000              # a port or a list of ports
+    proto: tcp              # tcp (default) or udp
+    from: [rigel]           # "tailnet", "lan", or a host in fleet_tailscale_ipv4
+    comment: "aispector backend for Traefik on rigel"   # required
 ```
 
-### With Additional Ports
+A host source matches only on `tailscale0` and only that host's address, so the
+same address arriving on the LAN wire (a spoof) is dropped.
 
-```yaml
-firewall_allow_tcp_ports:
-  - "{{ ssh_port }}"
-  - 8000   # API
-  - 5432   # PostgreSQL
-  - 6379   # Redis
+The role validates everything before touching the host and refuses the retired
+`firewall_allow_tcp_ports`, `firewall_allow_udp_ports`, `docker_deploy_tcp_ports`
+(they opened ports to all sources) and `firewall_local_ssh_subnet` (renamed to
+`firewall_lan_subnet`).
+
+## Reviewing and deploying
+
+```bash
+./scripts/render-firewall.sh <host>     # exact rules, validated and nft -c checked; touches nothing
+./scripts/run-ansible.sh prod <host> foundation --tags security
 ```
 
-### With Tailscale
+The rules file is syntax-checked before it replaces `/etc/nftables.conf`. Only
+the `inet filter` table is replaced; Docker's tables are left alone, so a
+reload is safe while containers run.
 
-```yaml
-enable_tailscale: true
-internal_dns_enabled: true
-edge_ingress_enabled: true
-firewall_allow_tcp_ports:
-  - "{{ ssh_port }}"
-```
+## Testing
 
-This automatically allows:
-- SSH on `tailscale0` interface
-- DNS (53 TCP/UDP) on `tailscale0` interface
-- HTTP (80 TCP) on `tailscale0` interface
-- HTTPS (443 TCP) on `tailscale0` interface
-
-### With Docker Deploy Integration
-
-```yaml
-# In host_vars/rigel.yml
-enable_docker_deploy: true
-docker_deploy_tcp_ports:
-  - 8000
-  - 5432
-  - 6379
-
-# firewall_nftables automatically picks up docker_deploy_tcp_ports
-```
-
-## Firewall Rule Template
-
-The role uses `templates/nftables.conf.j2` to generate firewall rules. The template:
-
-1. Sets default policies (DROP for input/forward, ACCEPT for output)
-2. Allows loopback traffic
-3. Allows established/related connections
-4. Allows SSH port
-5. Conditionally allows Tailscale interface rules
-6. Allows configured TCP/UDP ports
-7. Applies rate limiting to dropped packets
-
-## Security Considerations
-
-- **Default-Deny Policy**: All traffic is denied by default, only explicitly allowed ports are open
-- **Tailscale Isolation**: Tailscale services (DNS, HTTP, HTTPS) are only accessible on `tailscale0` interface
-- **Rate Limiting**: Prevents log flooding from dropped packets
-- **SSH Protection**: SSH is always allowed (required for management)
+`./scripts/run-molecule-tests.sh firewall_nftables` converges a vega-shaped
+config on Debian trixie, then builds a fake tailnet (an interface named
+`tailscale0` carrying rigel's and another node's addresses), a LAN (LAN,
+non-LAN and spoofed sources) and a container behind a DNAT'd published port.
+It sends real TCP connections and pings and checks each against the policy,
+and checks that the retired variables are refused.
 
 ## Troubleshooting
 
-### Cannot Access Services After Firewall Applied
-
-1. **Check if port is in allowed list**:
-   ```bash
-   sudo nft list ruleset | grep -A 5 "tcp dport"
-   ```
-
-2. **Check if service is listening**:
-   ```bash
-   sudo ss -tlnp | grep :8000
-   ```
-
-3. **Check firewall status**:
-   ```bash
-   sudo systemctl status nftables
-   sudo nft list ruleset
-   ```
-
-### Firewall Configuration Syntax Error
-
-1. **Check syntax manually**:
-   ```bash
-   sudo nft -c -f /etc/nftables.conf
-   ```
-
-2. **Check template variables**:
-   - Verify `firewall_allow_tcp_ports` is a list
-   - Verify `ssh_port` is a number
-   - Check for YAML syntax errors in inventory
-
-3. **View generated configuration**:
-   ```bash
-   sudo cat /etc/nftables.conf
-   ```
-
-### Cannot Access Tailscale Services
-
-1. **Check Tailscale interface exists**:
-   ```bash
-   ip addr show tailscale0
-   ```
-
-2. **Check Tailscale rules**:
-   ```bash
-   sudo nft list ruleset | grep tailscale0
-   ```
-
-3. **Verify variables are set**:
-   - `enable_tailscale: true`
-   - `internal_dns_enabled: true` (for DNS)
-   - `edge_ingress_enabled: true` (for HTTP/HTTPS)
-
-### Firewall Not Starting
-
-1. **Check service status**:
-   ```bash
-   sudo systemctl status nftables
-   sudo journalctl -u nftables
-   ```
-
-2. **Check configuration syntax**:
-   ```bash
-   sudo nft -c -f /etc/nftables.conf
-   ```
-
-3. **Test rules manually**:
-   ```bash
-   sudo nft -f /etc/nftables.conf
-   ```
-
-## Advanced Usage
-
-### Custom Firewall Rules
-
-To add custom firewall rules, you can:
-
-1. **Extend the template**: Modify `templates/nftables.conf.j2`
-2. **Use a custom template**: Override `templates/nftables.conf.j2` in your playbook
-3. **Add rules after role**: Use `post_tasks` to add additional rules
-
-Example custom rule:
-```yaml
-- name: Add custom firewall rule
-  command: nft add rule inet filter input tcp dport 9000 accept
-  when: ansible_facts['os_family'] == 'Debian'
-```
-
-## Notes
-
-- The role is idempotent: running it multiple times produces no changes
-- Firewall rules are applied immediately when the role runs
-- Configuration is validated before applying
-- `docker_deploy_tcp_ports` are automatically merged (no manual configuration needed)
-- Tailscale interface rules are only added if `enable_tailscale: true`
-- Rate limiting helps prevent log flooding but may hide some attack patterns
-
-## Integration with Other Roles
-
-- **docker_deploy**: Automatically merges `docker_deploy_tcp_ports`
-- **tailscale**: Should run before this role
-- **internal_dns**: Sets `internal_dns_enabled: true` to allow DNS ports
-- **edge_ingress**: Sets `edge_ingress_enabled: true` to allow HTTP/HTTPS ports
-
-## License
-
-Proprietary - All Rights Reserved, ExNada Inc.
+- See what is dropped: `journalctl -k -g 'nft-in-drop|nft-fwd-drop'`
+- See the loaded rules: `sudo nft list table inet filter`
+- A port that must be reachable is missing: add it to the host's
+  `firewall_rules` with the narrowest source, render, review, deploy.

@@ -1,4 +1,10 @@
 #!/usr/sbin/nft -f
+# {{ ansible_managed | default('Managed by Ansible (firewall_nftables)') }}
+#
+# Allow-list firewall: every interface, Tailscale included, is deny-by-default.
+# The same allow-list covers the host's own services (input) and
+# Docker-published container ports (forward), because Docker DNATs published
+# ports past the input chain.
 
 # Manage ONLY our own 'inet filter' table. Do NOT `flush ruleset`: that also
 # wipes Docker's dynamically-managed 'ip nat' / 'ip filter' chains (masquerade,
@@ -7,71 +13,129 @@
 # systemd-managed edge containers (traefik, coredns). Declaring then deleting
 # the table makes the recreate below atomic and idempotent even on a fresh
 # host, while leaving Docker's tables untouched so a firewall reload is safe
-# to run while containers are up.
+# to run while containers are up. A drop here is final even though Docker's
+# own chains accept the same packet later.
 table inet filter
 delete table inet filter
 
+{% macro source_match(src) -%}
+{%- if src == 'tailnet' -%}
+iifname "tailscale0"
+{%- elif src == 'lan' -%}
+iifname != "tailscale0" ip saddr {{ firewall_lan_subnet }}
+{%- else -%}
+iifname "tailscale0" ip saddr {{ fleet_tailscale_ipv4[src] }}
+{%- endif -%}
+{%- endmacro %}
 table inet filter {
+  # Every allowed (source, protocol, port), shared by input and forward. In the
+  # forward path the port is the one the client connected to
+  # (ct original proto-dst), not the container port Docker rewrote it to.
+  chain allowed {
+    # SSH: always reachable over the tailnet and from the local LAN.
+{% if enable_tailscale | default(false) %}
+    iifname "tailscale0" tcp dport {{ ssh_port | default(22) }} accept
+{% endif %}
+    iifname != "tailscale0" ip saddr {{ firewall_lan_subnet }} tcp dport {{ ssh_port | default(22) }} accept
+
+{% if enable_tailscale | default(false) %}
+{% if internal_dns_enabled | default(false) %}
+    # Internal DNS (CoreDNS) for tailnet clients.
+    iifname "tailscale0" udp dport 53 accept
+    iifname "tailscale0" tcp dport 53 accept
+{% endif %}
+{% if edge_ingress_enabled | default(false) %}
+    # Edge ingress (Traefik) for tailnet clients.
+    iifname "tailscale0" tcp dport { 80, 443 } accept
+{% endif %}
+{% endif %}
+{% for rule in firewall_rules %}
+{% set ports = rule.port if rule.port is iterable and rule.port is not string else [rule.port] %}
+{% set proto = rule.proto | default('tcp') %}
+    # {{ rule.comment }}
+{% for src in rule.from %}
+    {{ source_match(src) }} {{ proto }} dport { {{ ports | join(', ') }} } accept
+{% endfor %}
+{% endfor %}
+  }
+
+  # Same allow-list for forwarded (DNAT'd) traffic, keyed on the original port.
+  chain allowed_published {
+{% if enable_tailscale | default(false) %}
+    iifname "tailscale0" meta l4proto tcp ct original proto-dst {{ ssh_port | default(22) }} accept
+{% endif %}
+    iifname != "tailscale0" ip saddr {{ firewall_lan_subnet }} meta l4proto tcp ct original proto-dst {{ ssh_port | default(22) }} accept
+{% if enable_tailscale | default(false) %}
+{% if internal_dns_enabled | default(false) %}
+    iifname "tailscale0" meta l4proto { tcp, udp } ct original proto-dst 53 accept
+{% endif %}
+{% if edge_ingress_enabled | default(false) %}
+    iifname "tailscale0" meta l4proto tcp ct original proto-dst { 80, 443 } accept
+{% endif %}
+{% endif %}
+{% for rule in firewall_rules %}
+{% set ports = rule.port if rule.port is iterable and rule.port is not string else [rule.port] %}
+{% set proto = rule.proto | default('tcp') %}
+    # {{ rule.comment }}
+{% for src in rule.from %}
+    {{ source_match(src) }} meta l4proto {{ proto }} ct original proto-dst { {{ ports | join(', ') }} } accept
+{% endfor %}
+{% endfor %}
+  }
+
   chain input {
     type filter hook input priority 0;
     policy drop;
 
     iif lo accept
-    {% if firewall_local_ssh_subnet | default('') | length > 0 %}
-    # Tailscale-independent SSH backup from the trusted LAN subnet, so a
-    # Tailscale outage can never lock out management access. Auth stays
-    # key-only (ssh_hardening disables passwords); this widens only the
-    # network path, and only to the local subnet, never the internet.
-    ip saddr {{ firewall_local_ssh_subnet }} tcp dport {{ ssh_port | default(22) }} accept
-    {% endif %}
-    {% if enable_tailscale | default(false) %}
-    iifname "tailscale0" tcp dport {{ ssh_port | default(22) }} accept
-    {% if internal_dns_enabled | default(false) %}
-    iifname "tailscale0" udp dport 53 accept
-    iifname "tailscale0" tcp dport 53 accept
-    {% endif %}
-    {% if edge_ingress_enabled | default(false) %}
-    iifname "tailscale0" tcp dport 80 accept
-    iifname "tailscale0" tcp dport 443 accept
-    {% endif %}
-    # Accept all other traffic on Tailscale interface (more secure than opening UDP port globally)
-    # Note: This rule will be ignored if tailscale0 doesn't exist yet (e.g., before Tailscale is started)
-    iifname "tailscale0" accept
-    {% endif %}
     ct state established,related accept
+    ct state invalid drop
 
-    ip protocol icmp accept
-    ip6 nexthdr icmpv6 accept
+    # Ping from the tailnet and the local LAN.
+{% if enable_tailscale | default(false) %}
+    iifname "tailscale0" icmp type echo-request accept
+    iifname "tailscale0" icmpv6 type echo-request accept
+{% endif %}
+    iifname != "tailscale0" ip saddr {{ firewall_lan_subnet }} icmp type echo-request accept
+    # IPv6 neighbour discovery: link-local only (hop limit 255), needed for IPv6
+    # to work at all on the LAN.
+    icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert } ip6 hoplimit 255 accept
 
-    {% for p in firewall_allow_tcp_ports %}
-    tcp dport {{ p }} accept
-    {% endfor %}
+{% if enable_tailscale | default(false) %}
+    # Tailscale's own transport (not a service): direct peer connections.
+    udp dport 41641 accept
+{% endif %}
 
-    {% if enable_samba | default(false) %}
-    # Samba (SMB/CIFS) ports
-    tcp dport 445 accept
-    tcp dport 139 accept
-    udp dport 137 accept
-    udp dport 138 accept
-    {% endif %}
+    jump allowed
 
-    {% for p in firewall_allow_udp_ports %}
-    udp dport {{ p }} accept
-    {% endfor %}
-
-    limit rate {{ firewall_rate_limit | default(10) }}/second counter log prefix "nft-in-drop: " drop
+    limit rate {{ firewall_rate_limit }}/second counter log prefix "nft-in-drop: "
+    counter drop
   }
 
   chain forward {
     type filter hook forward priority 0;
 {% if enable_docker | default(false) %}
-    # Allow forwarding when Docker is enabled - Docker manages its own
-    # forwarding rules in the 'ip filter' table (DOCKER-USER, DOCKER-FORWARD chains)
+    # Docker routes container traffic through here and manages its own chains
+    # in 'ip filter'; only NEW connections to published ports are filtered.
     policy accept;
+
+    ct state established,related accept
+    # Containers reaching published ports (hairpin) stay allowed.
+    iifname "docker0" accept
+    iifname "br-*" accept
+    ct state new ct status dnat jump published
 {% else %}
     policy drop;
 {% endif %}
   }
+{% if enable_docker | default(false) %}
+
+  chain published {
+    jump allowed_published
+    limit rate {{ firewall_rate_limit }}/second counter log prefix "nft-fwd-drop: "
+    counter drop
+  }
+{% endif %}
 
   chain output {
     type filter hook output priority 0;
