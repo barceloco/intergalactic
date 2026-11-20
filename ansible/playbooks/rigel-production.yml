@@ -22,18 +22,12 @@
     - role: docker_deploy
       tags: [production, services]
 
-    # 1a. node_exporter: host metrics plus the textfile dir that app roles write
-    # deployment provenance (app_build_info) into. Before the app roles so the
-    # directory exists when they write.
-    - role: node_exporter
-      tags: [production, monitoring]
-
-    # 1b. csa application service. After docker_deploy so the deploy user's
+    # 1a. csa application service. After docker_deploy so the deploy user's
     # github-csa SSH alias/key exist before the csa repo is pulled.
     - role: app_csa
       tags: [production, services, csa]
 
-    # 1c. callosal application service (demo.exnada.com). After docker_deploy so
+    # 1b. callosal application service (demo.exnada.com). After docker_deploy so
     # the deploy user's github-callosal SSH alias/key exist before the pull.
     - role: app_callosal
       tags: [production, services, callosal]
@@ -57,11 +51,6 @@
     # 5. Monitoring tools
     - role: monitoring_docker
       tags: [production, monitoring]
-
-    # 5b. Observability stack (Prometheus + Grafana + blackbox). Probes every
-    # edge route end-to-end and serves the Grafana admin page via Traefik.
-    - role: observability
-      tags: [production, monitoring, observability]
 
     # 6. LUKS support for external encrypted devices
     - role: luks

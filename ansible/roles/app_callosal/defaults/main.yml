@@ -14,7 +14,7 @@ callosal_dir: /srv/callosal
 
 # Branch this host serves. Set explicitly per host (see CLAUDE.md "Server Roles
 # and App Branches"). Change it and redeploy to move this instance to another
-# branch; the value also shows up in the monitor dashboard's provenance table.
+# branch.
 callosal_repo_ref: main
 
 # Container + image names and the published port all come from callosal's own

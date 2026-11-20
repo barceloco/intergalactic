@@ -15,8 +15,7 @@ aispector_dir: /srv/aispector
 aispector_server_dir: "{{ aispector_dir }}/aispector-server"
 
 # Branch this host serves. Set explicitly per host (see CLAUDE.md "Server Roles
-# and App Branches"). Change it and redeploy (--tags aispector) to switch; the
-# value also shows in the monitor dashboard's provenance table.
+# and App Branches"). Change it and redeploy (--tags aispector) to switch.
 aispector_repo_ref: main
 
 # Host port the api serves on (matches the edge route backend).

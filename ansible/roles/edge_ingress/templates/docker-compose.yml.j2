@@ -14,9 +14,6 @@ services:
       - "--providers.docker=false"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
-      # The metrics entrypoint (:8082) and Prometheus config live in traefik.yml,
-      # not here: that static config file is authoritative for entryPoints, so a
-      # CLI-only metrics entrypoint is silently ignored (it never binds).
       - "--log.level=DEBUG"
       - "--log.format=json"
     environment:

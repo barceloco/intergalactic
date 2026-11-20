@@ -1,0 +1,82 @@
+---
+# One-time teardown of the retired monitoring stack (Prometheus, Alertmanager,
+# Grafana, blackbox on rigel; prometheus-node-exporter on every host). The
+# roles that installed them are deleted from the repo; this removes what they
+# left on the hosts, including the stored metrics and dashboards (irreversible).
+#
+#   ./scripts/run-ansible.sh prod rigel remove-observability
+#   ./scripts/run-ansible.sh prod vega remove-observability
+#
+# Idempotent: a re-run on a clean host changes nothing.
+- name: Remove the monitoring stack
+  hosts: "{{ target_hosts | default('no_host_selected') }}"
+  become: true
+  gather_facts: false
+  serial: 1
+  vars:
+    observability_dir: /srv/observability
+    observability_volumes:
+      - observability_prometheus_data
+      - observability_grafana_data
+      - observability_alertmanager_data
+  pre_tasks:
+    - name: Import host key verification tasks
+      import_tasks: shared/host-key-verification.yml
+      tags: always
+
+    - name: Import production validation tasks
+      import_tasks: shared/production-validation.yml
+      tags: always
+
+  tasks:
+    - name: Check for the observability compose project
+      stat:
+        path: "{{ observability_dir }}/docker-compose.yml"
+      register: observability_compose
+
+    - name: Stop and remove the observability containers and their volumes
+      command: docker compose down --volumes --remove-orphans
+      args:
+        chdir: "{{ observability_dir }}"
+      when: observability_compose.stat.exists
+      changed_when: true
+
+    - name: Remove any observability volume left behind
+      command: docker volume rm {{ item }}
+      loop: "{{ observability_volumes }}"
+      register: observability_volume_rm
+      changed_when: observability_volume_rm.rc == 0
+      failed_when: >-
+        observability_volume_rm.rc != 0
+        and 'no such volume' not in (observability_volume_rm.stderr | lower)
+
+    - name: Remove the observability directory
+      file:
+        path: "{{ observability_dir }}"
+        state: absent
+
+    - name: Purge prometheus-node-exporter and its collector timers
+      apt:
+        name:
+          - prometheus-node-exporter
+          - prometheus-node-exporter-collectors
+        state: absent
+        purge: true
+
+    - name: Remove node_exporter's textfile directory (app provenance files)
+      file:
+        path: /var/lib/prometheus/node-exporter
+        state: absent
+
+    - name: Confirm nothing is left
+      shell: |
+        set -o pipefail
+        docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '^observability-' || true
+        docker volume ls --format '{{ "{{" }}.Name{{ "}}" }}' | grep -E '^observability_' || true
+        ss -Hltn '( sport = :9100 or sport = :9090 or sport = :9093 or sport = :3000 )' || true
+        dpkg -l prometheus-node-exporter 2>/dev/null | grep -E '^ii' || true
+      args:
+        executable: /bin/bash
+      register: observability_leftovers
+      changed_when: false
+      failed_when: observability_leftovers.stdout | trim | length > 0

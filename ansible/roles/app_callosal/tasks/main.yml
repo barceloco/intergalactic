@@ -39,16 +39,6 @@
         update: true
       register: callosal_repo
 
-    - name: Describe the deployed callosal commit against the nearest tag  # noqa: command-instead-of-module
-      command: git describe --tags
-      args:
-        chdir: "{{ callosal_dir }}"
-      register: callosal_tag
-      changed_when: false
-      failed_when: false
-      # git describe shows the nearest tag and distance (or just the tag when
-      # exactly on it); empty when the history has no tags.
-
     - name: Check whether the callosal container is already running
       command: docker ps -q --filter "name=^{{ callosal_container_name }}$" --filter status=running
       register: callosal_running
@@ -88,19 +78,3 @@
       register: callosal_verify
       changed_when: false
       failed_when: (callosal_verify.stdout | trim) == ''
-
-- name: Publish callosal deployment provenance (app_build_info for Prometheus)
-  when:
-    - callosal_enabled | default(false)
-    - node_exporter_enabled | default(false)
-    - callosal_repo.after is defined
-  become: true
-  copy:
-    dest: "{{ node_exporter_textfile_dir | default('/var/lib/prometheus/node-exporter') }}/callosal.prom"
-    mode: '0644'
-    content: |
-      # HELP app_build_info Repo, branch, and commit ansible deployed per app.
-      # TYPE app_build_info gauge
-      app_build_info{app="callosal",route="{{ callosal_route | default('') }}",repo="{{ callosal_repo_url | regex_replace('\.git$', '') | regex_replace('^https?://[^/]+/', '') | regex_replace('^[^@/]+@[^:/]+:', '') }}",branch="{{ callosal_repo_ref }}",commit="{{ callosal_repo.after }}",tag="{{ (callosal_tag.stdout_lines | first | default('')) if callosal_tag is defined else '' }}"} 1
-  # Runs as root (outside the deploy block) to write node_exporter's textfile dir,
-  # so callosal's repo/branch/commit surfaces in the monitor provenance table.
