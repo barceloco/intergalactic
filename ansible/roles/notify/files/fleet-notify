@@ -50,7 +50,9 @@ fi
 PRIORITY="${PRIORITY:-${NTFY_DEFAULT_PRIORITY}}"
 
 # curl reads its options from stdin (-K -): headers, including the token, stay
-# out of argv. Header values have newlines stripped.
+# out of argv. Header values have newlines stripped. The message goes as
+# --data-raw: with --data-binary, a message starting with @ would make curl
+# read and post a file (as root).
 clean() { printf '%s' "$1" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 ERR="$(mktemp)" || { log "mktemp failed: ${TITLE}: ${MESSAGE}"; exit 0; }
 trap 'rm -f "${ERR}"' EXIT
@@ -61,7 +63,7 @@ trap 'rm -f "${ERR}"' EXIT
   if [ -n "${TAGS}" ]; then printf 'header = "Tags: %s"\n' "$(clean "${TAGS}")"; fi
   if [ -n "${NTFY_TOKEN}" ]; then printf 'header = "Authorization: Bearer %s"\n' "$(clean "${NTFY_TOKEN}")"; fi
 } | curl --silent --show-error --fail --max-time 20 --retry 3 --retry-delay 5 \
-      -K - --data-binary "${MESSAGE}" -o /dev/null 2> "${ERR}"
+      -K - --data-raw "${MESSAGE}" -o /dev/null 2> "${ERR}"
 rc=$?
 if [ "${rc}" -ne 0 ]; then
   log "delivery failed (curl exit ${rc}: $(tr -d '\n' < "${ERR}")): ${TITLE}: ${MESSAGE}"

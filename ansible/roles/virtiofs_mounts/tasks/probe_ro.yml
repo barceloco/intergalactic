@@ -1,0 +1,73 @@
+---
+# Probe one read-only share at the HOST's side: mount its tag WITHOUT ro on a
+# temporary directory and try to write. Only the host's export (arcturus's
+# read-only bind mount) can then refuse the write, so this tests the real
+# boundary, not the VM's own "ro" option. Runs only while the share is not
+# mounted at its own path: a second mount of a mounted tag shares that
+# mount's superblock, which would make the probe meaningless.
+- name: "Check whether {{ m.path }} is already mounted"
+  command: mountpoint -q {{ m.path }}
+  register: virtiofs_probe_mounted
+  changed_when: false
+  failed_when: false
+
+- name: "Report that the host-side probe of {{ m.tag }} was skipped"
+  when: virtiofs_probe_mounted.rc == 0
+  debug:
+    msg: >-
+      {{ m.path }} is mounted already, so the in-VM probe of '{{ m.tag }}'
+      was skipped (it only runs the first time a share is set up). The
+      read-only guarantee is re-proven on arcturus at every production run
+      and every unlock: the mapping must point at the host's read-only bind
+      mount, and that mount must be ro.
+
+- name: "Probe the host export of {{ m.tag }}"
+  when: virtiofs_probe_mounted.rc != 0
+  block:
+    - name: "Create a temporary probe directory for {{ m.tag }}"
+      tempfile:
+        state: directory
+        prefix: virtiofs-probe-
+      register: virtiofs_probe_dir
+
+    # A throwaway mount that must never reach /etc/fstab, hence the command.
+    - name: "Mount {{ m.tag }} without ro on the probe directory"  # noqa: command-instead-of-module
+      command: mount -t virtiofs {{ m.tag }} {{ virtiofs_probe_dir.path }}
+      changed_when: false
+
+    # As root: if even root cannot write, the host refuses it.
+    - name: "Try to write through {{ m.tag }} (must fail)"
+      command: touch {{ virtiofs_probe_dir.path }}/.virtiofs-ro-probe
+      register: virtiofs_probe_write
+      changed_when: false
+      failed_when: false
+
+    - name: "Remove the probe file if the write succeeded"
+      when: virtiofs_probe_write.rc == 0
+      file:
+        path: "{{ virtiofs_probe_dir.path }}/.virtiofs-ro-probe"
+        state: absent
+
+    - name: "Require the host to refuse writes to {{ m.tag }}"
+      assert:
+        that: virtiofs_probe_write.rc != 0
+        fail_msg: >-
+          SECURITY: tag {{ m.tag }} is declared read-only, but the HOST accepted
+          a write through it. Fix the export on arcturus (read-only bind mount)
+          before running any service on this VM.
+        success_msg: "The host refuses writes to {{ m.tag }}"
+        quiet: true
+  always:
+    - name: "Unmount the probe directory of {{ m.tag }}"
+      when: virtiofs_probe_dir.path is defined
+      command: umount {{ virtiofs_probe_dir.path }}
+      changed_when: false
+      failed_when: false
+
+    # rmdir, never a recursive delete: if the unmount failed, the share is
+    # still mounted here and must not be touched.
+    - name: "Remove the probe directory of {{ m.tag }}"
+      when: virtiofs_probe_dir.path is defined
+      command: rmdir {{ virtiofs_probe_dir.path }}
+      changed_when: false
+      failed_when: false

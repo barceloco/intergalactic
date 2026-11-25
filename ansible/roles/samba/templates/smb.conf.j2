@@ -28,6 +28,9 @@
    valid users = armand
    guest ok = no
    read only = {{ 'yes' if share.read_only | default(false) else 'no' }}
+{% if share.veto_files is defined %}
+   veto files = {{ share.veto_files }}
+{% endif %}
    create mask = 0644
    directory mask = 0755
    force user = armand

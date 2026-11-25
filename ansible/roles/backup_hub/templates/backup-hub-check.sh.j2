@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 # {{ ansible_managed | default('Managed by Ansible (backup_hub)') }}
 # Daily freshness check for the backup hub. Alerts through fleet-notify when:
-#  - the newest VM backup below {{ backup_hub_source_root }}/{{ backup_hub_vzdump_dir }} is
-#    older than {{ backup_hub_vzdump_max_age_h }} h (or there is none);
+#  - the VM backup share {{ backup_hub_source_root }}/{{ backup_hub_vzdump_dir }} is not a
+#    mounted share (virtiofs, with arcturus's .arcturus-dataset marker);
+#  - a VM's newest backup archive is older than {{ backup_hub_vzdump_max_age_h }} h, or
+#    missing (per VM id in backup_hub_vzdump_vmids; with no ids listed, only
+#    the newest archive of any VM is checked);
 #  - the pull account {{ backup_hub_pull_user }} (mpnas) has not logged in
-#    successfully for {{ backup_hub_pull_max_age_h }} h.
+#    successfully for {{ backup_hub_pull_max_age_h }} h. This proves a login, not a
+#    complete transfer: mpnas must alert on its own rsync task failures.
 set -uo pipefail
 
 NOTIFY=/usr/local/sbin/fleet-notify
 VZDUMP_DIR={{ (backup_hub_source_root ~ '/' ~ backup_hub_vzdump_dir) | quote }}
 VZDUMP_MAX_H={{ backup_hub_vzdump_max_age_h | int }}
+VMIDS=({% for id in backup_hub_vzdump_vmids %}{{ id | int }} {% endfor %})
+VMID_COUNT={{ backup_hub_vzdump_vmids | length }}
 PULL_USER={{ backup_hub_pull_user | quote }}
 PULL_MAX_H={{ backup_hub_pull_max_age_h | int }}
 problems=0
@@ -20,26 +26,49 @@ alert() {
   if [ -x "${NOTIFY}" ]; then "${NOTIFY}" -p high -t warning "$1" "$2"; fi
 }
 
-# 1. VM backups
-if ! mountpoint -q "${VZDUMP_DIR}" && [ ! -d "${VZDUMP_DIR}" ]; then
-  alert "backups missing" "${VZDUMP_DIR} is not mounted."
-else
-  newest="$(find "${VZDUMP_DIR}" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -1)"
-  if [ -z "${newest}" ]; then
-    alert "backups missing" "No files below ${VZDUMP_DIR}."
-  else
-    age_h=$(( ( $(date +%s) - ${newest%.*} ) / 3600 ))
-    if [ "${age_h}" -ge "${VZDUMP_MAX_H}" ]; then
-      alert "backups stale" "Newest VM backup is ${age_h} h old (limit ${VZDUMP_MAX_H} h)."
-    fi
+present() {
+  mountpoint -q "$1" \
+    && [ "$(findmnt -n -o FSTYPE --mountpoint "$1")" = virtiofs ] \
+    && [ -f "$1/.arcturus-dataset" ]
+}
+
+# Newest backup archive (not .log/.notes) matching a name pattern, as epoch
+# seconds, or empty.
+newest_archive() {
+  find "${VZDUMP_DIR}" -type f -name "$1" \
+    ! -name '*.log' ! -name '*.notes' -printf '%T@\n' 2>/dev/null \
+    | sort -n | tail -1
+}
+
+check_age() { # <label> <epoch or empty>
+  if [ -z "$2" ]; then
+    alert "backup missing" "No backup archive for $1 below ${VZDUMP_DIR}."
+    return
   fi
+  age_h=$(( ( $(date +%s) - ${2%.*} ) / 3600 ))
+  if [ "${age_h}" -ge "${VZDUMP_MAX_H}" ]; then
+    alert "backup stale" "Newest backup of $1 is ${age_h} h old (limit ${VZDUMP_MAX_H} h)."
+  fi
+}
+
+# 1. VM backups
+if ! present "${VZDUMP_DIR}"; then
+  alert "backups share not mounted" "${VZDUMP_DIR} is not a mounted share with its .arcturus-dataset marker (pool locked, or the share is not exported)."
+elif [ "${VMID_COUNT}" -gt 0 ]; then
+  for id in "${VMIDS[@]}"; do
+    check_age "VM ${id}" "$(newest_archive "vzdump-qemu-${id}-*")"
+  done
+else
+  logger -t backup-hub-check -- "no backup_hub_vzdump_vmids set: checking only the newest archive of any VM"
+  check_age "any VM" "$(newest_archive 'vzdump-qemu-*')"
 fi
 
-# 2. mpnas pulls (sshd logs as sshd or, on OpenSSH 9.8+, sshd-session)
+# 2. mpnas pulls (sshd logs as sshd or, on OpenSSH 9.8+, sshd-session). A
+# login only: a pull that fails after logging in is mpnas's to report.
 if ! journalctl --quiet --no-pager --since "-${PULL_MAX_H}h" -o cat \
      SYSLOG_IDENTIFIER=sshd SYSLOG_IDENTIFIER=sshd-session \
      | grep -q "Accepted publickey for ${PULL_USER} "; then
-  alert "mpnas pull missing" "No successful pull by ${PULL_USER} in the last ${PULL_MAX_H} h. Check mpnas's scheduled task and its Tailscale key."
+  alert "mpnas pull missing" "No successful pull login by ${PULL_USER} in the last ${PULL_MAX_H} h. Check mpnas's scheduled task and its Tailscale key."
 fi
 
 if [ "${problems}" -eq 0 ]; then

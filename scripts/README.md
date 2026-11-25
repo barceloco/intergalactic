@@ -121,16 +121,19 @@ Run by the operator on the Mac (they prompt for the passphrase locally and send
 it through SSH with strict host key checking). The pool script never wipes a
 disk: it refuses any disk that is mounted, partitioned or carries a signature.
 
-### `test-os-upgrade-workloads.sh` and `test-samba-render.sh`
+### Equivalence and template tests
 
-**Purpose**: Prove shared code stays neutral for the Pis
+**Purpose**: Prove shared code stays neutral for the Pis, and that shell
+templates render and pass checks
 
 ```bash
-./scripts/test-os-upgrade-workloads.sh   # os-upgrade.yml snippets vs the pre-Proxmox commands (fake docker/qm)
-./scripts/test-samba-render.sh [ref]     # smb.conf for vega and rigel byte-identical to <ref> (default main)
+./scripts/test-os-upgrade-workloads.sh   # os-upgrade.yml snippets vs the pre-Proxmox commands, output AND exit codes (fake docker/qm)
+./scripts/test-samba-render.sh [ref]     # smb.conf for vega and rigel byte-identical to <ref> (default 304900d); update-samba.sh valid
+./scripts/test-firewall-equivalence.sh [ref] [host...]  # nftables rules byte-identical to <ref> (default 304900d; vega rigel)
+./scripts/test-shell-templates.sh        # render the arcturus roles' shell templates, then bash -n + shellcheck
 ```
 
-Both run in the ansible-runner container and touch no host.
+All four run in containers and touch no host.
 
 ### `test-arcturus-profiles.sh`
 
@@ -480,7 +483,9 @@ See `docs/runbooks/failover-to-pi.md` (untested until the first drill).
 ```
 
 **What it does**:
-- Deploys updated Samba configuration from template
+- Applies the whole samba role, the same tasks as a production run: installs
+  or updates the samba package, ensures user armand, renders smb.conf (from the
+  role's `samba_shares`), and resets armand's Samba password from all_secrets.yml
 - Validates configuration syntax
 - Restarts Samba services (smbd, nmbd)
 

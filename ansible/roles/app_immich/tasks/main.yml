@@ -106,6 +106,20 @@
           library would silently land on the VM disk.
         quiet: true
 
+    - name: Check for the dataset marker in the photo library
+      stat:
+        path: "{{ immich_upload_location }}/.arcturus-dataset"
+      register: immich_upload_marker
+
+    - name: Require the photo library to be arcturus's immich dataset
+      assert:
+        that: immich_upload_marker.stat.exists
+        fail_msg: >-
+          {{ immich_upload_location }} is a virtiofs mount without the
+          .arcturus-dataset marker: not the immich dataset (or the pool on
+          arcturus is not fully unlocked). Refusing to start immich on it.
+        quiet: true
+
     - name: Check that the photo library is writable (phone uploads)
       become: true
       command: touch {{ immich_upload_location }}/.immich-write-test

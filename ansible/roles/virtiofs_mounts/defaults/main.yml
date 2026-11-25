@@ -4,9 +4,14 @@
 # inside the VM.
 #
 # The real access control is on the host: a share the VM must not write to is
-# exported read-only by Proxmox. Mounting it read-only here as well is the
-# second layer, and this role proves it: after mounting, a write test on every
-# "ro" mount must fail, or the run stops.
+# exported read-only by arcturus (a read-only bind mount). This role checks
+# both layers:
+# - before mounting, each "ro" tag is mounted WITHOUT ro on a temporary
+#   directory and a write must fail: only the host can refuse it there;
+# - after mounting with "ro", a write as root must fail too.
+# It also requires every share to be "present": a mounted virtiofs share that
+# holds the .arcturus-dataset marker arcturus writes at each dataset root, so
+# an unmounted (empty) mount point is never mistaken for the data.
 virtiofs_mounts_enabled: false
 
 # One entry per share:
@@ -14,13 +19,25 @@ virtiofs_mounts_enabled: false
 #         lowercase letters, digits and dashes, e.g. music-ro
 #   path: absolute mount point inside the VM, e.g. /mnt/music
 #   mode: ro or rw
+#   write_user (optional, rw only): a user that must be able to create and
+#         delete files there (catches uid/ownership mismatches with the host)
 # Example:
 #   virtiofs_mounts:
-#     - { tag: music-ro, path: /mnt/music, mode: ro }
-#     - { tag: immich-rw, path: /mnt/immich, mode: rw }
+#     - tag: music-ro
+#       path: /mnt/music
+#       mode: ro
+#     - tag: documents-rw
+#       path: /mnt/documents
+#       mode: rw
+#       write_user: armand
 virtiofs_mounts: []
 
 # Mount options added to every entry ("ro" is added for mode ro). nofail keeps
 # the VM booting if the host has not exported a share (e.g. pool still
-# locked); the role itself fails loudly when a mount is missing.
+# locked); the role itself fails loudly when a share is not present.
 virtiofs_mount_options: "defaults,nofail"
+
+# Make docker.service require every mount (systemd RequiresMountsFor), so
+# Docker and its containers never start on empty mount points, e.g. after a
+# boot while arcturus's pool is still locked. For VMs whose apps use shares.
+virtiofs_mounts_docker_requires: false

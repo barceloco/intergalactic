@@ -2,7 +2,8 @@
 # Shares served by Samba, all for user armand. The default is the single
 # share vega and rigel have always had; phecda overrides it with its dataset
 # shares. Keys: name, comment, path, read_only (default false), create_dir
-# (default false: create the directory, owned by armand, if missing).
+# (default false: create the directory, owned by armand, if missing),
+# veto_files (optional, Samba's "veto files" pattern list).
 samba_shares:
   - name: armand
     comment: "Armand's Share (crypt directory)"

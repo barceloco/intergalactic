@@ -70,8 +70,8 @@ printf '  %s\n' "${DEVS[@]}"
 read -r -p "Type the pool name to confirm: " confirm
 [ "${confirm}" = "${POOL}" ] || { echo "Not confirmed." >&2; exit 1; }
 
-read -r -s -p "New passphrase (20+ characters; keep it in your password manager): " p1; echo
-read -r -s -p "Repeat the passphrase: " p2; echo
+IFS= read -r -s -p "New passphrase (20+ characters; keep it in your password manager): " p1; echo
+IFS= read -r -s -p "Repeat the passphrase: " p2; echo
 [ "${p1}" = "${p2}" ] || { echo "The passphrases differ." >&2; exit 1; }
 [ "${#p1}" -ge 20 ] || { echo "Use at least 20 characters." >&2; exit 1; }
 unset p2

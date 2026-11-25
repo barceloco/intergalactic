@@ -42,11 +42,14 @@
         database: passwd
         key: deploy
 
-    - name: Require every library to be mounted
-      stat:
-        path: "{{ item.host }}"
-      register: audiobookshelf_media_stat
-      failed_when: not (audiobookshelf_media_stat.stat.isdir | default(false))
+    # The "present check": a mounted virtiofs share holding the marker that
+    # arcturus writes at each dataset root, never an empty mount point.
+    - name: Require every library to be a present share
+      shell: >-
+        mountpoint -q {{ item.host | quote }}
+        && [ "$(findmnt -n -o FSTYPE --mountpoint {{ item.host | quote }})" = virtiofs ]
+        && [ -f {{ (item.host ~ '/.arcturus-dataset') | quote }} ]
+      changed_when: false
       loop: "{{ audiobookshelf_media }}"
       loop_control:
         label: "{{ item.host }}"

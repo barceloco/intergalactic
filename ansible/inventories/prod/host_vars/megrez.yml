@@ -28,6 +28,8 @@ internal_dns_private_hosts:
   - mpnas      # DNS-only: the Synology (backup target)
   - vega       # standby
   - rigel      # standby
+  - phecda     # DNS-only: the file server (smb://phecda)
+  - arcturus   # DNS-only: the Proxmox host (web UI over Tailscale)
 
 # Reverse proxy routes. Backends are the VMs' tailnet names; each backend's
 # firewall admits only megrez on its app port.

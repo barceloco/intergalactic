@@ -68,6 +68,42 @@
           Enable "Virtualization Technology (VTx)" and "VT-d" in the HP BIOS (F10).
         quiet: true
 
+    # Secure Boot must be off: Debian's shim and GRUB do not trust Proxmox's
+    # kernel signing key, so with Secure Boot on, the reboot into the Proxmox
+    # kernel fails ("bad shim signature") and a headless box looks dead.
+    # Proxmox's own signed boot chain exists, but upgrades have broken it
+    # (PVE 9.2), so this fleet runs with Secure Boot off (decided 2026-11-24).
+    - name: Install mokutil (reads the Secure Boot state)
+      apt:
+        name: mokutil
+        state: present
+        update_cache: true
+
+    - name: Read the Secure Boot state
+      command: mokutil --sb-state
+      register: proxmox_sb_state
+      changed_when: false
+      failed_when: false
+
+    - name: Check whether the host booted through UEFI
+      stat:
+        path: /sys/firmware/efi
+      register: proxmox_efi
+
+    # Fail closed: on a UEFI boot only an explicit "SecureBoot disabled"
+    # passes (a mokutil error or unexpected output refuses too).
+    - name: Refuse to install the Proxmox kernel while Secure Boot is on
+      assert:
+        that: >-
+          proxmox_sb_state.stdout is search('SecureBoot disabled')
+          or not proxmox_efi.stat.exists
+        fail_msg: >-
+          Secure Boot is enabled. The Proxmox kernel would not boot through
+          Debian's boot chain and the host would hang at the next reboot.
+          Disable Secure Boot in the HP BIOS (F10 > Advanced > Secure Boot
+          Configuration), keep the BIOS administrator password set, and rerun.
+        quiet: true
+
     # ---------------------------------------------------------------- hostname
     # Proxmox requires the hostname to resolve to the host's real address, not
     # to 127.0.1.1 as Debian's installer sets it.
@@ -231,6 +267,13 @@
       changed_when: false
       failed_when: false
 
+    - name: Create the systemd-resolved drop-in directory
+      when: proxmox_resolved.stdout == 'active'
+      file:
+        path: /etc/systemd/resolved.conf.d
+        state: directory
+        mode: "0755"
+
     - name: Set the host's DNS servers in systemd-resolved
       when: proxmox_resolved.stdout == 'active'
       copy:
@@ -249,6 +292,22 @@
       systemd:
         name: systemd-resolved
         state: restarted
+
+    # The generic image is netplan-only and may have no interfaces file yet.
+    - name: Check for /etc/network/interfaces
+      stat:
+        path: /etc/network/interfaces
+      register: proxmox_interfaces_file
+
+    - name: Create a minimal interfaces file (loopback only) when there is none
+      when: not proxmox_interfaces_file.stat.exists
+      copy:
+        dest: /etc/network/interfaces
+        mode: "0644"
+        content: |
+          # Created by Ansible (proxmox_host): the image had no ifupdown config.
+          auto lo
+          iface lo inet loopback
 
     - name: Keep a copy of the original network configuration
       copy:
@@ -287,6 +346,15 @@
             dest: /usr/local/sbin/proxmox-net-rollback
             mode: "0755"
 
+        # A leftover transient unit (an earlier aborted or failed run) would
+        # make systemd-run refuse to arm a new one.
+        - name: Clear any leftover rollback unit  # noqa: command-instead-of-module (reset-failed has no module)
+          shell: >-
+            systemctl stop proxmox-net-rollback.timer 2>/dev/null;
+            systemctl reset-failed proxmox-net-rollback.timer proxmox-net-rollback.service 2>/dev/null;
+            true
+          changed_when: false
+
         - name: Arm the rollback (restores the old network unless cancelled)
           command: >-
             systemd-run --unit=proxmox-net-rollback
@@ -318,15 +386,17 @@
           loop_control:
             label: "{{ item.path }}"
 
-        # One detached job: stop networkd (on the image), clear the NIC, bring
-        # up the bridge. A dropped SSH session cannot interrupt it.
+        # One detached job: stop networkd (on the image) or the DHCP client
+        # (netinst), clear the NIC (it becomes a bridge port with no address of
+        # its own), bring up the bridge. A dropped SSH session cannot stop it.
         - name: Apply it (detached, so a dropped session cannot stop it)
           shell: >-
             sleep 2;
             {% if proxmox_netplan_files.matched > 0 %}
             systemctl disable --now systemd-networkd.service systemd-networkd.socket;
-            ip addr flush dev {{ proxmox_bridge_nic }};
             {% endif %}
+            pkill -x dhclient; pkill -x dhcpcd;
+            ip addr flush dev {{ proxmox_bridge_nic }};
             ifreload -a
           async: 60
           poll: 0
@@ -351,6 +421,22 @@
           systemd:
             name: proxmox-net-rollback.timer
             state: stopped
+
+    # cloud-init's first-boot job is done. Left active it could rewrite
+    # /etc/hosts (127.0.1.1, which breaks pve-cluster) or, once the seed stick
+    # is gone, treat the host as a new instance and regenerate the SSH host
+    # keys (strict host key checking would then refuse the host).
+    - name: Check for cloud-init
+      stat:
+        path: /etc/cloud
+      register: proxmox_cloud_dir
+
+    - name: Disable cloud-init on the hypervisor
+      when: proxmox_cloud_dir.stat.exists
+      copy:
+        dest: /etc/cloud/cloud-init.disabled
+        content: "Disabled by Ansible (proxmox_host): Proxmox owns networking and /etc/hosts.\n"
+        mode: "0644"
 
     # --------------------------------------------------------- GPU passthrough
     - name: Pass the integrated GPU through to a VM
@@ -526,12 +612,6 @@
       when: proxmox_sysctl is changed
       changed_when: true
 
-    - name: Read the Secure Boot state
-      command: mokutil --sb-state
-      register: proxmox_secureboot
-      changed_when: false
-      failed_when: false
-
     - name: Confirm the Proxmox services are running  # noqa: command-instead-of-module
       command: systemctl is-active pveproxy pvedaemon pve-cluster
       register: proxmox_services
@@ -543,5 +623,5 @@
           - "Proxmox VE is running on {{ inventory_hostname }} ({{ proxmox_uname.stdout }})."
           - "Web UI: https://{{ inventory_hostname }}.tailb821ac.ts.net:8006 (tailnet only), user {{ proxmox_admin_user }}"
           - "The certificate is self-signed until one is configured."
-          - "Secure Boot: {{ (proxmox_secureboot.stdout | default('') | trim) or 'unknown (mokutil not installed)' }}"
+          - "Secure Boot: {{ (proxmox_sb_state.stdout | default('') | trim) or 'unknown' }} (off by design: see docs/runbooks/proxmox-arcturus.md)"
           - "Next: enable two-factor for {{ proxmox_admin_user }} (web UI > Datacenter > Permissions > Two Factor)."
