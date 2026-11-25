@@ -1,6 +1,11 @@
 #!/bin/bash
 # Fake docker for tests/unit/check_os_upgrade_workloads.py: two running
-# containers (web, db) and one stuck restarting (restarter).
+# containers (web, db) and one stuck restarting (restarter). With
+# FAKE_DOCKER_FAIL=1 every call fails, like a hung or stopped daemon.
+if [ "${FAKE_DOCKER_FAIL:-0}" = 1 ]; then
+  echo "Cannot connect to the Docker daemon" >&2
+  exit 1
+fi
 case "$*" in
   "ps --format {{.Names}}") printf 'web\nrestarter\ndb\n' ;;
   "ps --filter status=running --format {{.Names}}") printf 'web\ndb\n' ;;

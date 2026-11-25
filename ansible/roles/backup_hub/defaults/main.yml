@@ -23,6 +23,9 @@ backup_hub_pull_keys: []
 # account has not logged in successfully for this long.
 backup_hub_vzdump_dir: vzdump
 backup_hub_vzdump_max_age_h: 30
+# VM ids whose newest vzdump-qemu-<id>-* archive must be fresh. Empty: only the
+# newest archive of any VM is checked (one VM failing every night stays hidden).
+backup_hub_vzdump_vmids: []
 backup_hub_pull_max_age_h: 30
 backup_hub_check_time: "*-*-* 09:00:00"
 

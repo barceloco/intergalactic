@@ -23,8 +23,14 @@ you activate, and lose both again when you deactivate.
 - The Pi must be a **standby**: its host_vars must NOT set `edge_ingress_enabled`
   or `internal_dns_enabled`. The playbook refuses otherwise (today rigel is
   still the live edge, so failover only applies after the move to megrez).
-- Optional, faster: a recent copy of megrez's `/opt/traefik/acme.json` on the
-  Mac, for when megrez is unreachable (otherwise Traefik requests a new
+- **A certificate source.** The playbook takes megrez's `/opt/traefik/acme.json`
+  when megrez is reachable. For when it is not, keep a recent copy at
+  `build/failover/acme.json` in this repo (gitignored; Ansible runs in a
+  container that sees only the repo, so a path elsewhere on the Mac does not
+  work). It holds the certificate's private key: treat it like a secret, and
+  refresh it after each renewal (every 60 to 90 days). Without either source
+  the playbook stops before changing anything on the Pi, unless you pass
+  `-e failover_request_new_cert=true` (Traefik then requests a new
   certificate, which takes a few minutes and needs GoDaddy to answer).
 
 ## Activate
@@ -41,8 +47,9 @@ you activate, and lose both again when you deactivate.
 
    ```bash
    ./scripts/run-ansible.sh prod vega failover -e failover_mode=activate
-   # if megrez is unreachable and you keep a copy of its certificate store:
-   #   -e failover_acme_json_src=/path/on/the/Mac/acme.json
+   # megrez unreachable: it uses build/failover/acme.json if present;
+   # with no copy at all, allow a new certificate explicitly:
+   #   -e failover_request_new_cert=true
    ```
 
    It opens 53 and 80/443 to the tailnet in the Pi's firewall, starts the
@@ -88,7 +95,8 @@ you activate, and lose both again when you deactivate.
 Run the whole procedure on purpose, with arcturus up, during a quiet hour:
 
 - [ ] Note the date and which Pi; alternate vega and rigel between drills.
-- [ ] Activate without `failover_acme_json_src` (certificate from megrez).
+- [ ] Activate with megrez reachable (certificate from megrez), and check that
+      `build/failover/acme.json` exists and is recent, for a real outage.
 - [ ] Switch DNS; from the Mac and a phone: every app domain shows the
       maintenance page, key apps answer.
 - [ ] Time it: DNS switch to first working page (target: under 15 minutes).

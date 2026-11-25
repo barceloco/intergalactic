@@ -5,6 +5,9 @@
 hostname: {{ inventory_hostname }}
 fqdn: {{ inventory_hostname }}.{{ edge_ingress_domain | default('exnada.com') }}
 prefer_fqdn_over_hostname: false
+# Proxmox writes /etc/hosts itself (the hostname must map to the LAN
+# address, never 127.0.1.1), so cloud-init must leave it alone.
+manage_etc_hosts: false
 
 # Key-only access from the start: no passwords anywhere.
 disable_root: true
@@ -17,7 +20,7 @@ users:
     lock_passwd: true
     ssh_authorized_keys:
 {% for key in seed_keys %}
-      - {{ key }}
+      - {{ key | to_json }}
 {% endfor %}
 
 # The fleet's bootstrap phase takes over from here (ansible user, hardening).

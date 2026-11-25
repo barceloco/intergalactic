@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Quick script to update Samba configuration without running full playbook
+# Quick script to update Samba without running the full production playbook.
+# It applies the whole samba role (the same tasks as production): installs or
+# updates the samba package, ensures user armand, renders smb.conf from the
+# role, and resets armand's Samba password from all_secrets.yml. Then it
+# validates the configuration (testparm) and restarts smbd and nmbd.
 set -euo pipefail
 
 ENV_NAME="${1:-prod}"
@@ -107,13 +111,11 @@ docker run --rm -i \
     - name: Gather facts after host key verification
       setup:
   tasks:
-    - name: Deploy Samba configuration
-      template:
-        src: /repo/ansible/roles/samba/templates/smb.conf.j2
-        dest: /etc/samba/smb.conf
-        mode: '0644'
-        owner: root
-        group: root
+    # The samba role itself (its defaults, shares and password tasks), so this
+    # quick path can never drift from a full production run.
+    - name: Apply the samba role
+      include_role:
+        name: /repo/ansible/roles/samba
 
     - name: Validate Samba configuration syntax
       command: testparm -s

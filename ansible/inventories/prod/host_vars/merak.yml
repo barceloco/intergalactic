@@ -34,6 +34,10 @@ virtiofs_mounts:
 # PUBLIC half of mpnas's pull key here (not a secret).
 backup_hub_enabled: true
 backup_hub_pull_keys: []
+# VMs whose nightly backup must be fresh (megrez, phecda, dubhe, alioth,
+# alkaid, merak). Add 107 (mizar) once the 48gb profile runs it, and 108
+# (alcor) if it is enabled.
+backup_hub_vzdump_vmids: [103, 106, 101, 104, 105, 102]
 ssh_allow_users: "{{ [automation_user] + (human_users | default([]) | map(attribute='name') | list) + ['mpnas-pull'] }}"
 
 # No ports beyond the built-in SSH (tailnet and LAN) and ping.

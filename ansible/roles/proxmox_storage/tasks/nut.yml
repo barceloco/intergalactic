@@ -26,6 +26,18 @@
     dest: /usr/local/sbin/nut-fleet-notify
     mode: "0755"
 
+# upsmon runs NOTIFYCMD as the unprivileged nut user, which cannot read
+# fleet-notify's root-only configuration (topic, token). This one sudo rule
+# lets it send alerts and nothing else.
+- name: Let the nut user send alerts through fleet-notify
+  copy:
+    dest: /etc/sudoers.d/nut-fleet-notify
+    mode: "0440"
+    content: |
+      # Managed by Ansible (proxmox_storage)
+      nut ALL=(root) NOPASSWD: /usr/local/sbin/fleet-notify
+    validate: visudo -cf %s
+
 - name: Configure NUT
   copy:
     dest: "/etc/nut/{{ item.name }}"

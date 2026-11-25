@@ -38,14 +38,15 @@
       set_fact:
         proxmox_storage_shares: "{{ proxmox_vms_active | map(attribute='virtiofs', default=[]) | flatten | unique }}"
 
-    - name: List the datasets VMs receive read-only
+    - name: List the datasets VMs receive, read-only and read-write
       copy:
-        dest: "{{ proxmox_unlock_conf_dir }}/ro-shares"
+        dest: "{{ proxmox_unlock_conf_dir }}/{{ item }}-shares"
         mode: "0644"
         content: |
-          {% for ds in proxmox_storage_shares | selectattr('mode', 'equalto', 'ro') | map(attribute='dataset') | unique | sort %}
+          {% for ds in proxmox_storage_shares | selectattr('mode', 'equalto', item) | map(attribute='dataset') | unique | sort %}
           {{ ds }}
           {% endfor %}
+      loop: [ro, rw]
 
     - name: Cap the ZFS cache (ARC) so the VMs keep their memory
       when: proxmox_zfs_arc_max_mb | int > 0
@@ -137,6 +138,12 @@
           # Managed by Ansible (proxmox_storage): scrub every pool on the 2nd Sunday.
           24 0 8-14 * * root [ $(date +\%w) -eq 0 ] && zpool list -H -o name | xargs -r -n1 zpool scrub
 
+    - name: Create sanoid's configuration directory
+      file:
+        path: /etc/sanoid
+        state: directory
+        mode: "0755"
+
     - name: Configure snapshots (sanoid)
       template:
         src: sanoid.conf.j2
@@ -210,7 +217,62 @@
           loop_control:
             label: "{{ item.name }}"
 
-        - name: Mount everything and create the read-only shares
+        # The key alone is not enough: a dataset can be unlocked yet unmounted
+        # (a manual zfs load-key, an interrupted unlock). Owner and marker are
+        # written only once each dataset is proven mounted from the pool, so
+        # nothing ever lands in an empty mount point.
+        - name: Mount every dataset of the pool
+          command: zfs mount -a
+          changed_when: false
+
+        - name: Read what is mounted at each dataset's path
+          command: findmnt -n -o SOURCE --mountpoint {{ proxmox_pool_mountpoint }}/{{ item.name }}
+          register: proxmox_dataset_mounts
+          changed_when: false
+          failed_when: false
+          loop: "{{ proxmox_pool_datasets }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Require each dataset to be mounted from the pool
+          assert:
+            that: item.stdout | trim == proxmox_pool_name ~ '/' ~ item.item.name
+            fail_msg: >-
+              {{ proxmox_pool_mountpoint }}/{{ item.item.name }} is not the mounted
+              dataset {{ proxmox_pool_name }}/{{ item.item.name }} (found '{{ item.stdout | trim }}').
+              Nothing is written there until it is.
+            quiet: true
+          loop: "{{ proxmox_dataset_mounts.results }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+
+        - name: Set the owner of each dataset's root directory
+          file:
+            path: "{{ proxmox_pool_mountpoint }}/{{ item.name }}"
+            state: directory
+            owner: "{{ (item.owner | default('0:0')).split(':')[0] }}"
+            group: "{{ (item.owner | default('0:0')).split(':')[1] }}"
+            mode: "0755"
+          loop: "{{ proxmox_pool_datasets }}"
+          loop_control:
+            label: "{{ item.name }} {{ item.owner | default('0:0') }}"
+
+        # Immutable: the directory owner (armand through phecda's Samba, or an
+        # rsync --delete from a Mac) could otherwise delete it, and the next
+        # unlock would then refuse to start any VM.
+        - name: Mark each dataset (only a mounted dataset carries this file)
+          copy:
+            dest: "{{ proxmox_pool_mountpoint }}/{{ item.name }}/{{ proxmox_dataset_marker }}"
+            content: "{{ proxmox_pool_name }}/{{ item.name }}\n"
+            owner: root
+            group: root
+            mode: "0444"
+            attributes: "+i"
+          loop: "{{ proxmox_pool_datasets }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Create the read-only shares for the VMs
           command: /usr/local/sbin/proxmox-unlock --shares
           changed_when: false
 
@@ -265,3 +327,28 @@
             loop_var: share
             label: "{{ share.dataset }}-{{ share.mode }}"
           changed_when: true
+
+        # Mappings are only created when missing; re-prove on every run that an
+        # existing one still points where it must (a read-only share must
+        # point at the host's read-only bind mount, never at the dataset).
+        - name: Read the directory mappings again
+          command: pvesh get /cluster/mapping/dir --output-format json
+          register: proxmox_dir_mappings_now
+          changed_when: false
+
+        - name: Require every mapping to point at its expected path
+          assert:
+            that: >-
+              (proxmox_dir_mappings_now.stdout | from_json
+               | selectattr('id', 'equalto', share.dataset ~ '-' ~ share.mode) | list | to_json)
+              is search('path=' ~ ((proxmox_ro_share_root if share.mode == 'ro' else proxmox_pool_mountpoint)
+                                   ~ '/' ~ share.dataset) ~ '([",]|$)')
+            fail_msg: >-
+              Mapping {{ share.dataset }}-{{ share.mode }} does not point at
+              {{ (proxmox_ro_share_root if share.mode == 'ro' else proxmox_pool_mountpoint) ~ '/' ~ share.dataset }}.
+              Fix or delete it (Datacenter > Resource Mappings) before starting VMs.
+            quiet: true
+          loop: "{{ proxmox_storage_shares }}"
+          loop_control:
+            loop_var: share
+            label: "{{ share.dataset }}-{{ share.mode }}"

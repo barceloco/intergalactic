@@ -65,8 +65,11 @@
     that:
       - firewall_forward_mode in ['', 'docker', 'drop', 'bridge']
       - firewall_forward_mode != 'bridge' or not (enable_docker | default(false))
+      - firewall_forward_mode != 'drop' or not (enable_docker | default(false))
+      - firewall_forward_mode != 'docker' or (enable_docker | default(false))
     fail_msg: >-
-      firewall_forward_mode must be empty, docker, drop or bridge, and bridge
-      cannot be combined with enable_docker (Docker-published ports would then
-      be unfiltered).
+      firewall_forward_mode must be empty (chosen from enable_docker), docker,
+      drop or bridge. docker requires enable_docker; drop and bridge cannot be
+      combined with it (drop would cut all container traffic, bridge would
+      leave Docker-published ports unfiltered).
     quiet: true

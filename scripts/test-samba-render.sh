@@ -4,11 +4,14 @@
 # and show phecda-style shares rendering. Uses Ansible's own template engine
 # in the ansible-runner container; touches no host.
 #
-# Usage: ./scripts/test-samba-render.sh [ref]   (default ref: main)
+# Usage: ./scripts/test-samba-render.sh [ref]
+#   ref: the baseline to compare against. Default 304900d, the last commit
+#   before samba_shares existed (comparing against main would compare the
+#   change with itself once it is merged).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REF="${1:-main}"
+REF="${1:-304900d}"
 RUNNER="intergalactic-ansible-runner:latest"
 
 if ! docker image inspect "${RUNNER}" > /dev/null 2>&1; then
@@ -36,13 +39,24 @@ docker run --rm -v "${ROOT_DIR}:/repo:ro" -w /repo/ansible --entrypoint bash "${
   cat > "${out}/phecda.yml" <<EOF
 samba_shares:
   - {name: documents, comment: Documents, path: /mnt/documents}
-  - {name: immich, comment: Photos (read-only), path: /mnt/immich, read_only: true}
+  - {name: immich, comment: Photos (read-only), path: /mnt/immich, read_only: true, veto_files: /.arcturus-dataset/}
 EOF
   render roles/samba/templates/smb.conf.j2 "${out}/phecda.conf" phecda -e @"${out}/phecda.yml"
-  if grep -q "^\[immich\]" "${out}/phecda.conf" && grep -A6 "^\[immich\]" "${out}/phecda.conf" | grep -q "read only = yes"; then
-    echo "PASS  phecda-style shares render (read-only share marked read only)"
+  if grep -q "^\[immich\]" "${out}/phecda.conf" && grep -A6 "^\[immich\]" "${out}/phecda.conf" | grep -q "read only = yes" \
+     && grep -A7 "^\[immich\]" "${out}/phecda.conf" | grep -q "veto files = /.arcturus-dataset/" \
+     && ! grep -A7 "^\[documents\]" "${out}/phecda.conf" | grep -q "veto files"; then
+    echo "PASS  phecda-style shares render (read only and veto files only where set)"
   else
     echo "FAIL  phecda-style shares"; cat "${out}/phecda.conf"; fail=1
+  fi
+  # The quick path (scripts/update-samba.sh) runs its own inline playbook:
+  # it must stay valid and must go through the role (so it gets the defaults).
+  sed -n "/<< '"'"'EOF'"'"'$/,/^EOF$/p" /repo/scripts/update-samba.sh | sed "1d;\$d" > "${out}/update-samba.yml"
+  if grep -q "name: /repo/ansible/roles/samba" "${out}/update-samba.yml" \
+     && ansible-playbook -i inventories/prod/hosts-production.yml --syntax-check "${out}/update-samba.yml" > /dev/null 2>&1; then
+    echo "PASS  update-samba.sh: inline playbook is valid and applies the samba role"
+  else
+    echo "FAIL  update-samba.sh inline playbook"; fail=1
   fi
   exit "${fail}"
 ' _ "${REF}"

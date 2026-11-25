@@ -106,7 +106,14 @@ anything on them elsewhere first.
 **Once, with a screen** (DisplayPort-to-HDMI cable to a TV), because a
 headless HP can stop at a BIOS prompt that looks like a dead box. In the BIOS
 (F10):
-- enable **VT-x** and **VT-d**, keep **Secure Boot** on
+- enable **VT-x** and **VT-d**
+- **disable Secure Boot** (F10 > Advanced > Secure Boot Configuration).
+  Debian's boot chain does not trust Proxmox's kernel, so with Secure Boot on
+  the host would hang at its first reboot; Proxmox's own signed boot chain
+  has been broken by upgrades (PVE 9.2). The production phase checks this and
+  refuses to install the kernel while Secure Boot is on. What still protects
+  the boot: the BIOS administrator password, USB boot off, and the encrypted
+  pool (a tampered system disk never sees the passphrase unless you unlock it).
 - set a **BIOS administrator password**, boot from the SATA SSD, disable USB
   boot afterwards
 - set **power on after AC loss**
@@ -154,7 +161,14 @@ under Datacenter > Permissions > Two Factor.
 
 It refuses a host whose SSH key it does not recognise, sends the passphrase
 through SSH to the unlock helper, mounts everything, creates the read-only
-shares, and starts the VMs in order (megrez first). After a power outage you
+shares, checks that every share is the real dataset (each carries a
+`.arcturus-dataset` marker file; an empty mount point never counts), and only
+then starts the VMs in order (megrez first). After a boot with the pool
+locked or missing, its mount point is made immutable, so nothing can write
+onto the unencrypted system disk in its place (the same applies to each
+read-only share's mount point; a manual `zfs unload-key` later is not
+covered, so prefer a reboot to re-lock). The marker files themselves are
+immutable on arcturus, so no VM or Samba client can delete one. After a power outage you
 get an ntfy alert "Pool locked". Upgrades with a reboot wait for the unlock:
 
 ```bash
@@ -165,9 +179,14 @@ get an ntfy alert "Pool locked". Upgrades with a reboot wait for the unlock:
 ## 6. The VMs
 
 Each VM joins the fleet like a new Pi: bootstrap, foundation, production
-(`./scripts/run-ansible.sh prod <vm> <phase>`). After foundation, add its
-Tailscale IPv4 to `fleet_tailscale_ipv4` in `group_vars/all.yml`; megrez must
-be there before the app VMs' firewalls (`from: [megrez]`) can render.
+(`./scripts/run-ansible.sh prod <vm> <phase>`). **Order matters:**
+
+1. **megrez first** (bootstrap and foundation). Then add its Tailscale IPv4
+   to `fleet_tailscale_ipv4` in `group_vars/all.yml`: dubhe, mizar, alioth and
+   alkaid admit only megrez on their app ports, and their firewalls refuse to
+   render (their foundation fails) until megrez is listed there.
+2. The other VMs, each bootstrap, foundation, production.
+3. megrez's production last, once the backends answer.
 
 - **Docker on the Mac cannot reach the LAN** for a VM's first two phases:
   grant Docker Desktop local network access, or run them from a machine on
@@ -180,9 +199,12 @@ be there before the app VMs' firewalls (`from: [megrez]`) can render.
 - **Image versions** (Jellyfin, Audiobookshelf, Navidrome, immich) are
   pinned in host_vars on purpose and empty until set; the roles refuse to run
   without them.
-- **merak, backup drives:** plug vega's 6 TB LUKS drives into arcturus, read
-  their ids with `lsusb`, put them in merak's `usb_devices`, rerun production,
-  restart merak. Unlock them by hand over SSH, as on vega.
+- **merak, backup drives:** plug vega's 6 TB LUKS drives into arcturus and
+  put them in merak's `usb_devices`, then rerun production and restart merak.
+  The two drives are identical models with the same `vendor:product` id
+  (`lsusb`), so give each by its **port path** instead (`lsusb -t`, e.g.
+  `2-3`) and keep them in the same ports; the role refuses duplicates. Unlock
+  them by hand over SSH, as on vega.
 
 Existing VMs are never reconfigured or recreated; only passthrough devices and
 shares are added, and a running VM is told (not forced) to restart.

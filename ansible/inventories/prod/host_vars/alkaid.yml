@@ -10,6 +10,8 @@ docker_deploy_git_repos: []
 notify_enabled: true
 
 virtiofs_mounts_enabled: true
+# Docker (and its containers) start only once every share is mounted.
+virtiofs_mounts_docker_requires: true
 virtiofs_mounts:
   - tag: immich-rw
     path: /mnt/immich

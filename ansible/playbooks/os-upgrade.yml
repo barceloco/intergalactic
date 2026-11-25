@@ -50,14 +50,14 @@
     os_upgrade_workloads_sh: >-
       {
       if command -v docker > /dev/null 2>&1; then
-      docker ps --format '{{ "{{" }}.Names{{ "}}" }}';
+      docker ps --format '{{ "{{" }}.Names{{ "}}" }}' || exit 1;
       fi;
       {{ os_upgrade_vms_sh }}
       } | sort
     os_upgrade_running_workloads_sh: >-
       {
       if command -v docker > /dev/null 2>&1; then
-      docker ps --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}';
+      docker ps --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}' || exit 1;
       fi;
       {{ os_upgrade_vms_sh }}
       } | sort
@@ -246,7 +246,7 @@
             if command -v docker > /dev/null 2>&1; then
               docker ps -q | xargs -r docker inspect \
                 --format '{{ "{{" }}.Name{{ "}}" }} {{ "{{" }}.HostConfig.RestartPolicy.Name{{ "}}" }}' \
-                | sed 's#^/##'
+                | sed 's#^/##' || exit 1
             fi
             if command -v qm > /dev/null 2>&1; then
               qm list | awk 'NR>1 && $3=="running" {print $1, $2}' | while read -r id name; do

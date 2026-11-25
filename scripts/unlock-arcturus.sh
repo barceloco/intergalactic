@@ -24,6 +24,10 @@ case "${MODE}" in ""|--no-start) ;; *) echo "usage: $0 [--no-start]" >&2; exit 2
 SSH=(ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -i "${KEY}" "ansible@${HOST}")
 
 status="$("${SSH[@]}" sudo -n /usr/local/sbin/proxmox-unlock --status)"
+if [ "${status}" = missing ]; then
+  echo "Pool not imported on ${HOST} (a drive missing or failed?). Not sending the passphrase." >&2
+  exit 1
+fi
 if [ "${status}" = available ]; then
   echo "Pool already unlocked; starting any VMs still off."
   printf '' | "${SSH[@]}" sudo -n /usr/local/sbin/proxmox-unlock ${MODE}
@@ -31,11 +35,12 @@ if [ "${status}" = available ]; then
 fi
 
 if [ -t 0 ]; then
-  read -r -s -p "Pool passphrase for ${HOST}: " pass; echo
+  IFS= read -r -s -p "Pool passphrase for ${HOST}: " pass; echo
 else
-  IFS= read -r pass
+  # A passphrase piped in without a trailing newline still counts.
+  IFS= read -r pass || true
 fi
-[ -n "${pass}" ] || { echo "Empty passphrase." >&2; exit 1; }
+[ -n "${pass:-}" ] || { echo "Empty passphrase." >&2; exit 1; }
 
 printf '%s' "${pass}" | "${SSH[@]}" sudo -n /usr/local/sbin/proxmox-unlock ${MODE}
 unset pass

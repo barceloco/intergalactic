@@ -42,6 +42,26 @@
         loop_var: m
         label: "{{ m.path }}"
 
+    - name: Validate the optional write users
+      assert:
+        that:
+          - m.write_user is not defined or m.mode == 'rw'
+          - m.write_user is not defined or m.write_user is match('^[a-z_][a-z0-9_-]*$')
+        fail_msg: "write_user is only valid on rw mounts, as a plain user name: {{ m }}"
+        quiet: true
+      loop: "{{ virtiofs_mounts }}"
+      loop_control:
+        loop_var: m
+        label: "{{ m.tag }}"
+
+    # Before mounting: test the host's read-only exports themselves.
+    - name: Probe the host side of each read-only share
+      include_tasks: probe_ro.yml
+      loop: "{{ virtiofs_mounts | selectattr('mode', 'equalto', 'ro') | list }}"
+      loop_control:
+        loop_var: m
+        label: "{{ m.tag }}"
+
     - name: Mount each share and record it in /etc/fstab
       ansible.posix.mount:
         src: "{{ m.tag }}"
@@ -54,28 +74,36 @@
         loop_var: m
         label: "{{ m.tag }} -> {{ m.path }} ({{ m.mode }})"
 
-    - name: Read the filesystem type of each mount point
-      command: findmnt -n -o FSTYPE --target {{ m.path }}
-      register: virtiofs_fstype
+    # The "present check": a mounted virtiofs share that holds the marker
+    # arcturus writes at each dataset root. An unmounted share is an empty
+    # directory, which services must never mistake for the data.
+    - name: Check that each share is present (virtiofs mount with its dataset marker)
+      shell: >-
+        mountpoint -q {{ m.path | quote }}
+        && [ "$(findmnt -n -o FSTYPE --mountpoint {{ m.path | quote }})" = virtiofs ]
+        && [ -f {{ (m.path ~ '/.arcturus-dataset') | quote }} ]
+      register: virtiofs_present
       changed_when: false
+      failed_when: false
       loop: "{{ virtiofs_mounts }}"
       loop_control:
         loop_var: m
         label: "{{ m.path }}"
 
-    - name: Require every mount point to be a virtiofs mount
+    - name: Require every share to be present
       assert:
-        that: r.stdout | trim == 'virtiofs'
+        that: r.rc == 0
         fail_msg: >-
-          {{ r.m.path }} is not a virtiofs mount (found '{{ r.stdout | trim }}').
-          Is tag '{{ r.m.tag }}' exported to this VM by the host?
+          {{ r.m.path }} is not a present share: it must be a virtiofs mount of
+          tag '{{ r.m.tag }}' holding the .arcturus-dataset marker. Is the pool
+          on arcturus unlocked, and is the tag exported to this VM?
         quiet: true
-      loop: "{{ virtiofs_fstype.results }}"
+      loop: "{{ virtiofs_present.results }}"
       loop_control:
         loop_var: r
         label: "{{ r.m.path }}"
 
-    # Run as root: if even root cannot write, the mount is truly read-only.
+    # Second layer: the VM's own "ro" mount option, checked as root.
     - name: Try to write to each read-only mount (must fail)
       command: touch {{ m.path }}/.virtiofs-ro-test
       register: virtiofs_ro_write
@@ -109,3 +137,55 @@
       loop_control:
         loop_var: r
         label: "{{ r.m.path }}"
+
+    - name: Check that each write user can create and delete a file
+      become: true
+      become_user: "{{ m.write_user }}"
+      shell: >-
+        f={{ (m.path ~ '/.virtiofs-write-test-' ~ m.write_user) | quote }};
+        touch "$f" && rm -f "$f"
+      register: virtiofs_write_user
+      changed_when: false
+      failed_when: false
+      loop: "{{ virtiofs_mounts | selectattr('write_user', 'defined') | list }}"
+      loop_control:
+        loop_var: m
+        label: "{{ m.write_user }} -> {{ m.path }}"
+
+    - name: Require write users to be able to write
+      assert:
+        that: r.rc == 0
+        fail_msg: >-
+          {{ r.m.write_user }} cannot write to {{ r.m.path }}: {{ r.stderr | default('') }}.
+          Check the dataset's owner on arcturus against this user's uid and gid.
+        quiet: true
+      loop: "{{ virtiofs_write_user.results }}"
+      loop_control:
+        loop_var: r
+        label: "{{ r.m.path }}"
+
+    # Docker (and so every container with restart: unless-stopped) starts only
+    # once all shares are mounted, never on empty mount points.
+    - name: Make Docker wait for the shares
+      when: virtiofs_mounts_docker_requires | default(false)
+      block:
+        - name: Create the docker.service drop-in directory
+          file:
+            path: /etc/systemd/system/docker.service.d
+            state: directory
+            mode: "0755"
+
+        - name: Require the shares before Docker starts
+          copy:
+            dest: /etc/systemd/system/docker.service.d/10-virtiofs-mounts.conf
+            mode: "0644"
+            content: |
+              # Managed by Ansible (virtiofs_mounts): no container on empty mount points.
+              [Unit]
+              RequiresMountsFor={{ virtiofs_mounts | map(attribute='path') | join(' ') }}
+          register: virtiofs_docker_dropin
+
+        - name: Reload systemd for the Docker drop-in
+          when: virtiofs_docker_dropin is changed
+          systemd:
+            daemon_reload: true

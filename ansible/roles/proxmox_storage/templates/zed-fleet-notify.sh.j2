@@ -14,7 +14,12 @@ case "${ZEVENT_SUBCLASS}" in
       "${NOTIFY}" -p high "Scrub found problems" "Pool ${ZEVENT_POOL}: ${status}"
     fi ;;
   statechange)
-    "${NOTIFY}" -p urgent "Pool device state" "Pool ${ZEVENT_POOL}: ${ZEVENT_VDEV_PATH:-device} is ${ZEVENT_VDEV_STATE_STR:-changed}." ;;
+    # Only bad states, like ZED's own statechange-notify (healthy transitions
+    # such as a device coming online are not alerts).
+    case "${ZEVENT_VDEV_STATE_STR}" in
+      FAULTED|DEGRADED|REMOVED|UNAVAIL)
+        "${NOTIFY}" -p urgent "Pool device ${ZEVENT_VDEV_STATE_STR}" "Pool ${ZEVENT_POOL}: ${ZEVENT_VDEV_PATH:-a device} is ${ZEVENT_VDEV_STATE_STR}." ;;
+    esac ;;
   checksum|data|io)
     "${NOTIFY}" -p high "Pool error" "Pool ${ZEVENT_POOL}: ${ZEVENT_SUBCLASS} error on ${ZEVENT_VDEV_PATH:-a device}." ;;
 esac

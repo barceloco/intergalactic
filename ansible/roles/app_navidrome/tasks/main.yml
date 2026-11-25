@@ -48,11 +48,14 @@
         database: passwd
         key: deploy
 
-    - name: Require the music library to be mounted
-      stat:
-        path: "{{ navidrome_music_dir }}"
-      register: navidrome_music_stat
-      failed_when: not (navidrome_music_stat.stat.isdir | default(false))
+    # The "present check": a mounted virtiofs share holding the marker that
+    # arcturus writes at each dataset root, never an empty mount point.
+    - name: Require the music library to be a present share
+      shell: >-
+        mountpoint -q {{ navidrome_music_dir | quote }}
+        && [ "$(findmnt -n -o FSTYPE --mountpoint {{ navidrome_music_dir | quote }})" = virtiofs ]
+        && [ -f {{ (navidrome_music_dir ~ '/.arcturus-dataset') | quote }} ]
+      changed_when: false
 
     - name: Create the Navidrome directories (on the VM disk)
       become: true

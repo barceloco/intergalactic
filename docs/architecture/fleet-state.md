@@ -75,6 +75,12 @@ Edge services on rigel are systemd-managed containers: `traefik.service`
 
 These differ from what the repo intends. Each is a follow-up, not yet fixed:
 
+- **rigel: the next production run restarts Traefik once.** The edge_ingress
+  compose file (it holds the GoDaddy credentials) is now written 0600 instead
+  of 0644 (2026-11-24); the mode change triggers the role's Traefik restart, a
+  brief outage of every *.exnada.com route. Schedule that run. On-host helpers
+  that read the file (validate-configs.sh) now need sudo.
+
 - **vega: aispector data ports are published on all interfaces.** Postgres
   (5432), Redis (6379), and MinIO (9000, 9001) bind `0.0.0.0`. Docker-published
   ports bypass the nftables input chain, so they are reachable beyond

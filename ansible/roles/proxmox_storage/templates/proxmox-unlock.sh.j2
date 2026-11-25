@@ -2,27 +2,45 @@
 # {{ ansible_managed | default('Managed by Ansible (proxmox_storage)') }}
 #
 # Unlock the encrypted pool {{ proxmox_pool_name }}, mount its datasets, create the
-# read-only shares for VMs, then start the VMs in order.
+# read-only shares for VMs, check every share, then start the VMs in order.
 #
 # The passphrase is read from stdin and handed straight to `zfs load-key`; it
 # is never written to disk or to a log. Run from the operator's Mac:
 #   ./scripts/unlock-arcturus.sh
 #
-# Usage: proxmox-unlock            unlock (passphrase on stdin), shares, start VMs
-#        proxmox-unlock --no-start unlock and shares only
-#        proxmox-unlock --shares   (re)create the read-only shares only
-#        proxmox-unlock --status   print the key status
-#        proxmox-unlock --reminder notify if the pool is locked (run at boot)
+# Usage: proxmox-unlock                unlock (passphrase on stdin), shares, start VMs
+#        proxmox-unlock --no-start     unlock and shares only
+#        proxmox-unlock --shares       (re)create the read-only shares only
+#        proxmox-unlock --check-shares exit 0 only if every VM share is really mounted
+#        proxmox-unlock --status       print the key status
+#        proxmox-unlock --reminder     notify if the pool is locked or missing (run at boot)
 set -euo pipefail
 
 POOL="{{ proxmox_pool_name }}"
 POOL_MNT="{{ proxmox_pool_mountpoint }}"
 RO_ROOT="{{ proxmox_ro_share_root }}"
 CONF="{{ proxmox_unlock_conf_dir }}"
+MARKER="{{ proxmox_dataset_marker }}"
 NOTIFY=/usr/local/sbin/fleet-notify
 
 notify() { [ -x "${NOTIFY}" ] && "${NOTIFY}" "$@" || true; }
+pool_exists() { zpool list -H -o name "${POOL}" > /dev/null 2>&1; }
 keystatus() { zfs get -H -o value keystatus "${POOL}"; }
+
+# A dataset counts as present only when it is a mount point of the pool and
+# carries its marker file. An empty directory never passes.
+dataset_present() { # <dataset>
+  mountpoint -q "${POOL_MNT}/$1" && [ -f "${POOL_MNT}/$1/${MARKER}" ]
+}
+
+# Make an unmounted mount point immutable, so nothing (a VM started by hand,
+# a stray process) can write onto the unencrypted system disk in its place.
+# Mounting over an immutable directory still works.
+seal_mountpoint() { # <dir>
+  if [ -d "$1" ] && ! mountpoint -q "$1"; then
+    chattr +i "$1" 2> /dev/null || true
+  fi
+}
 
 ro_shares() {
   [ -f "${CONF}/ro-shares" ] || return 0
@@ -30,9 +48,10 @@ ro_shares() {
     [ -n "${ds}" ] || continue
     src="${POOL_MNT}/${ds}"
     dst="${RO_ROOT}/${ds}"
-    mountpoint -q "${src}" || { echo "ERROR: ${src} is not mounted" >&2; exit 1; }
+    dataset_present "${ds}" || { echo "ERROR: ${src} is not mounted (or has no ${MARKER})" >&2; exit 1; }
     mkdir -p "${dst}"
     if ! mountpoint -q "${dst}"; then
+      seal_mountpoint "${dst}"
       mount --bind "${src}" "${dst}"
       mount -o remount,bind,ro "${dst}"
     fi
@@ -42,8 +61,31 @@ ro_shares() {
   done < "${CONF}/ro-shares"
 }
 
+# Every share a VM will be given, read-write and read-only, must be the real
+# dataset. Otherwise starting a VM would hand it an empty directory on the
+# unencrypted system disk.
+check_shares() {
+  rc=0
+  for list in rw-shares ro-shares; do
+    [ -f "${CONF}/${list}" ] || continue
+    while read -r ds; do
+      [ -n "${ds}" ] || continue
+      if ! dataset_present "${ds}"; then
+        echo "NOT READY: ${POOL_MNT}/${ds} is not mounted (or has no ${MARKER})" >&2; rc=1
+      fi
+      if [ "${list}" = ro-shares ] && ! { mountpoint -q "${RO_ROOT}/${ds}" \
+           && [ -f "${RO_ROOT}/${ds}/${MARKER}" ] \
+           && findmnt -n -o OPTIONS "${RO_ROOT}/${ds}" | tr ',' '\n' | grep -qx ro; }; then
+        echo "NOT READY: ${RO_ROOT}/${ds} is not the read-only share (mounted, marked, ro)" >&2; rc=1
+      fi
+    done < "${CONF}/${list}"
+  done
+  return "${rc}"
+}
+
 start_vms() {
   [ -f "${CONF}/vm-start-order" ] || return 0
+  check_shares || { echo "ERROR: shares not ready; no VM started" >&2; exit 1; }
   started=0
   while read -r vmid; do
     [ -n "${vmid}" ] || continue
@@ -63,17 +105,23 @@ start_vms() {
 }
 
 case "${1:-}" in
-  --status) keystatus; exit 0 ;;
+  --status) pool_exists && keystatus || echo missing; exit 0 ;;
   --reminder)
-    if [ "$(keystatus)" != available ]; then
+    if ! pool_exists; then
+      seal_mountpoint "${POOL_MNT}"
+      notify -p high "Pool missing" "$(hostname) booted but pool ${POOL} was not imported (a drive missing or failed?). The VMs are off."
+    elif [ "$(keystatus)" != available ]; then
+      seal_mountpoint "${POOL_MNT}"
       notify -p high "Pool locked" "$(hostname) booted. Its pool is locked and the VMs are off: run ./scripts/unlock-arcturus.sh"
     fi
     exit 0 ;;
   --shares) ro_shares; exit 0 ;;
+  --check-shares) check_shares; exit $? ;;
   ""|--no-start) ;;
-  *) echo "usage: $0 [--no-start|--shares|--status|--reminder]" >&2; exit 2 ;;
+  *) echo "usage: $0 [--no-start|--shares|--check-shares|--status|--reminder]" >&2; exit 2 ;;
 esac
 
+pool_exists || { echo "ERROR: pool ${POOL} is not imported" >&2; exit 1; }
 if [ "$(keystatus)" != available ]; then
   zfs load-key "${POOL}"
 fi

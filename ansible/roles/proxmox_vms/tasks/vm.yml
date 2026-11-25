@@ -71,7 +71,7 @@
     loop_var: dev
     index_var: idx
   when: >-
-    proxmox_vm_config.stdout is not search('(?m)^hostpci' ~ idx ~ ': ' ~ (dev | regex_escape))
+    proxmox_vm_config.stdout is not search('(?m)^hostpci' ~ idx ~ ': ' ~ (dev | regex_escape) ~ '(,|$)')
   register: proxmox_vm_pci
   changed_when: true
 
@@ -82,7 +82,7 @@
     loop_var: dev
     index_var: idx
   when: >-
-    proxmox_vm_config.stdout is not search('(?m)^usb' ~ idx ~ ': host=' ~ (dev | regex_escape))
+    proxmox_vm_config.stdout is not search('(?m)^usb' ~ idx ~ ': host=' ~ (dev | regex_escape) ~ '(,|$)')
   register: proxmox_vm_usb
   changed_when: true
 

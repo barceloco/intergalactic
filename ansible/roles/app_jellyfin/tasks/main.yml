@@ -65,11 +65,14 @@
           pci_devices on arcturus), restart the VM, then rerun.
         quiet: true
 
-    - name: Require every media library to be mounted
-      stat:
-        path: "{{ item.host }}"
-      register: jellyfin_media_stat
-      failed_when: not (jellyfin_media_stat.stat.isdir | default(false))
+    # The "present check": a mounted virtiofs share holding the marker that
+    # arcturus writes at each dataset root, never an empty mount point.
+    - name: Require every media library to be a present share
+      shell: >-
+        mountpoint -q {{ item.host | quote }}
+        && [ "$(findmnt -n -o FSTYPE --mountpoint {{ item.host | quote }})" = virtiofs ]
+        && [ -f {{ (item.host ~ '/.arcturus-dataset') | quote }} ]
+      changed_when: false
       loop: "{{ jellyfin_media }}"
       loop_control:
         label: "{{ item.host }}"

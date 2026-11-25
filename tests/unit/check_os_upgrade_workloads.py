@@ -43,13 +43,18 @@ def load():
     return ctx
 
 
-def run(cmd, path_dirs):
-    env = dict(os.environ, PATH=":".join(path_dirs + ["/usr/bin", "/bin"]))
+def run_rc(cmd, path_dirs, extra_env=None):
+    env = dict(os.environ, PATH=":".join(path_dirs + ["/usr/bin", "/bin"]), **(extra_env or {}))
     res = subprocess.run(["bash", "-c", "set -o pipefail\n" + cmd],
                          capture_output=True, text=True, env=env)
-    if res.returncode != 0:
-        raise AssertionError(f"command failed ({res.returncode}): {res.stderr}")
-    return res.stdout
+    return res.returncode, res.stdout
+
+
+def run(cmd, path_dirs):
+    rc, out = run_rc(cmd, path_dirs)
+    if rc != 0:
+        raise AssertionError(f"command failed ({rc}): {cmd[:60]}")
+    return out
 
 
 def main():
@@ -79,6 +84,19 @@ def main():
         ("docker-only: restart policies ignore the unlock list",
          run(ctx["policy_no_order"], docker_only), run(MAIN_POLICY, docker_only)),
     ]
+    # A failing Docker daemon must fail every snippet, exactly as the old
+    # commands did (the playbook then stops before upgrading or rebooting).
+    fail_env = {"FAKE_DOCKER_FAIL": "1"}
+    for name, new_cmd, old_cmd in [
+        ("before/after upgrade", ctx["os_upgrade_workloads_sh"], MAIN_BEFORE),
+        ("after reboot", ctx["os_upgrade_running_workloads_sh"], MAIN_REBOOT),
+        ("restart policies", ctx["policy"], MAIN_POLICY),
+    ]:
+        new_rc, _ = run_rc(new_cmd, docker_only, fail_env)
+        old_rc, _ = run_rc(old_cmd, docker_only, fail_env)
+        checks.append((f"docker down: {name} fails (rc {new_rc}; old rc {old_rc})",
+                       (new_rc != 0, old_rc != 0), (True, True)))
+
     for name, got, want in checks:
         ok = got == want
         failures += not ok

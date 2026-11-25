@@ -16,6 +16,14 @@ NOTIFY=/usr/local/sbin/fleet-notify
 DRY=""
 
 notify() { if [ -x "${NOTIFY}" ]; then "${NOTIFY}" "$@"; fi; }
+# A dataset share is present only if it is a mounted virtiofs share holding
+# the marker arcturus writes at each dataset root. An unmounted share is an
+# empty directory: copying it with --delete would wipe the off-site copy.
+present() {
+  mountpoint -q "$1" \
+    && [ "$(findmnt -n -o FSTYPE --mountpoint "$1")" = virtiofs ] \
+    && [ -f "$1/.arcturus-dataset" ]
+}
 die() { logger -t backup-to-usb -- "refused: $*"; echo "ERROR: $*" >&2; exit 1; }
 
 while getopts ":n" opt; do
@@ -47,9 +55,9 @@ start="$(date +%s)"
 failed=()
 for s in "${SOURCES[@]}"; do
   src="${SOURCE_ROOT}/${s}"
-  if ! mountpoint -q "${src}" && [ ! -d "${src}" ]; then
-    echo "skip ${s}: ${src} not present" >&2
-    failed+=("${s} (missing)")
+  if ! present "${src}"; then
+    echo "skip ${s}: ${src} is not a mounted share with its .arcturus-dataset marker" >&2
+    failed+=("${s} (share not mounted)")
     continue
   fi
   echo "== ${s} -> ${DEST}/${s}"
@@ -61,9 +69,13 @@ mins=$(( ( $(date +%s) - start ) / 60 ))
 
 if [ -n "${DRY}" ]; then
   echo "Dry run finished in ${mins} min; nothing written."
+  if [ -n "${failed[*]:-}" ]; then
+    echo "Would fail: ${failed[*]}" >&2
+    exit 1
+  fi
   exit 0
 fi
-if [ "${#failed[@]}" -gt 0 ]; then
+if [ -n "${failed[*]:-}" ]; then
   logger -t backup-to-usb -- "finished with errors: ${failed[*]}"
   notify -p high -t warning "USB backup incomplete" "Failed: ${failed[*]} (${mins} min)."
   exit 1

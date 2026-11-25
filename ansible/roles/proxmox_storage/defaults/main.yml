@@ -14,18 +14,30 @@ proxmox_pool_name: tank
 proxmox_pool_mountpoint: /tank
 
 # Datasets under the pool (all inherit its encryption). recordsize 1M suits
-# large media files; the default (128K) suits everything else.
+# large media files; the default (128K) suits everything else. owner: the
+# numeric uid:gid of the dataset's root directory. The file shares belong to
+# uid 1000 (armand, the first user cloud-init creates in each VM), so phecda's
+# Samba (force user = armand) can write; immich writes as root.
 proxmox_pool_datasets:
   - name: vm            # VM disks (zvols), Proxmox storage proxmox_pool_vm_storage
   - name: vzdump        # nightly VM backups, Proxmox storage proxmox_pool_backup_storage
   - name: documents
+    owner: "1000:1000"
   - name: immich
   - name: music
     recordsize: 1M
+    owner: "1000:1000"
   - name: audiobooks
     recordsize: 1M
+    owner: "1000:1000"
   - name: video
     recordsize: 1M
+    owner: "1000:1000"
+
+# Marker file at the root of every dataset. Scripts and apps in the VMs treat
+# a share as present only if it is mounted AND carries this file, so an empty
+# mount point (pool locked, share missing) is never mistaken for empty data.
+proxmox_dataset_marker: .arcturus-dataset
 
 # Proxmox storages on the pool. The backup storage is a directory storage
 # marked as a mount point, so Proxmox never writes backups onto the

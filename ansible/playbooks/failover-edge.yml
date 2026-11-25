@@ -11,8 +11,11 @@
 #             maintenance page, CoreDNS and Traefik. Every app domain shows the
 #             maintenance page except those in failover_apps (key apps you
 #             restored on this Pi). The wildcard certificate is copied from
-#             megrez when reachable, else from failover_acme_json_src on the
-#             Mac, else Traefik requests a new one (GoDaddy DNS-01).
+#             megrez when reachable, else from failover_acme_json_src (default
+#             build/failover/acme.json in this repo), else, only with
+#             -e failover_request_new_cert=true, Traefik requests a new one
+#             (GoDaddy DNS-01). Without any source it stops before changing
+#             anything on the Pi.
 # deactivate: stops and removes all of it, including the GoDaddy credentials
 #             and the certificate, and closes the ports again.
 #
@@ -45,11 +48,19 @@
     #   - {host: docgen.exnada.com, backend: "http://127.0.0.1:8048", health_path: /health}
     failover_apps: []
     # DNS-only names (resolve to their own Tailscale IPs).
-    failover_dns_private_hosts: [vega, rigel, mpnas, arcturus]
-    # Certificate source: Traefik's acme.json on megrez, else a copy on the Mac.
+    failover_dns_private_hosts: [vega, rigel, mpnas, arcturus, phecda]   # as on megrez
+    # Certificate source: Traefik's acme.json on megrez; else a copy in the
+    # repo's gitignored build/ directory (the only place the Ansible
+    # container can read); else, only with failover_request_new_cert=true,
+    # Traefik requests a new certificate.
     failover_cert_source_host: megrez
     failover_cert_source_path: /opt/traefik/acme.json
-    failover_acme_json_src: ""
+    failover_acme_json_src: build/failover/acme.json
+    failover_acme_json_path: "{{ playbook_dir }}/../../{{ failover_acme_json_src }}"
+    failover_request_new_cert: false
+    failover_cert_remote_ok: >-
+      {{ failover_cert_remote.content is defined
+         and (failover_cert_remote.content | b64decode | length) > 2 }}
     failover_maintenance_image: "nginx:1.28-alpine"
     failover_maintenance_port: 8099
     failover_maintenance_dir: /opt/failover-maintenance
@@ -118,14 +129,7 @@
           loop_control:
             label: "{{ item.host }}"
 
-        - name: Create the Traefik data directory
-          file:
-            path: /opt/traefik
-            state: directory
-            owner: root
-            group: root
-            mode: "0700"
-
+        # Certificate sources are checked before anything changes on the Pi.
         - name: Read the current certificate store from {{ failover_cert_source_host }}
           when: failover_cert_source_host in groups['all']
           slurp:
@@ -136,10 +140,51 @@
           failed_when: false
           no_log: true
 
+        - name: Require the repo copy of the certificate store to be a path under build/
+          assert:
+            that:
+              - failover_acme_json_src is match('^build/[A-Za-z0-9._/-]+$')
+              - failover_acme_json_src is not search('\.\.')
+            fail_msg: >-
+              failover_acme_json_src must be a relative path under the repo's
+              gitignored build/ directory (default build/failover/acme.json):
+              Ansible runs in a container that sees only the repo.
+            quiet: true
+
+        # Inside the container the repo is /repo; playbook_dir is
+        # /repo/ansible/playbooks.
+        - name: Check for the repo copy of the certificate store
+          stat:
+            path: "{{ failover_acme_json_path }}"
+          delegate_to: localhost
+          become: false
+          register: failover_cert_local
+
+        - name: Require a certificate source before changing anything
+          assert:
+            that: >-
+              failover_cert_remote_ok
+              or failover_cert_local.stat.exists
+              or (failover_request_new_cert | bool)
+            fail_msg: >-
+              No certificate source: {{ failover_cert_source_host }} is unreachable
+              (or has no {{ failover_cert_source_path }}), and there is no
+              {{ failover_acme_json_src }} in the repo. Copy a recent acme.json from
+              megrez to {{ failover_acme_json_src }} (gitignored), or rerun with
+              -e failover_request_new_cert=true to let Traefik request a new
+              certificate (GoDaddy DNS-01). Nothing was changed on {{ inventory_hostname }}.
+            quiet: true
+
+        - name: Create the Traefik data directory
+          file:
+            path: /opt/traefik
+            state: directory
+            owner: root
+            group: root
+            mode: "0700"
+
         - name: Install the certificate store from {{ failover_cert_source_host }}
-          when:
-            - failover_cert_remote.content is defined
-            - (failover_cert_remote.content | b64decode | length) > 2
+          when: failover_cert_remote_ok
           copy:
             content: "{{ failover_cert_remote.content | b64decode }}"
             dest: /opt/traefik/acme.json
@@ -149,12 +194,12 @@
           register: failover_cert_from_remote
           no_log: true
 
-        - name: Install the certificate store from the Mac
+        - name: Install the certificate store from the repo copy
           when:
             - failover_cert_from_remote is skipped
-            - failover_acme_json_src | length > 0
+            - failover_cert_local.stat.exists
           copy:
-            src: "{{ failover_acme_json_src }}"
+            src: "{{ failover_acme_json_path }}"
             dest: /opt/traefik/acme.json
             owner: root
             group: root
@@ -234,7 +279,7 @@
               - >-
                 Certificate:
                 {{ 'copied from ' ~ failover_cert_source_host if failover_cert_from_remote is not skipped
-                   else ('copied from the Mac' if failover_cert_from_mac is not skipped
+                   else ('copied from ' ~ failover_acme_json_src if failover_cert_from_mac is not skipped
                    else 'none copied; Traefik requests a new one (takes minutes)') }}
               - >-
                 Routes (HTTP status via Traefik):
