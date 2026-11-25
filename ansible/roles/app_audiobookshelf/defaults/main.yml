@@ -1,0 +1,31 @@
+---
+# app_audiobookshelf: run Audiobookshelf (open-source audiobook and podcast
+# server) in Docker, as the deploy user, from an Ansible-rendered compose file.
+# Runs in the media VM (alioth). Audiobooks come from the host's virtiofs share
+# (read-only); Audiobookshelf's config and metadata (its database, covers,
+# caches) live on the VM disk.
+audiobookshelf_enabled: false
+
+# Image and REQUIRED pinned version. No default on purpose: read the release
+# notes (https://github.com/advplyr/audiobookshelf/releases), pick the current
+# stable release, and set it in host_vars, e.g. audiobookshelf_image_tag:
+# "2.x.y". The floating tag "latest" is refused.
+audiobookshelf_image: ghcr.io/advplyr/audiobookshelf
+audiobookshelf_image_tag: ""
+
+# Compose project directory and state, on the VM disk (never on virtiofs).
+audiobookshelf_dir: /home/deploy/audiobookshelf
+audiobookshelf_config_dir: "{{ audiobookshelf_dir }}/config"
+audiobookshelf_metadata_dir: "{{ audiobookshelf_dir }}/metadata"
+
+# Libraries: host path (a virtiofs mount) -> path inside the container.
+# Always mounted read-only.
+audiobookshelf_media:
+  - host: /mnt/audiobooks
+    container: /audiobooks
+
+# Published port (0.0.0.0; the VM firewall admits only the reverse proxy).
+# The container listens on 80.
+audiobookshelf_port: 13378
+
+audiobookshelf_restart_policy: unless-stopped

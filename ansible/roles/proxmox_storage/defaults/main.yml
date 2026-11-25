@@ -1,0 +1,76 @@
+---
+# proxmox_storage: the encrypted ZFS pool on a Proxmox host, and everything
+# that depends on it: datasets, Proxmox storages, read-only shares for VMs,
+# snapshots, nightly VM backups, drive and pool alerts, and the unlock helper.
+#
+# No encryption key is ever stored on the host (no key file, no TPM). The pool
+# is created by the operator with ./scripts/create-encrypted-pool.sh and
+# unlocked after every boot with ./scripts/unlock-arcturus.sh, which pipe the
+# passphrase over SSH. This role refuses a pool whose key could be loaded
+# without the operator (keylocation other than "prompt").
+proxmox_storage_enabled: false
+
+proxmox_pool_name: tank
+proxmox_pool_mountpoint: /tank
+
+# Datasets under the pool (all inherit its encryption). recordsize 1M suits
+# large media files; the default (128K) suits everything else.
+proxmox_pool_datasets:
+  - name: vm            # VM disks (zvols), Proxmox storage proxmox_pool_vm_storage
+  - name: vzdump        # nightly VM backups, Proxmox storage proxmox_pool_backup_storage
+  - name: documents
+  - name: immich
+  - name: music
+    recordsize: 1M
+  - name: audiobooks
+    recordsize: 1M
+  - name: video
+    recordsize: 1M
+
+# Proxmox storages on the pool. The backup storage is a directory storage
+# marked as a mount point, so Proxmox never writes backups onto the
+# (unencrypted) system disk while the pool is locked.
+proxmox_pool_vm_storage: tank-vm
+proxmox_pool_backup_storage: tank-vzdump
+
+# Read-only views of datasets for VMs: bind mounts remounted read-only on the
+# host, created by the unlock helper. A VM given such a share cannot write to
+# it even as root inside the VM. Read-write shares map the dataset directly.
+proxmox_ro_share_root: /srv/vmshare/ro
+
+# Nightly backup of every VM (disks include app databases and secrets; the
+# backup lands on the encrypted pool). merak reads it read-only and the
+# Synology pulls it from there.
+proxmox_vzdump_job_id: nightly
+proxmox_vzdump_schedule: "03:00"
+proxmox_vzdump_prune: "keep-daily=7,keep-weekly=4,keep-monthly=3"
+
+# Snapshot policy (sanoid). Datasets not listed get no automatic snapshots.
+proxmox_snapshot_policies:
+  important: {hourly: 24, daily: 30, monthly: 12}
+  media: {hourly: 0, daily: 14, monthly: 3}
+proxmox_snapshot_datasets:
+  documents: important
+  immich: important
+  music: media
+  audiobooks: media
+  video: media
+
+# Upper limit of the ZFS cache (ARC) in MB; 0 leaves OpenZFS's default (up to
+# half the RAM on a Debian-based install, which would starve the VMs).
+proxmox_zfs_arc_max_mb: 0
+
+# Files the unlock helper reads (written by this role and by proxmox_vms).
+proxmox_unlock_conf_dir: /etc/proxmox-unlock
+
+# Drive health (smartd): temperature report thresholds in degrees C
+# (informational, critical). NVMe drives throttle around 80.
+proxmox_smart_temp_info: 65
+proxmox_smart_temp_crit: 75
+
+# UPS (NUT), off until a UPS is connected by USB. upsmon shuts the host down
+# cleanly (VMs first) when the battery runs low.
+proxmox_nut_enabled: false
+proxmox_nut_ups_name: ups
+proxmox_nut_driver: usbhid-ups
+proxmox_nut_port: auto

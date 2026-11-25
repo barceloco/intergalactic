@@ -1,0 +1,12 @@
+# {{ ansible_managed | default('Managed by Ansible (notify)') }}
+[Unit]
+Description=Send a "booted" push notification
+Wants=network-online.target
+After=network-online.target tailscaled.service
+
+[Service]
+Type=oneshot
+ExecStart={{ notify_script_path }} -t arrow_up "booted" "{{ inventory_hostname }} booted"
+
+[Install]
+WantedBy=multi-user.target

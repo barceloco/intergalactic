@@ -1,0 +1,9 @@
+#cloud-config
+# {{ ansible_managed | default('Managed by Ansible (proxmox_vms)') }}
+# Installed in every VM at first boot, so Proxmox can see the VM's address
+# and shut it down cleanly.
+package_update: true
+packages:
+  - qemu-guest-agent
+runcmd:
+  - systemctl enable --now qemu-guest-agent

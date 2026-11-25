@@ -1,0 +1,26 @@
+---
+# The active VMs: every declared VM unless it says enabled: false or gets
+# 0 MB of memory (the host's memory profile can leave a VM out until RAM is
+# added). Inactive VMs are not created, counted, started or given shares; an
+# inactive VM that already exists is left alone. Shared with proxmox_storage
+# (include_role tasks_from: active) so both roles use the same rule.
+- name: Start the list of active VMs
+  set_fact:
+    proxmox_vms_active: []
+
+- name: Collect the active VMs, in declared order
+  set_fact:
+    proxmox_vms_active: "{{ proxmox_vms_active + [vm] }}"
+  loop: "{{ proxmox_vms | default([]) }}"
+  loop_control:
+    loop_var: vm
+    label: "{{ vm.name | default(vm) }}"
+  when:
+    - vm.enabled | default(true) | bool
+    - vm.memory_mb | int > 0
+
+- name: Report the VMs left out
+  debug:
+    msg: >-
+      Not created now: {{ proxmox_vms | default([]) | map(attribute='name')
+      | difference(proxmox_vms_active | map(attribute='name')) | join(', ') or 'none' }}

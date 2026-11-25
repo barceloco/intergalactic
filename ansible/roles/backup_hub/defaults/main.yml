@@ -1,0 +1,34 @@
+---
+# backup_hub: the backup VM (merak). It never pushes anywhere:
+# - the Synology (mpnas) PULLS from it over SSH, through a read-only account
+#   that can only run rsync below backup_hub_source_root (rrsync -ro);
+# - a daily check alerts (fleet-notify) when backups or pulls are stale;
+# - backup-to-usb copies selected data to a LUKS-encrypted USB drive that the
+#   operator unlocked by hand (key piped over SSH from the Mac, never stored).
+backup_hub_enabled: false
+
+# The datasets, mounted read-only into the VM (virtiofs from arcturus), e.g.
+# /mnt/documents, /mnt/immich, /mnt/music, /mnt/audiobooks, /mnt/video, and
+# /mnt/vzdump (VM backups).
+backup_hub_source_root: /mnt
+
+# Read-only pull account for mpnas. Keys are PUBLIC keys (not secrets); each is
+# forced to `rrsync -ro <source_root>` with every other SSH feature disabled.
+# The account must also be listed in ssh_allow_users for this host.
+backup_hub_pull_user: mpnas-pull
+backup_hub_pull_keys: []
+
+# Freshness check (daily timer): alert when the newest file below
+# <source_root>/<backup_hub_vzdump_dir> is older than this, or when the pull
+# account has not logged in successfully for this long.
+backup_hub_vzdump_dir: vzdump
+backup_hub_vzdump_max_age_h: 30
+backup_hub_pull_max_age_h: 30
+backup_hub_check_time: "*-*-* 09:00:00"
+
+# Off-site USB copy: these subdirectories of source_root, copied into
+# <mountpoint>/arcturus/ by `backup-to-usb <mountpoint>`.
+backup_hub_usb_sources:
+  - documents
+  - immich
+  - vzdump

@@ -1,0 +1,66 @@
+---
+# megrez: VM on arcturus. The edge: Traefik (HTTPS for every *.exnada.com app,
+# wildcard certificate via GoDaddy DNS-01) and CoreDNS (the exnada.com zone for
+# the tailnet). Takes over from rigel; it holds the GoDaddy key, so it runs
+# nothing else. Every app stays tailnet-only.
+hostname: "megrez"
+enable_desktop: false
+enable_docker: true
+enable_docker_deploy: true
+docker_deploy_git_repos: []
+notify_enabled: true
+
+# Firewall: DNS (53) and HTTP/HTTPS (80, 443) from the tailnet are opened
+# automatically by internal_dns_enabled / edge_ingress_enabled; SSH and ping
+# are built in. Nothing else.
+firewall_rules: []
+
+# Containers resolve tailnet names through the local CoreDNS.
+docker_deploy_dns_servers:
+  - 127.0.0.1  # CoreDNS (for Tailscale hostname resolution)
+  - 8.8.8.8    # Fallback to Google DNS
+
+# Internal DNS (as on rigel). Routed hosts are added automatically from
+# edge_ingress_routes below; list only DNS-only names here.
+internal_dns_enabled: true
+internal_dns_domain: exnada.com
+internal_dns_private_hosts:
+  - mpnas      # DNS-only: the Synology (backup target)
+  - vega       # standby
+  - rigel      # standby
+
+# Reverse proxy routes. Backends are the VMs' tailnet names; each backend's
+# firewall admits only megrez on its app port.
+edge_ingress_enabled: true
+edge_ingress_domain: exnada.com
+edge_ingress_acme_email: admin@exnada.com
+edge_ingress_use_tailscale_fqdn: true
+edge_ingress_disable_tls: false
+edge_ingress_backend_timeout_connect: 30s
+edge_ingress_backend_timeout_response: 60s
+edge_ingress_routes:
+  # Production (dubhe)
+  - host: aispector.exnada.com
+    backend: http://dubhe:8000
+    health_path: /health
+  - host: callosal.exnada.com
+    backend: http://dubhe:8001
+    health_path: /health
+  - host: docgen.exnada.com
+    backend: http://dubhe:8048
+  # Dev (mizar)
+  - host: csa.exnada.com
+    backend: http://mizar:8023
+    health_path: /health
+  - host: demo.exnada.com
+    backend: http://mizar:8001
+    health_path: /health
+  # Media (alioth) and photos (alkaid)
+  - host: jellyfin.exnada.com
+    backend: http://alioth:8096
+  - host: audiobookshelf.exnada.com
+    backend: http://alioth:13378
+  - host: navidrome.exnada.com
+    backend: http://alioth:4533
+  - host: immich.exnada.com
+    backend: http://alkaid:2283

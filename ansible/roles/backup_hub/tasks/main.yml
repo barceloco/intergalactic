@@ -1,0 +1,166 @@
+---
+- name: Skip backup_hub role if not enabled
+  when: not (backup_hub_enabled | default(false))
+  debug:
+    msg: "Skipping backup_hub role (backup_hub_enabled is false)"
+
+- name: Set up the backup hub
+  when: backup_hub_enabled | default(false)
+  block:
+    - name: Validate the backup hub settings
+      assert:
+        that:
+          - backup_hub_pull_user is match('^[a-z][a-z0-9-]{0,30}$')
+          - backup_hub_source_root is match('^/[^ ]+$')
+          - backup_hub_source_root != '/'
+          - backup_hub_pull_keys is sequence and backup_hub_pull_keys is not string
+          - backup_hub_pull_keys | reject('match', backup_hub_key_pattern) | list | length == 0
+          - backup_hub_pull_keys | select('search', '^[^ ]+ [^ ]+ .*(command=|restrict)') | list | length == 0
+          - backup_hub_usb_sources | select('search', '(/|^\.\.?$)') | list | length == 0
+          - backup_hub_pull_user in (ssh_allow_users | default([]))
+        fail_msg: |
+          ============================================================================
+          ERROR: invalid backup_hub settings.
+          ============================================================================
+          - backup_hub_pull_user: lowercase account name (default mpnas-pull)
+          - backup_hub_source_root: absolute path, not / (default /mnt)
+          - backup_hub_pull_keys: plain PUBLIC keys ("ssh-ed25519 AAAA... comment"),
+            without options; the role adds the read-only restriction itself
+          - backup_hub_usb_sources: plain directory names below the source root
+          - the pull account must be in ssh_allow_users for this host, e.g. in
+            host_vars:
+              ssh_allow_users: "{{ '{{' }} [automation_user] + (human_users | default([])
+                | map(attribute='name') | list) + ['{{ backup_hub_pull_user }}'] {{ '}}' }}"
+          ============================================================================
+        quiet: true
+      vars:
+        backup_hub_key_pattern: >-
+          ^(ssh-ed25519|ecdsa-sha2-nistp(256|384|521)|ssh-rsa|sk-ssh-ed25519@openssh.com)
+          [A-Za-z0-9+/=]+( .*)?$
+
+    - name: Install rsync (provides rrsync)
+      apt:
+        name: rsync
+        state: present
+
+    - name: Check that rrsync is available
+      stat:
+        path: /usr/bin/rrsync
+      register: backup_hub_rrsync
+
+    - name: Require rrsync
+      assert:
+        that: backup_hub_rrsync.stat.exists and backup_hub_rrsync.stat.executable
+        fail_msg: "/usr/bin/rrsync is missing; the read-only pull account depends on it."
+        quiet: true
+
+    # Debian keeps the journal in memory only unless /var/log/journal exists;
+    # the pull check reads up to backup_hub_pull_max_age_h hours back, across
+    # reboots.
+    - name: Create the journald drop-in directory
+      file:
+        path: /etc/systemd/journald.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Keep the journal across reboots
+      copy:
+        dest: /etc/systemd/journald.conf.d/50-backup-hub-persistent.conf
+        content: |
+          # {{ ansible_managed | default('Managed by Ansible (backup_hub)') }}
+          [Journal]
+          Storage=persistent
+        owner: root
+        group: root
+        mode: "0644"
+      register: backup_hub_journald
+
+    - name: Restart journald for persistent storage
+      when: backup_hub_journald is changed
+      systemd:
+        name: systemd-journald
+        state: restarted
+
+    # ------------------------------------------------------- read-only pulls
+    - name: Create the read-only pull account (no password, no shell login)
+      user:
+        name: "{{ backup_hub_pull_user }}"
+        system: true
+        shell: /bin/sh
+        home: "/var/lib/{{ backup_hub_pull_user }}"
+        create_home: true
+        password: "!"
+        password_lock: true
+
+    - name: Install the pull keys, each forced to read-only rsync
+      copy:
+        dest: "/etc/ssh/authorized_keys.d/{{ backup_hub_pull_user }}"
+        content: |
+          # {{ ansible_managed | default('Managed by Ansible (backup_hub)') }}
+          # Read-only rsync below {{ backup_hub_source_root }}; nothing else.
+          {% for key in backup_hub_pull_keys %}
+          command="/usr/bin/rrsync -ro {{ backup_hub_source_root }}",restrict {{ key }}
+          {% endfor %}
+        owner: root
+        group: root
+        mode: "0644"
+
+    # ----------------------------------------------------- freshness check
+    - name: Install the freshness check
+      template:
+        src: backup-hub-check.sh.j2
+        dest: /usr/local/sbin/backup-hub-check
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the freshness check units
+      template:
+        src: "{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - backup-hub-check.service
+        - backup-hub-check.timer
+      register: backup_hub_units
+
+    - name: Enable the daily freshness check
+      systemd:
+        name: backup-hub-check.timer
+        enabled: true
+        state: started
+        daemon_reload: "{{ backup_hub_units is changed }}"
+
+    # -------------------------------------------------------- off-site USB
+    - name: Install backup-to-usb
+      template:
+        src: backup-to-usb.sh.j2
+        dest: /usr/local/sbin/backup-to-usb
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Check for the notifier
+      stat:
+        path: /usr/local/sbin/fleet-notify
+      register: backup_hub_notifier
+
+    - name: Report
+      debug:
+        msg:
+          - >-
+            Pull account: {{ backup_hub_pull_user }} ({{ backup_hub_pull_keys | length }} key(s)),
+            read-only below {{ backup_hub_source_root }}
+          - >-
+            Freshness check: daily at {{ backup_hub_check_time }} (VM backups
+            {{ backup_hub_vzdump_max_age_h }} h, pulls {{ backup_hub_pull_max_age_h }} h)
+          - >-
+            USB copy: sudo backup-to-usb [-n] <mountpoint of an unlocked LUKS drive>
+            ({{ backup_hub_usb_sources | join(', ') }})
+          - >-
+            {{ 'Alerts go through fleet-notify.' if backup_hub_notifier.stat.exists
+               else 'WARNING: fleet-notify is not installed (role notify); alerts only reach the journal.' }}

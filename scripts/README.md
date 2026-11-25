@@ -93,6 +93,66 @@ it and also ran the app roles; it was removed.)
 - Runs the same validation as the `firewall_nftables` role (refuses the retired all-sources variables, unknown sources, missing comments)
 - Syntax-checks the result with `nft -c` on Debian trixie, then prints it
 
+### `fetch-debian-image.sh` and `make-cloud-init-seed.sh`
+
+**Purpose**: Headless install of a bare-metal host (e.g. arcturus) without a screen
+
+```bash
+./scripts/fetch-debian-image.sh            # Debian 13 generic image, SHA-512 verified, into build/
+./scripts/make-cloud-init-seed.sh <host>   # first-boot seed (hostname, armand, SSH public keys) into build/
+```
+
+Both run in containers and write only to `build/` (gitignored). Neither writes
+to a disk: they print the `dd` / `diskutil` commands, because picking the target
+disk is a destructive decision. See `docs/runbooks/proxmox-arcturus.md`.
+
+### `create-encrypted-pool.sh` and `unlock-arcturus.sh`
+
+**Purpose**: arcturus's encrypted ZFS pool, whose passphrase is never stored on the host
+
+```bash
+./scripts/create-encrypted-pool.sh                    # list arcturus's disks
+./scripts/create-encrypted-pool.sh <id-1> [<id-2>]    # once: create the pool (asks for the passphrase)
+./scripts/unlock-arcturus.sh                          # after every boot: unlock, then start the VMs
+<password-manager-cli> | ./scripts/unlock-arcturus.sh # same, passphrase piped in
+```
+
+Run by the operator on the Mac (they prompt for the passphrase locally and send
+it through SSH with strict host key checking). The pool script never wipes a
+disk: it refuses any disk that is mounted, partitioned or carries a signature.
+
+### `test-os-upgrade-workloads.sh` and `test-samba-render.sh`
+
+**Purpose**: Prove shared code stays neutral for the Pis
+
+```bash
+./scripts/test-os-upgrade-workloads.sh   # os-upgrade.yml snippets vs the pre-Proxmox commands (fake docker/qm)
+./scripts/test-samba-render.sh [ref]     # smb.conf for vega and rigel byte-identical to <ref> (default main)
+```
+
+Both run in the ansible-runner container and touch no host.
+
+### `test-arcturus-profiles.sh`
+
+**Purpose**: Check arcturus's memory profiles (16gb, 48gb) against its real host_vars
+
+```bash
+./scripts/test-arcturus-profiles.sh   # active VMs, memory fit, read-only shares, per profile
+```
+
+Runs the roles' own active-VM rule with a local connection in the container.
+
+### `run-ansible.sh ... failover`
+
+**Purpose**: Run DNS and the reverse proxy on one standby Pi when arcturus is down
+
+```bash
+./scripts/run-ansible.sh prod vega failover -e failover_mode=activate
+./scripts/run-ansible.sh prod vega failover -e failover_mode=deactivate
+```
+
+See `docs/runbooks/failover-to-pi.md` (untested until the first drill).
+
 ### `validate-playbooks.sh`
 
 **Purpose**: Validates all Ansible playbooks for syntax errors

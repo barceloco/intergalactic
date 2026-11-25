@@ -1,0 +1,23 @@
+# {{ ansible_managed | default('Managed by Ansible (app_jellyfin role)') }}
+# Jellyfin, run as the deploy user. Media is mounted read-only; state lives
+# in {{ jellyfin_dir }} on the VM disk.
+services:
+  jellyfin:
+    image: "{{ jellyfin_image }}:{{ jellyfin_image_tag }}"
+    container_name: jellyfin
+    user: "{{ ansible_facts.getent_passwd.deploy[1] }}:{{ ansible_facts.getent_passwd.deploy[2] }}"
+{% if jellyfin_hw_accel | bool %}
+    group_add:
+      - "{{ ansible_facts.getent_group.render[1] }}"
+    devices:
+      - /dev/dri:/dev/dri
+{% endif %}
+    ports:
+      - "{{ jellyfin_port }}:8096"
+    volumes:
+      - "{{ jellyfin_config_dir }}:/config"
+      - "{{ jellyfin_cache_dir }}:/cache"
+{% for m in jellyfin_media %}
+      - "{{ m.host }}:{{ m.container }}:ro"
+{% endfor %}
+    restart: {{ jellyfin_restart_policy }}

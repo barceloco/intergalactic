@@ -1,0 +1,91 @@
+---
+- name: Skip notify role if not enabled
+  when: not (notify_enabled | default(false))
+  debug:
+    msg: "Skipping notify role (notify_enabled is false)"
+
+- name: Set up push notifications (ntfy)
+  when: notify_enabled | default(false)
+  block:
+    - name: Validate the ntfy settings
+      assert:
+        that:
+          - notify_ntfy_url is match('^https?://[^/]+')
+          - notify_ntfy_topic | length >= 16
+          - notify_ntfy_topic is match('^[A-Za-z0-9_-]+$')
+        fail_msg: |
+          ============================================================================
+          ERROR: notify is enabled but not configured.
+          ============================================================================
+          Set in all_secrets.yml (never in host_vars):
+            notify_ntfy_topic: "<16+ random letters, digits, - or _>"
+            notify_ntfy_token: ""   # optional, for a protected topic
+          and optionally notify_ntfy_url (default https://ntfy.sh).
+          On a public server the topic name works like a password.
+          ============================================================================
+        success_msg: "ntfy settings present (URL {{ notify_ntfy_url }})"
+        quiet: true
+
+    - name: Install curl
+      apt:
+        name: curl
+        state: present
+
+    - name: Install fleet-notify
+      copy:
+        src: fleet-notify
+        dest: "{{ notify_script_path }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Write the ntfy configuration (root only)
+      template:
+        src: fleet-notify.conf.j2
+        dest: "{{ notify_config_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Install the boot notification unit
+      when: notify_boot_message | default(false)
+      template:
+        src: fleet-notify-boot.service.j2
+        dest: /etc/systemd/system/fleet-notify-boot.service
+        owner: root
+        group: root
+        mode: "0644"
+      register: notify_boot_unit
+
+    - name: Enable the boot notification
+      when: notify_boot_message | default(false)
+      systemd:
+        name: fleet-notify-boot.service
+        enabled: true
+        daemon_reload: "{{ notify_boot_unit is changed }}"
+
+    - name: Disable the boot notification when not wanted
+      when: not (notify_boot_message | default(false))
+      block:
+        - name: Check for the boot notification unit
+          stat:
+            path: /etc/systemd/system/fleet-notify-boot.service
+          register: notify_boot_unit_file
+
+        - name: Disable and remove the boot notification unit
+          when: notify_boot_unit_file.stat.exists
+          block:
+            - name: Disable the boot notification unit
+              systemd:
+                name: fleet-notify-boot.service
+                enabled: false
+
+            - name: Remove the boot notification unit
+              file:
+                path: /etc/systemd/system/fleet-notify-boot.service
+                state: absent
+
+            - name: Reload systemd
+              systemd:
+                daemon_reload: true

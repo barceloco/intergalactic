@@ -1,0 +1,53 @@
+---
+# Evaluate arcturus's real host_vars for one memory profile, without touching
+# the host (connection local, set_fact/assert only): which VMs are active,
+# whether they fit next to the host reserve, and which datasets get shared.
+# Run via ./scripts/test-arcturus-profiles.sh.
+- name: Check arcturus memory profile {{ arcturus_memory_profile }}
+  hosts: arcturus
+  connection: local
+  gather_facts: false
+  vars:
+    # Conservative usable memory (free -m) for each installed size.
+    usable_mb: {16gb: 15600, 48gb: 48000}
+    expected_active:
+      16gb: [megrez, phecda, dubhe, alioth, alkaid, merak]
+      48gb: [megrez, phecda, dubhe, alioth, alkaid, merak, mizar]
+  tasks:
+    - name: Determine the active VMs (the roles' own rule)
+      include_role:
+        name: proxmox_vms
+        tasks_from: active
+
+    - name: Summarise
+      set_fact:
+        active_names: "{{ proxmox_vms_active | map(attribute='name') | list }}"
+        vm_total_mb: "{{ proxmox_vms_active | map(attribute='memory_mb') | map('int') | sum }}"
+        ro_datasets: >-
+          {{ proxmox_vms_active | map(attribute='virtiofs', default=[]) | flatten
+             | selectattr('mode', 'equalto', 'ro') | map(attribute='dataset') | unique | sort }}
+
+    - name: Require the expected VMs, in start order
+      assert:
+        that: active_names == expected_active[arcturus_memory_profile]
+        fail_msg: "Active VMs {{ active_names }}, expected {{ expected_active[arcturus_memory_profile] }}"
+
+    - name: Require the VMs to fit next to the host reserve
+      assert:
+        that: (vm_total_mb | int) + (proxmox_host_reserve_mb | int) <= usable_mb[arcturus_memory_profile]
+        fail_msg: >-
+          VMs {{ vm_total_mb }} MB + reserve {{ proxmox_host_reserve_mb }} MB exceed
+          {{ usable_mb[arcturus_memory_profile] }} MB.
+
+    - name: Require every active VM to have at least 512 MB and the ARC cap to be set
+      assert:
+        that:
+          - proxmox_vms_active | map(attribute='memory_mb') | map('int') | min >= 512
+          - proxmox_zfs_arc_max_mb | int > 0
+
+    - name: Report
+      debug:
+        msg:
+          - "Profile {{ arcturus_memory_profile }}: {{ active_names | join(', ') }}"
+          - "VMs {{ vm_total_mb }} MB + host reserve {{ proxmox_host_reserve_mb }} MB (ZFS cache cap {{ proxmox_zfs_arc_max_mb }} MB) of about {{ usable_mb[arcturus_memory_profile] }} MB"
+          - "Read-only shares: {{ ro_datasets | join(', ') }}"

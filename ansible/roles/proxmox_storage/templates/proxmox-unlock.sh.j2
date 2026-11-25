@@ -1,0 +1,88 @@
+#!/bin/bash
+# {{ ansible_managed | default('Managed by Ansible (proxmox_storage)') }}
+#
+# Unlock the encrypted pool {{ proxmox_pool_name }}, mount its datasets, create the
+# read-only shares for VMs, then start the VMs in order.
+#
+# The passphrase is read from stdin and handed straight to `zfs load-key`; it
+# is never written to disk or to a log. Run from the operator's Mac:
+#   ./scripts/unlock-arcturus.sh
+#
+# Usage: proxmox-unlock            unlock (passphrase on stdin), shares, start VMs
+#        proxmox-unlock --no-start unlock and shares only
+#        proxmox-unlock --shares   (re)create the read-only shares only
+#        proxmox-unlock --status   print the key status
+#        proxmox-unlock --reminder notify if the pool is locked (run at boot)
+set -euo pipefail
+
+POOL="{{ proxmox_pool_name }}"
+POOL_MNT="{{ proxmox_pool_mountpoint }}"
+RO_ROOT="{{ proxmox_ro_share_root }}"
+CONF="{{ proxmox_unlock_conf_dir }}"
+NOTIFY=/usr/local/sbin/fleet-notify
+
+notify() { [ -x "${NOTIFY}" ] && "${NOTIFY}" "$@" || true; }
+keystatus() { zfs get -H -o value keystatus "${POOL}"; }
+
+ro_shares() {
+  [ -f "${CONF}/ro-shares" ] || return 0
+  while read -r ds; do
+    [ -n "${ds}" ] || continue
+    src="${POOL_MNT}/${ds}"
+    dst="${RO_ROOT}/${ds}"
+    mountpoint -q "${src}" || { echo "ERROR: ${src} is not mounted" >&2; exit 1; }
+    mkdir -p "${dst}"
+    if ! mountpoint -q "${dst}"; then
+      mount --bind "${src}" "${dst}"
+      mount -o remount,bind,ro "${dst}"
+    fi
+    # Refuse to continue if the share is not actually read-only.
+    findmnt -n -o OPTIONS "${dst}" | tr ',' '\n' | grep -qx ro \
+      || { echo "ERROR: ${dst} is not read-only" >&2; exit 1; }
+  done < "${CONF}/ro-shares"
+}
+
+start_vms() {
+  [ -f "${CONF}/vm-start-order" ] || return 0
+  started=0
+  while read -r vmid; do
+    [ -n "${vmid}" ] || continue
+    if ! qm status "${vmid}" | grep -q running; then
+      qm start "${vmid}"
+      for _ in $(seq 1 60); do
+        qm status "${vmid}" | grep -q running && break
+        sleep 2
+      done
+      qm status "${vmid}" | grep -q running \
+        || { echo "ERROR: VM ${vmid} did not start" >&2; exit 1; }
+      started=$((started + 1))
+      sleep 5
+    fi
+  done < "${CONF}/vm-start-order"
+  echo "Started ${started} VM(s)."
+}
+
+case "${1:-}" in
+  --status) keystatus; exit 0 ;;
+  --reminder)
+    if [ "$(keystatus)" != available ]; then
+      notify -p high "Pool locked" "$(hostname) booted. Its pool is locked and the VMs are off: run ./scripts/unlock-arcturus.sh"
+    fi
+    exit 0 ;;
+  --shares) ro_shares; exit 0 ;;
+  ""|--no-start) ;;
+  *) echo "usage: $0 [--no-start|--shares|--status|--reminder]" >&2; exit 2 ;;
+esac
+
+if [ "$(keystatus)" != available ]; then
+  zfs load-key "${POOL}"
+fi
+zfs mount -a
+ro_shares
+# Let Proxmox notice the storages are back.
+pvesm status > /dev/null 2>&1 || true
+if [ "${1:-}" != --no-start ]; then
+  start_vms
+fi
+notify "Unlocked" "$(hostname): pool ${POOL} unlocked$([ "${1:-}" = --no-start ] || echo ', VMs started')."
+echo "OK: ${POOL} unlocked."

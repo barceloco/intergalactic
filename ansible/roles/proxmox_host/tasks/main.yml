@@ -1,0 +1,547 @@
+---
+# Convert a minimal Debian 13 amd64 install into Proxmox VE 9. Every step is
+# idempotent; a re-run on a finished host changes nothing.
+
+- name: Skip proxmox_host (proxmox_enabled is false)
+  when: not (proxmox_enabled | default(false))
+  debug:
+    msg: "Skipping proxmox_host (proxmox_enabled is false)"
+
+- name: Set up Proxmox VE
+  when: proxmox_enabled | default(false)
+  block:
+    # ------------------------------------------------------------------ checks
+    - name: Require Debian 13 (trixie) on amd64
+      assert:
+        that:
+          - ansible_facts['distribution'] == 'Debian'
+          - ansible_facts['distribution_release'] == 'trixie'
+          - ansible_facts['architecture'] == 'x86_64'
+        fail_msg: >-
+          Proxmox VE 9 needs Debian 13 (trixie) on x86_64; this host runs
+          {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_release'] }}
+          on {{ ansible_facts['architecture'] }}.
+        quiet: true
+
+    - name: Require the network and keyring settings
+      assert:
+        that:
+          - proxmox_bridge_nic | length > 0
+          - proxmox_bridge_nic in ansible_facts['interfaces']
+          - proxmox_address_cidr is match('^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$')
+          - proxmox_gateway is match('^(\d{1,3}\.){3}\d{1,3}$')
+          - proxmox_keyring_sha256 is match('^[0-9a-f]{64}$')
+          - proxmox_admin_password is defined and proxmox_admin_password | length >= 12
+        fail_msg: >-
+          Set in host_vars: proxmox_bridge_nic (one of
+          {{ ansible_facts['interfaces'] | reject('match', '^(lo|tailscale|vmbr|tap|fwbr|fwpr|fwln)') | list }}),
+          proxmox_address_cidr, proxmox_gateway, and proxmox_keyring_sha256 (from the
+          Proxmox wiki); and in all_secrets.yml: proxmox_admin_password (12+ chars).
+        quiet: true
+
+    - name: Check whether NetworkManager is active (it must not manage the NIC)  # noqa: command-instead-of-module
+      command: systemctl is-active NetworkManager
+      register: proxmox_nm
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse to run while NetworkManager is active
+      assert:
+        that: proxmox_nm.stdout != 'active'
+        fail_msg: >-
+          NetworkManager is active. Proxmox networking uses ifupdown2 and
+          /etc/network/interfaces. Reinstall Debian without a desktop
+          (netinst, "SSH server" + "standard system utilities" only).
+        quiet: true
+
+    - name: Check that hardware virtualization (VT-x) is enabled in the BIOS
+      command: grep -c -w vmx /proc/cpuinfo
+      register: proxmox_vmx
+      changed_when: false
+      failed_when: false
+
+    - name: Refuse to run without VT-x
+      assert:
+        that: proxmox_vmx.stdout | int > 0
+        fail_msg: >-
+          The CPU does not expose VT-x: virtualization is disabled in the BIOS.
+          Enable "Virtualization Technology (VTx)" and "VT-d" in the HP BIOS (F10).
+        quiet: true
+
+    # ---------------------------------------------------------------- hostname
+    # Proxmox requires the hostname to resolve to the host's real address, not
+    # to 127.0.1.1 as Debian's installer sets it.
+    - name: Remove the installer's 127.0.1.1 hostname entry
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\s'
+        state: absent
+
+    - name: Map the hostname to the host's LAN address
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^\S+\s+{{ inventory_hostname }}\.{{ proxmox_dns_domain | regex_escape }}\s'
+        line: "{{ proxmox_address_cidr.split('/')[0] }} {{ inventory_hostname }}.{{ proxmox_dns_domain }} {{ inventory_hostname }}"
+        insertafter: '^127\.0\.0\.1'
+
+    # ------------------------------------------------------------- repository
+    - name: Install the Proxmox keyring (refused unless its SHA-256 matches)
+      get_url:
+        url: "{{ proxmox_keyring_url }}"
+        dest: "{{ proxmox_keyring_path }}"
+        checksum: "sha256:{{ proxmox_keyring_sha256 }}"
+        mode: "0644"
+
+    - name: Add the Proxmox VE repository (no-subscription)
+      copy:
+        dest: /etc/apt/sources.list.d/pve-install-repo.sources
+        mode: "0644"
+        content: |
+          Types: deb
+          URIs: {{ proxmox_repo_url }}
+          Suites: trixie
+          Components: {{ proxmox_repo_component }}
+          Signed-By: {{ proxmox_keyring_path }}
+
+    - name: Find enterprise repositories (they need a paid subscription)
+      find:
+        paths: /etc/apt/sources.list.d
+        patterns: ["pve-enterprise.sources", "ceph.sources"]
+      register: proxmox_enterprise_repos
+
+    - name: Disable enterprise repositories
+      lineinfile:
+        path: "{{ item.path }}"
+        regexp: '^Enabled:'
+        line: "Enabled: false"
+      loop: "{{ proxmox_enterprise_repos.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    # CPU microcode carries Intel's fixes for CPU-level vulnerabilities. It lives
+    # in Debian's non-free-firmware component, which the generic image omits.
+    - name: Check for deb822 Debian sources
+      stat:
+        path: /etc/apt/sources.list.d/debian.sources
+      register: proxmox_debian_sources
+
+    - name: Enable the non-free-firmware component (CPU microcode)
+      when: proxmox_debian_sources.stat.exists
+      replace:
+        path: /etc/apt/sources.list.d/debian.sources
+        regexp: '^(Components:(?!.*non-free-firmware).*)$'
+        replace: '\1 non-free-firmware'
+
+    - name: Upgrade the system from the new repositories
+      apt:
+        update_cache: true
+        upgrade: dist
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ----------------------------------------------------------------- kernel
+    - name: Install the CPU microcode (loaded at the next boot)
+      apt:
+        name: intel-microcode
+        state: present
+      register: proxmox_microcode
+
+    - name: Install the Proxmox kernel
+      apt:
+        name: proxmox-default-kernel
+        state: present
+      register: proxmox_kernel
+
+    - name: Boot into the Proxmox kernel
+      when: >-
+        proxmox_kernel is changed or proxmox_microcode is changed
+        or ansible_facts['kernel'] is not search('pve')
+      reboot:
+        reboot_timeout: 900
+        msg: "Reboot into the Proxmox kernel (ansible proxmox_host)"
+
+    - name: Read the running kernel
+      command: uname -r
+      register: proxmox_uname
+      changed_when: false
+
+    - name: Require the Proxmox kernel before going further
+      assert:
+        that: proxmox_uname.stdout is search('pve')
+        fail_msg: "Still on {{ proxmox_uname.stdout }} after reboot; check GRUB's default entry."
+        quiet: true
+
+    # --------------------------------------------------------------- packages
+    - name: Configure postfix as local-only mail (Proxmox notifications)
+      debconf:
+        name: postfix
+        question: "{{ item.q }}"
+        value: "{{ item.v }}"
+        vtype: "{{ item.t }}"
+      loop:
+        - {q: postfix/main_mailer_type, v: "Local only", t: select}
+        - {q: postfix/mailname, v: "{{ inventory_hostname }}.{{ proxmox_dns_domain }}", t: string}
+
+    - name: Install Proxmox VE
+      apt:
+        name:
+          - proxmox-ve
+          - postfix
+          - open-iscsi
+          - chrony
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Find the stock Debian kernels
+      shell: >-
+        set -o pipefail;
+        { dpkg-query -W -f='${Package} ${Status}\n' 'linux-image-*' 2>/dev/null || true; }
+        | awk '$NF=="installed" && $1 !~ /pve/ && $1 ~ /^linux-image-(amd64|[0-9])/ {print $1}'
+      args:
+        executable: /bin/bash
+      register: proxmox_debian_kernels
+      changed_when: false
+
+    - name: Remove the stock Debian kernels and os-prober
+      apt:
+        name: "{{ proxmox_debian_kernels.stdout_lines + ['os-prober'] }}"
+        state: absent
+      register: proxmox_kernel_cleanup
+
+    - name: Update GRUB after removing kernels
+      command: update-grub
+      when: proxmox_kernel_cleanup is changed
+      changed_when: true
+
+    # ---------------------------------------------------------------- network
+    # Two starting points are supported: a netinst Debian (ifupdown,
+    # /etc/network/interfaces) and Debian's "generic" image (netplan +
+    # systemd-networkd, configured by cloud-init). Proxmox manages networking
+    # with ifupdown2, so on the image netplan and networkd are retired here.
+    - name: Find netplan configuration (Debian generic image)
+      find:
+        paths: /etc/netplan
+        patterns: ["*.yaml", "*.yml"]
+      register: proxmox_netplan_files
+
+    - name: Check whether systemd-resolved is active  # noqa: command-instead-of-module
+      command: systemctl is-active systemd-resolved
+      register: proxmox_resolved
+      changed_when: false
+      failed_when: false
+
+    - name: Set the host's DNS servers in systemd-resolved
+      when: proxmox_resolved.stdout == 'active'
+      copy:
+        dest: /etc/systemd/resolved.conf.d/10-proxmox-dns.conf
+        mode: "0644"
+        content: |
+          # Managed by Ansible (proxmox_host). Static DNS for the host, which no
+          # longer learns it from DHCP once the address moves to {{ proxmox_bridge }}.
+          [Resolve]
+          DNS={{ (proxmox_dns_servers if proxmox_dns_servers | length > 0 else [proxmox_gateway]) | join(' ') }}
+          Domains={{ proxmox_dns_domain }}
+      register: proxmox_resolved_conf
+
+    - name: Apply the DNS setting
+      when: proxmox_resolved_conf is changed
+      systemd:
+        name: systemd-resolved
+        state: restarted
+
+    - name: Keep a copy of the original network configuration
+      copy:
+        src: /etc/network/interfaces
+        dest: /etc/network/interfaces.pre-proxmox
+        remote_src: true
+        force: false
+        mode: "0644"
+
+    - name: Check the bridge configuration (no change yet)
+      template:
+        src: interfaces.j2
+        dest: /etc/network/interfaces
+        mode: "0644"
+      check_mode: true
+      register: proxmox_net_planned
+
+    - name: Move the host address onto the bridge, with automatic rollback
+      when: proxmox_net_planned is changed or proxmox_netplan_files.matched > 0
+      block:
+        - name: Save the current configuration for the rollback
+          copy:
+            src: /etc/network/interfaces
+            dest: /etc/network/interfaces.rollback
+            remote_src: true
+            mode: "0644"
+
+        - name: Save the netplan configuration for the rollback
+          when: proxmox_netplan_files.matched > 0
+          shell: mkdir -p /etc/netplan.pre-proxmox && cp -a /etc/netplan/. /etc/netplan.pre-proxmox/
+          changed_when: true
+
+        - name: Install the rollback script
+          template:
+            src: net-rollback.sh.j2
+            dest: /usr/local/sbin/proxmox-net-rollback
+            mode: "0755"
+
+        - name: Arm the rollback (restores the old network unless cancelled)
+          command: >-
+            systemd-run --unit=proxmox-net-rollback
+            --on-active={{ proxmox_network_rollback_s }}
+            /usr/local/sbin/proxmox-net-rollback
+          changed_when: true
+
+        - name: Write the bridge configuration
+          template:
+            src: interfaces.j2
+            dest: /etc/network/interfaces
+            mode: "0644"
+
+        - name: Stop cloud-init from regenerating the network configuration
+          when: proxmox_netplan_files.matched > 0
+          copy:
+            dest: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+            mode: "0644"
+            content: |
+              # Managed by Ansible (proxmox_host): Proxmox owns networking (ifupdown2).
+              network: {config: disabled}
+
+        - name: Retire the netplan files (copies kept in /etc/netplan.pre-proxmox)
+          when: proxmox_netplan_files.matched > 0
+          file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ proxmox_netplan_files.files }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+        # One detached job: stop networkd (on the image), clear the NIC, bring
+        # up the bridge. A dropped SSH session cannot interrupt it.
+        - name: Apply it (detached, so a dropped session cannot stop it)
+          shell: >-
+            sleep 2;
+            {% if proxmox_netplan_files.matched > 0 %}
+            systemctl disable --now systemd-networkd.service systemd-networkd.socket;
+            ip addr flush dev {{ proxmox_bridge_nic }};
+            {% endif %}
+            ifreload -a
+          async: 60
+          poll: 0
+          changed_when: true
+
+        - name: Wait for the host to come back over the new bridge
+          wait_for_connection:
+            delay: 15
+            timeout: "{{ proxmox_network_rollback_s - 30 }}"
+
+        - name: Confirm the address now sits on the bridge
+          command: ip -4 -br addr show {{ proxmox_bridge }}
+          register: proxmox_bridge_addr
+          changed_when: false
+          failed_when: proxmox_address_cidr.split('/')[0] not in proxmox_bridge_addr.stdout
+
+        - name: Confirm DNS resolution still works
+          command: getent hosts deb.debian.org
+          changed_when: false
+
+        - name: Cancel the rollback (the new network works)
+          systemd:
+            name: proxmox-net-rollback.timer
+            state: stopped
+
+    # --------------------------------------------------------- GPU passthrough
+    - name: Pass the integrated GPU through to a VM
+      when: proxmox_gpu_passthrough | bool
+      block:
+        - name: Read the GPU's PCI ids
+          command: lspci -nn -s {{ proxmox_gpu_pci_address }}
+          register: proxmox_gpu_lspci
+          changed_when: false
+
+        - name: Require a VGA device at {{ proxmox_gpu_pci_address }}
+          assert:
+            that: proxmox_gpu_lspci.stdout is search('VGA compatible controller.*\[8086:[0-9a-f]{4}\]')
+            fail_msg: "No Intel VGA device at {{ proxmox_gpu_pci_address }}: {{ proxmox_gpu_lspci.stdout }}"
+            quiet: true
+
+        - name: Enable the IOMMU on the kernel command line
+          copy:
+            dest: /etc/default/grub.d/iommu.cfg
+            mode: "0644"
+            content: |
+              # Managed by Ansible (proxmox_host): IOMMU for PCI passthrough.
+              GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT intel_iommu=on iommu=pt"
+          register: proxmox_iommu_grub
+
+        - name: Load the vfio modules at boot
+          copy:
+            dest: /etc/modules-load.d/vfio.conf
+            mode: "0644"
+            content: |
+              vfio
+              vfio_iommu_type1
+              vfio_pci
+          register: proxmox_vfio_modules
+
+        - name: Bind the GPU to vfio-pci before i915 or xe can claim it
+          copy:
+            dest: /etc/modprobe.d/vfio-gpu.conf
+            mode: "0644"
+            content: |
+              # Managed by Ansible (proxmox_host).
+              options vfio-pci ids={{ proxmox_gpu_lspci.stdout | regex_search('\[(8086:[0-9a-f]{4})\]', '\1') | first }}
+              softdep i915 pre: vfio-pci
+              softdep xe pre: vfio-pci
+          register: proxmox_vfio_bind
+
+        - name: Update GRUB
+          command: update-grub
+          when: proxmox_iommu_grub is changed
+          changed_when: true
+
+        - name: Rebuild the initramfs
+          command: update-initramfs -u -k all
+          when: proxmox_vfio_modules is changed or proxmox_vfio_bind is changed
+          changed_when: true
+
+        - name: Reboot to apply the passthrough settings
+          when: proxmox_iommu_grub is changed or proxmox_vfio_modules is changed or proxmox_vfio_bind is changed
+          reboot:
+            reboot_timeout: 900
+            msg: "Reboot for GPU passthrough (ansible proxmox_host)"
+
+        - name: Read which driver holds the GPU
+          command: lspci -nnk -s {{ proxmox_gpu_pci_address }}
+          register: proxmox_gpu_driver
+          changed_when: false
+
+        - name: Require vfio-pci to hold the GPU
+          assert:
+            that: proxmox_gpu_driver.stdout is search('Kernel driver in use:\s*vfio-pci')
+            fail_msg: "The GPU is not bound to vfio-pci: {{ proxmox_gpu_driver.stdout }}"
+            quiet: true
+
+    # ------------------------------------------------------- storage and user
+    - name: Create the VM storage directory
+      file:
+        path: "{{ proxmox_vm_storage_path }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check for the VM storage
+      command: pvesm status --storage {{ proxmox_vm_storage }}
+      register: proxmox_storage
+      changed_when: false
+      failed_when: false
+
+    - name: Register the VM storage (disk images and cloud-init snippets)
+      command: >-
+        pvesm add dir {{ proxmox_vm_storage }}
+        --path {{ proxmox_vm_storage_path }} --content images,snippets
+      when: proxmox_storage.rc != 0
+      changed_when: true
+
+    - name: Check for the web UI administrator
+      command: pveum user list --output-format json
+      register: proxmox_users
+      changed_when: false
+
+    # pvesh takes the password as an argument, so it is visible in the host's
+    # process list for the instant the command runs. Acceptable on a host with
+    # no untrusted local users; no_log keeps it out of Ansible's output.
+    - name: Create the web UI administrator
+      command: >-
+        pvesh create /access/users --userid {{ proxmox_admin_user }}
+        --password {{ proxmox_admin_password | quote }}
+      when: proxmox_admin_user not in (proxmox_users.stdout | from_json | map(attribute='userid') | list)
+      changed_when: true
+      no_log: true
+
+    - name: Grant the administrator role
+      command: pveum acl modify / --users {{ proxmox_admin_user }} --roles Administrator
+      changed_when: false
+
+    # --------------------------------------------------------------- hardening
+    # Defense in depth on top of the firewall, SSH hardening and fail2ban.
+    - name: Restrict the web UI/API to the tailnet inside Proxmox itself
+      copy:
+        dest: /etc/default/pveproxy
+        mode: "0644"
+        content: |
+          # Managed by Ansible (proxmox_host): second layer behind the firewall.
+          ALLOW_FROM="{{ proxmox_ui_allow_from | join(',') }}"
+          DENY_FROM="all"
+          POLICY="allow"
+      register: proxmox_pveproxy_acl
+
+    - name: Apply the web UI restriction
+      when: proxmox_pveproxy_acl is changed
+      systemd:
+        name: pveproxy
+        state: restarted
+
+    # No root logins through the web UI (root@pam) or a local console: admin
+    # work goes through armand@pve (web, with two-factor) and SSH keys + sudo.
+    - name: Read the root account's password state
+      command: passwd -S root
+      register: proxmox_root_pw
+      changed_when: false
+
+    - name: Lock the root password
+      command: passwd -l root
+      when: proxmox_root_pw.stdout.split()[1] != 'L'
+      changed_when: true
+
+    - name: Disable rpcbind (only needed for NFS, which this host does not use)
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+        masked: true
+      loop:
+        - rpcbind.socket
+        - rpcbind.service
+
+    - name: Kernel hardening settings
+      copy:
+        dest: /etc/sysctl.d/90-proxmox-hardening.conf
+        mode: "0644"
+        content: |
+          # Managed by Ansible (proxmox_host).
+          kernel.kptr_restrict = 2           # hide kernel addresses from users
+          kernel.dmesg_restrict = 1          # kernel log readable by root only
+          kernel.unprivileged_bpf_disabled = 1
+          net.core.bpf_jit_harden = 2
+          kernel.yama.ptrace_scope = 1       # processes may not inspect unrelated processes
+          fs.protected_fifos = 2
+          fs.protected_regular = 2
+          fs.suid_dumpable = 0               # no core dumps of privileged programs
+      register: proxmox_sysctl
+
+    - name: Apply the kernel hardening settings
+      command: sysctl --system
+      when: proxmox_sysctl is changed
+      changed_when: true
+
+    - name: Read the Secure Boot state
+      command: mokutil --sb-state
+      register: proxmox_secureboot
+      changed_when: false
+      failed_when: false
+
+    - name: Confirm the Proxmox services are running  # noqa: command-instead-of-module
+      command: systemctl is-active pveproxy pvedaemon pve-cluster
+      register: proxmox_services
+      changed_when: false
+
+    - name: Report
+      debug:
+        msg:
+          - "Proxmox VE is running on {{ inventory_hostname }} ({{ proxmox_uname.stdout }})."
+          - "Web UI: https://{{ inventory_hostname }}.tailb821ac.ts.net:8006 (tailnet only), user {{ proxmox_admin_user }}"
+          - "The certificate is self-signed until one is configured."
+          - "Secure Boot: {{ (proxmox_secureboot.stdout | default('') | trim) or 'unknown (mokutil not installed)' }}"
+          - "Next: enable two-factor for {{ proxmox_admin_user }} (web UI > Datacenter > Permissions > Two Factor)."

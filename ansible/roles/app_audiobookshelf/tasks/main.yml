@@ -1,0 +1,118 @@
+---
+- name: Skip app_audiobookshelf role if not enabled
+  when: not (audiobookshelf_enabled | default(false))
+  debug:
+    msg: "Skipping app_audiobookshelf role (audiobookshelf_enabled is false)"
+
+- name: Deploy Audiobookshelf
+  when: audiobookshelf_enabled | default(false)
+  block:
+    - name: Require a pinned Audiobookshelf version
+      assert:
+        that:
+          - audiobookshelf_image_tag | length > 0
+          - audiobookshelf_image_tag not in ['latest', 'edge']
+        fail_msg: |
+          ============================================================================
+          ERROR: audiobookshelf_image_tag is not pinned.
+          ============================================================================
+          Read https://github.com/advplyr/audiobookshelf/releases, choose the
+          current stable release, and set it in host_vars, e.g.
+            audiobookshelf_image_tag: "2.x.y"
+          Floating tags are refused so an update is always a deliberate change.
+          ============================================================================
+        quiet: true
+
+    - name: Check the deploy user exists (created by docker_deploy)
+      command: id deploy
+      register: audiobookshelf_deploy_user
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with guidance if the deploy user is missing
+      assert:
+        that: audiobookshelf_deploy_user.rc == 0
+        fail_msg: >-
+          The 'deploy' user does not exist. Set enable_docker_deploy: true for
+          this host and run docker_deploy before app_audiobookshelf.
+        quiet: true
+
+    - name: Read the deploy user's uid and gid
+      getent:
+        database: passwd
+        key: deploy
+
+    - name: Require every library to be mounted
+      stat:
+        path: "{{ item.host }}"
+      register: audiobookshelf_media_stat
+      failed_when: not (audiobookshelf_media_stat.stat.isdir | default(false))
+      loop: "{{ audiobookshelf_media }}"
+      loop_control:
+        label: "{{ item.host }}"
+
+    - name: Create the Audiobookshelf directories (on the VM disk)
+      become: true
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: "0750"
+      loop:
+        - "{{ audiobookshelf_dir }}"
+        - "{{ audiobookshelf_config_dir }}"
+        - "{{ audiobookshelf_metadata_dir }}"
+
+    - name: Read the filesystem type of the Audiobookshelf state directory
+      command: findmnt -n -o FSTYPE --target {{ audiobookshelf_config_dir }}
+      register: audiobookshelf_state_fstype
+      changed_when: false
+
+    - name: Refuse to keep Audiobookshelf's database on a virtiofs share
+      assert:
+        that: audiobookshelf_state_fstype.stdout | trim != 'virtiofs'
+        fail_msg: >-
+          {{ audiobookshelf_config_dir }} is on virtiofs. Audiobookshelf's
+          database must live on the VM's own disk; set audiobookshelf_dir to a
+          local path.
+        quiet: true
+
+    - name: Render the Audiobookshelf compose file
+      become: true
+      become_user: deploy
+      template:
+        src: docker-compose.yml.j2
+        dest: "{{ audiobookshelf_dir }}/docker-compose.yml"
+        mode: "0640"
+      register: audiobookshelf_compose
+
+    - name: Pull the pinned Audiobookshelf image
+      become: true
+      become_user: deploy
+      command: docker compose pull
+      args:
+        chdir: "{{ audiobookshelf_dir }}"
+      when: audiobookshelf_compose.changed
+      changed_when: true
+
+    - name: Start Audiobookshelf (docker compose up -d; recreates only on change)
+      become: true
+      become_user: deploy
+      command: docker compose up -d
+      args:
+        chdir: "{{ audiobookshelf_dir }}"
+      register: audiobookshelf_up
+      changed_when: >-
+        'Recreat' in (audiobookshelf_up.stdout + audiobookshelf_up.stderr)
+        or 'Creat' in (audiobookshelf_up.stdout + audiobookshelf_up.stderr)
+        or 'Start' in (audiobookshelf_up.stdout + audiobookshelf_up.stderr)
+
+    - name: Wait for Audiobookshelf to answer on /healthcheck
+      uri:
+        url: "http://127.0.0.1:{{ audiobookshelf_port }}/healthcheck"
+        status_code: [200]
+      register: audiobookshelf_health
+      retries: 30
+      delay: 5
+      until: audiobookshelf_health.status is defined and audiobookshelf_health.status == 200

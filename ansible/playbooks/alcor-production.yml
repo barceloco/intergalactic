@@ -1,0 +1,25 @@
+---
+# Isolated sandbox for the OpenClaw agent workspace (moved from vega); base only for now
+# Runs over Tailscale only, as the ansible user, like every production phase.
+- name: "Alcor Production (Isolated sandbox for the OpenClaw agent workspace (moved from vega); base only for now)"
+  hosts: alcor
+  become: true
+  gather_facts: false
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
+  tags:
+    - production
+  pre_tasks:
+    # Host key verification MUST be first - before any connection attempts
+    - name: Import host key verification tasks
+      import_tasks: shared/host-key-verification.yml
+      tags: always
+
+    # Import shared production validation (Tailscale verification)
+    - name: Import production validation tasks
+      import_tasks: shared/production-validation.yml
+      tags: always
+  roles:
+    # Alerts (fleet-notify) first: later roles' checks report through it.
+    - role: notify
+      tags: [production, notify]

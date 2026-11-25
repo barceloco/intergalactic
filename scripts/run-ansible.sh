@@ -7,6 +7,7 @@ set -euo pipefail
 #   ./scripts/run-ansible.sh prod rigel foundation    # Phase 2: Network + security
 #   ./scripts/run-ansible.sh prod rigel production    # Phase 3: Application services
 #   ./scripts/run-ansible.sh prod rigel upgrade       # OS upgrade report (add -e os_upgrade_apply=true)
+#   ./scripts/run-ansible.sh prod vega failover -e failover_mode=activate   # see docs/runbooks/failover-to-pi.md
 
 ENV_NAME="${1:-prod}"
 HOST="${2:-rigel}"
@@ -103,8 +104,17 @@ case "${PHASE}" in
     echo "Deletes the stored metrics and dashboards. Irreversible."
     echo "============================================================================"
     ;;
+  failover)
+    INVENTORY_FILE="inventories/${ENV_NAME}/hosts-production.yml"
+    PLAYBOOK="failover-edge"
+    SSH_USER="ansible"
+    echo "============================================================================"
+    echo "FAILOVER - DNS and reverse proxy on this Pi (docs/runbooks/failover-to-pi.md)"
+    echo "Requires -e failover_mode=activate or -e failover_mode=deactivate"
+    echo "============================================================================"
+    ;;
   *)
-    echo "ERROR: Invalid phase '${PHASE}'. Must be: bootstrap, foundation, production, upgrade, audit, or remove-observability"
+    echo "ERROR: Invalid phase '${PHASE}'. Must be: bootstrap, foundation, production, upgrade, audit, failover, or remove-observability"
     echo ""
     echo "Usage:"
     echo "  ./scripts/run-ansible.sh <env> <host> <phase>"
@@ -115,6 +125,7 @@ case "${PHASE}" in
     echo "  production  - Phase 3: Application services (Tailscale ONLY, ansible user)"
     echo "  upgrade     - OS package upgrade, no reboot (Tailscale ONLY, ansible user)"
     echo "  audit       - Read-only report of what the host actually runs"
+    echo "  failover    - Run DNS + reverse proxy on a standby Pi (-e failover_mode=activate|deactivate)"
     echo "  remove-observability - One-time teardown of the retired monitoring stack"
     exit 1
     ;;
@@ -175,6 +186,8 @@ elif [[ "${PHASE}" == "audit" ]]; then
   ANSIBLE_ARGS+=(-e "audit_hosts=${HOST}")
 elif [[ "${PHASE}" == "remove-observability" ]]; then
   ANSIBLE_ARGS+=(-e "target_hosts=${HOST}")
+elif [[ "${PHASE}" == "failover" ]]; then
+  ANSIBLE_ARGS+=(-e "failover_host=${HOST}")
 fi
 
 # Run the playbook

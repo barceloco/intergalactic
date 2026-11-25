@@ -1,0 +1,39 @@
+---
+- name: Arcturus Production (Proxmox VE hypervisor, encrypted pool, VMs)
+  hosts: arcturus
+  become: true
+  gather_facts: false
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
+  tags:
+    - production
+  pre_tasks:
+    # Host key verification MUST be first - before any connection attempts
+    - name: Import host key verification tasks
+      import_tasks: shared/host-key-verification.yml
+      tags: always
+
+    # Import shared production validation (Tailscale verification)
+    - name: Import production validation tasks
+      import_tasks: shared/production-validation.yml
+      tags: always
+  roles:
+    # 1. Debian 13 -> Proxmox VE 9: repository, kernel, packages, vmbr0 bridge
+    #    (with automatic rollback), template storage, web UI admin, hardening.
+    - role: proxmox_host
+      tags: [production, proxmox]
+
+    # 2. Alerts (fleet-notify), used by the storage, drive and UPS hooks.
+    - role: notify
+      tags: [production, notify]
+
+    # 3. Encrypted pool: checks it is operator-unlocked only, then datasets,
+    #    storages, read-only shares, snapshots, nightly backups, drive and pool
+    #    alerts, UPS, and the unlock helper. Never creates the pool itself.
+    - role: proxmox_storage
+      tags: [production, proxmox, storage]
+
+    # 4. Debian 13 cloud-init template and the VMs declared in host_vars
+    #    (only while the pool is unlocked).
+    - role: proxmox_vms
+      tags: [production, proxmox, vms]

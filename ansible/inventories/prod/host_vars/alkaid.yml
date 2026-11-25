@@ -1,0 +1,30 @@
+---
+# alkaid: VM on arcturus. immich, moved from mpnas. The photo library is the
+# immich dataset (read-write); immich's database stays on this VM's own disk.
+# Machine learning runs on the CPU (no iGPU here).
+hostname: "alkaid"
+enable_desktop: false
+enable_docker: true
+enable_docker_deploy: true
+docker_deploy_git_repos: []
+notify_enabled: true
+
+virtiofs_mounts_enabled: true
+virtiofs_mounts:
+  - tag: immich-rw
+    path: /mnt/immich
+    mode: rw
+
+# Pin the version and the checksum of that release's docker-compose.yml
+# (download it, read it, then sha256sum it). Use the same version as mpnas
+# for the migration (database dump and restore need matching versions).
+# immich_db_password lives in all_secrets.yml.
+immich_enabled: true
+immich_version: ""
+immich_compose_sha256: ""
+
+# Firewall: reached only by Traefik on megrez.
+firewall_rules:
+  - port: 2283
+    from: [megrez]
+    comment: "immich backend for Traefik on megrez -> immich.exnada.com"

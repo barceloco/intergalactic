@@ -1,0 +1,51 @@
+---
+# proxmox_host: turn a minimal Debian 13 (trixie) amd64 install into a
+# Proxmox VE 9 hypervisor, following Proxmox's "Install Proxmox VE on Debian 13
+# Trixie" procedure. Runs in the production phase, over Tailscale.
+proxmox_enabled: false
+
+# Proxmox's package-signing keyring. Its SHA-256 must be copied from the
+# official wiki page ("Install Proxmox VE on Debian 13 Trixie"); the role
+# refuses to run without it, so the key is never trusted unverified.
+proxmox_keyring_url: https://enterprise.proxmox.com/debian/proxmox-archive-keyring-trixie.gpg
+proxmox_keyring_path: /usr/share/keyrings/proxmox-archive-keyring.gpg
+proxmox_keyring_sha256: ""
+
+proxmox_repo_url: http://download.proxmox.com/debian/pve
+proxmox_repo_component: pve-no-subscription
+
+# Network: the host's NIC becomes a port of bridge vmbr0, which carries the
+# host's static address and lets VMs sit directly on the LAN. All three are
+# required (no defaults: a wrong guess would cut the host off).
+proxmox_bridge: vmbr0
+proxmox_bridge_nic: ""          # e.g. eno1 (see `ip -br link` on the host)
+proxmox_address_cidr: ""        # e.g. 192.168.1.40/24
+proxmox_gateway: ""             # e.g. 192.168.1.254
+proxmox_dns_domain: exnada.com
+# DNS servers for the host. Empty: use proxmox_gateway.
+proxmox_dns_servers: []
+
+# Pass the integrated GPU (Intel iGPU at PCI 0000:00:02.0) through to a VM:
+# enables the IOMMU, loads vfio, and binds the iGPU to vfio-pci instead of
+# i915, then reboots. The host then has no local video output.
+proxmox_gpu_passthrough: false
+proxmox_gpu_pci_address: "0000:00:02.0"
+
+# A network change that does not come back is rolled back automatically after
+# this many seconds (restores the previous /etc/network/interfaces).
+proxmox_network_rollback_s: 180
+
+# Web UI administrator in Proxmox's own realm (independent of Linux users).
+# The password comes from all_secrets.yml (proxmox_admin_password).
+proxmox_admin_user: armand@pve
+
+# Proxmox's own access control for the web UI/API (pveproxy), in addition to
+# the firewall: only the tailnet (and the host itself) may connect.
+proxmox_ui_allow_from:
+  - 100.64.0.0/10          # Tailscale IPv4
+  - fd7a:115c:a1e0::/48    # Tailscale IPv6
+  - 127.0.0.1
+
+# Directory storage for VM disks and cloud-init snippets.
+proxmox_vm_storage: vmstore
+proxmox_vm_storage_path: /var/lib/vmstore

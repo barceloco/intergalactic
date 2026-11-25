@@ -31,5 +31,12 @@ fleet_tailscale_ipv4: {}
 #     - { port: 8000, from: [rigel], comment: "aispector backend for Traefik on rigel" }
 firewall_rules: []
 
+# What the forward chain does. Empty (default) picks from enable_docker:
+#   docker  filter new connections to Docker-published ports (allow-list)
+#   drop    forward nothing (plain hosts)
+#   bridge  forward everything: a hypervisor whose VMs are bridged onto the
+#           LAN and firewall themselves (e.g. Proxmox)
+firewall_forward_mode: ""
+
 # Rate limit for logging dropped packets (packets/second).
 firewall_rate_limit: 10

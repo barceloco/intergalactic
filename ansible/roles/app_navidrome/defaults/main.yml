@@ -1,0 +1,30 @@
+---
+# app_navidrome: run Navidrome (open-source music server, Subsonic API) in
+# Docker, as the deploy user, from an Ansible-rendered compose file. Runs in
+# the media VM (alioth). Music comes from the host's virtiofs share
+# (read-only); Navidrome's data (its SQLite database, cache) lives on the VM
+# disk.
+navidrome_enabled: false
+
+# Image and REQUIRED pinned version. No default on purpose: read the release
+# notes (https://github.com/navidrome/navidrome/releases), pick the current
+# stable release, and set it in host_vars, e.g. navidrome_image_tag: "0.x.y".
+# The floating tags "latest" and "develop" are refused.
+navidrome_image: deluan/navidrome
+navidrome_image_tag: ""
+
+# Compose project directory and state, on the VM disk (never on virtiofs).
+navidrome_dir: /home/deploy/navidrome
+navidrome_data_dir: "{{ navidrome_dir }}/data"
+
+# The music library (a virtiofs mount), mounted read-only at /music.
+navidrome_music_dir: /mnt/music
+
+# Published port (0.0.0.0; the VM firewall admits only the reverse proxy).
+navidrome_port: 4533
+
+# Extra ND_* settings for Navidrome (environment), e.g.
+#   navidrome_env: { ND_SCANSCHEDULE: "1h", ND_LOGLEVEL: "info" }
+navidrome_env: {}
+
+navidrome_restart_policy: unless-stopped

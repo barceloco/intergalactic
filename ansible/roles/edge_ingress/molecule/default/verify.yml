@@ -27,6 +27,12 @@
       register: acme_file
       failed_when: acme_file.stat.mode != "0100600"
 
+    - name: Verify the compose file (holds the DNS API credentials) is root-only
+      stat:
+        path: /opt/traefik/docker-compose.yml
+      register: compose_file
+      failed_when: compose_file.stat.mode != "0600" or compose_file.stat.pw_name != "root"
+
     - name: Verify Traefik container is running
       command: docker ps --filter name=traefik --format "{{ '{{' }}.Status{{ '}}' }}"
       register: container_status

@@ -1,0 +1,20 @@
+# {{ ansible_managed | default('Managed by Ansible (app_navidrome role)') }}
+# Navidrome, run as the deploy user. Music is mounted read-only; the database
+# lives in {{ navidrome_data_dir }} on the VM disk.
+services:
+  navidrome:
+    image: "{{ navidrome_image }}:{{ navidrome_image_tag }}"
+    container_name: navidrome
+    user: "{{ ansible_facts.getent_passwd.deploy[1] }}:{{ ansible_facts.getent_passwd.deploy[2] }}"
+    ports:
+      - "{{ navidrome_port }}:4533"
+    environment:
+      ND_MUSICFOLDER: /music
+      ND_DATAFOLDER: /data
+{% for k, v in navidrome_env | dictsort %}
+      {{ k }}: {{ v | string | to_json }}
+{% endfor %}
+    volumes:
+      - "{{ navidrome_data_dir }}:/data"
+      - "{{ navidrome_music_dir }}:/music:ro"
+    restart: {{ navidrome_restart_policy }}

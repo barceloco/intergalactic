@@ -20,14 +20,16 @@
    panic action = /usr/share/samba/panic-action %d
    # Security: require SMB2+ protocol
    min protocol = SMB2
+{% for share in samba_shares %}
 
-[armand]
-   comment = Armand's Share (crypt directory)
-   path = /crypt
+[{{ share.name }}]
+   comment = {{ share.comment }}
+   path = {{ share.path }}
    valid users = armand
    guest ok = no
-   read only = no
+   read only = {{ 'yes' if share.read_only | default(false) else 'no' }}
    create mask = 0644
    directory mask = 0755
    force user = armand
    force group = armand
+{% endfor %}

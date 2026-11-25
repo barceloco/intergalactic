@@ -14,14 +14,19 @@
     create_home: true
     state: present
 
-- name: Create Samba share directory (crypt)
-  when: enable_samba | default(false)
+- name: Create Samba share directories
+  when:
+    - enable_samba | default(false)
+    - item.create_dir | default(false)
   file:
-    path: /crypt
+    path: "{{ item.path }}"
     state: directory
     owner: armand
     group: armand
     mode: '0755'
+  loop: "{{ samba_shares }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Set per-host Samba password variable
   when: enable_samba | default(false)

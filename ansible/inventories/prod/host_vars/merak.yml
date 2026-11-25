@@ -1,0 +1,40 @@
+---
+# merak: VM on arcturus. Backups and checks. Sees every dataset read-only
+# (enforced by arcturus), offers it to the Synology through a read-only pull
+# account, checks daily that backups are fresh, and copies the important data
+# to a LUKS USB drive kept off-site. The USB drive's key is never stored: it is
+# unlocked by hand over SSH, as on vega.
+hostname: "merak"
+enable_desktop: false
+enable_docker: false
+notify_enabled: true
+
+virtiofs_mounts_enabled: true
+virtiofs_mounts:
+  - tag: documents-ro
+    path: /mnt/documents
+    mode: ro
+  - tag: immich-ro
+    path: /mnt/immich
+    mode: ro
+  - tag: music-ro
+    path: /mnt/music
+    mode: ro
+  - tag: audiobooks-ro
+    path: /mnt/audiobooks
+    mode: ro
+  - tag: video-ro
+    path: /mnt/video
+    mode: ro
+  - tag: vzdump-ro
+    path: /mnt/vzdump
+    mode: ro
+
+# The Synology (mpnas) pulls over SSH with a read-only rsync account. Put the
+# PUBLIC half of mpnas's pull key here (not a secret).
+backup_hub_enabled: true
+backup_hub_pull_keys: []
+ssh_allow_users: "{{ [automation_user] + (human_users | default([]) | map(attribute='name') | list) + ['mpnas-pull'] }}"
+
+# No ports beyond the built-in SSH (tailnet and LAN) and ping.
+firewall_rules: []

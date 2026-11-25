@@ -1,0 +1,37 @@
+---
+# app_jellyfin: run Jellyfin (open-source media server) in Docker, as the
+# deploy user, from an Ansible-rendered compose file in jellyfin_dir. Runs in
+# the media VM (alioth). The media library comes from the host's virtiofs
+# shares (role virtiofs_mounts) and is mounted read-only into the container;
+# Jellyfin's own state (config, SQLite database, cache) lives on the VM disk.
+jellyfin_enabled: false
+
+# Image and REQUIRED pinned version. There is deliberately no default: read
+# the release notes (https://github.com/jellyfin/jellyfin/releases), pick the
+# current stable release, and set it in host_vars, e.g. jellyfin_image_tag:
+# "10.x.y". Floating tags (latest, stable) are refused.
+jellyfin_image: jellyfin/jellyfin
+jellyfin_image_tag: ""
+
+# Compose project directory and state, on the VM disk (never on virtiofs).
+jellyfin_dir: /home/deploy/jellyfin
+jellyfin_config_dir: "{{ jellyfin_dir }}/config"
+jellyfin_cache_dir: "{{ jellyfin_dir }}/cache"
+
+# Media libraries: host path (a virtiofs mount) -> path inside the container.
+# Always mounted read-only.
+jellyfin_media:
+  - host: /mnt/video
+    container: /media/video
+  - host: /mnt/music
+    container: /media/music
+
+# Published port (0.0.0.0; the VM firewall admits only the reverse proxy).
+jellyfin_port: 8096
+
+# Intel Quick Sync hardware transcoding: passes /dev/dri into the container.
+# Needs the iGPU passed through to this VM (proxmox_gpu_passthrough on
+# arcturus); the role refuses if /dev/dri/renderD128 is missing.
+jellyfin_hw_accel: false
+
+jellyfin_restart_policy: unless-stopped

@@ -1,0 +1,175 @@
+---
+# arcturus: Proxmox VE hypervisor, HP Elite Mini 800 G9 (i7-12700T: 12 cores /
+# 20 threads, Intel UHD 770 graphics; 16 GB DDR5 now, 48 GB later). "Guardian
+# of the bear": its VMs are named after the Big Dipper stars (plus Alcor,
+# Mizar's companion). The hypervisor runs VMs only, never apps or Docker.
+# Setup: docs/runbooks/proxmox-arcturus.md.
+#
+# Disks: a small SATA SSD for Proxmox (unencrypted, holds no data and no
+# keys) and two 4 TB NVMe drives striped into one encrypted pool, "tank",
+# that holds every VM disk and all data. The pool's passphrase is never
+# stored on this host: it is typed or piped in from the Mac after each boot.
+hostname: "arcturus"
+
+enable_desktop: false
+enable_docker: false        # Docker runs inside VMs, never on the hypervisor
+enable_tailscale: true
+enable_fail2ban: true
+tailscale_advertise_exit_node: false
+tailscale_advertise_routes: []
+
+# Firewall: SSH and ping are built in (tailnet + LAN). The Proxmox web UI is
+# tailnet-only. VMs are bridged onto the LAN and run their own firewalls, so
+# the hypervisor forwards their traffic unfiltered.
+firewall_forward_mode: bridge
+firewall_rules:
+  - port: 8006
+    from: [tailnet]
+    comment: "Proxmox web UI and API"
+
+# Alerts (role notify; topic and token in all_secrets.yml).
+notify_enabled: true
+
+# --- Proxmox (roles proxmox_host, proxmox_storage, proxmox_vms) -------------
+proxmox_enabled: true
+proxmox_storage_enabled: true
+
+# Fill these in before the production phase (the role refuses to run without
+# them). The NIC name comes from `ip -br link` on the installed host.
+proxmox_bridge_nic: ""            # e.g. enp0s31f6 or eno1
+proxmox_address_cidr: ""          # static, outside the router's DHCP range, e.g. 192.168.1.40/24
+proxmox_gateway: ""               # the router, e.g. 192.168.1.254
+# DNS servers for the host (and default for VMs). Empty: use the gateway.
+proxmox_dns_servers: []
+# SHA-256 of proxmox-archive-keyring-trixie.gpg, copied from the Proxmox wiki
+# page "Install Proxmox VE on Debian 13 Trixie". Never fill it in from the
+# downloaded file itself: that would verify nothing.
+proxmox_keyring_sha256: ""
+
+# Hand the integrated graphics (UHD 770, PCI 0000:00:02.0) to alioth for
+# Jellyfin's hardware transcoding. Enable only after the first boot has been
+# verified with a screen attached once (afterwards the host has no local video
+# output at all), together with alioth's pci_devices below.
+proxmox_gpu_passthrough: false
+
+# UPS (NUT): enable once the UPS is connected by USB.
+proxmox_nut_enabled: false
+
+# --- Memory -----------------------------------------------------------------
+# One switch for the installed RAM. After adding memory: change it, rerun
+# production (creates the VMs that were off), then raise each running VM's
+# memory in the web UI or with `qm set <vmid> --memory <MB>` and restart it
+# (existing VMs are never resized automatically).
+#   16gb: everything from vega and immich; dev (mizar) stays on rigel.
+#   48gb: adds mizar; every VM gets room to grow.
+arcturus_memory_profile: 16gb
+
+arcturus_memory_profiles:
+  16gb:
+    reserve_mb: 3072        # Proxmox itself + ZFS cache
+    zfs_arc_max_mb: 1024
+    # dubhe 2.5 GB: estimate for its three apps and their databases; measure
+    # on vega (docker stats) before migrating. alkaid 4 GB: immich's minimum.
+    vm_mb: {megrez: 768, phecda: 768, dubhe: 2560, alioth: 1536, alkaid: 4096, merak: 768, mizar: 0, alcor: 0}
+  48gb:
+    reserve_mb: 6144
+    zfs_arc_max_mb: 4096
+    vm_mb: {megrez: 2048, phecda: 2048, dubhe: 10240, alioth: 6144, alkaid: 6144, merak: 2048, mizar: 6144, alcor: 4096}
+
+arcturus_memory: "{{ arcturus_memory_profiles[arcturus_memory_profile] }}"
+proxmox_host_reserve_mb: "{{ arcturus_memory.reserve_mb }}"
+proxmox_zfs_arc_max_mb: "{{ arcturus_memory.zfs_arc_max_mb }}"
+
+# VMs, in start order (the unlock helper starts them one by one after the
+# pool is unlocked). Created from Debian 13's "generic" cloud-init image; each
+# then joins the fleet as a normal host (bootstrap -> foundation -> production).
+# A VM with 0 MB in the memory profile, or enabled: false, is not created.
+# Disks are thin: disk_gb is a ceiling, not an allocation.
+# The role refuses VMs that do not fit in the installed memory.
+# virtiofs: datasets of the pool shared into the VM. "ro" is enforced by the
+# host (read-only bind mount), not by the VM.
+# Fill in the addresses (static, outside the router's DHCP range).
+proxmox_vms:
+  - name: megrez            # edge: Traefik + CoreDNS (from rigel)
+    vmid: 103
+    cores: 2
+    memory_mb: "{{ arcturus_memory.vm_mb.megrez }}"
+    disk_gb: 16
+    address_cidr: ""
+
+  - name: phecda            # file server: Samba shares for the Mac and PCs
+    vmid: 106
+    cores: 2
+    memory_mb: "{{ arcturus_memory.vm_mb.phecda }}"
+    disk_gb: 16
+    address_cidr: ""
+    virtiofs:
+      - {dataset: documents, mode: rw}
+      - {dataset: music, mode: rw}
+      - {dataset: audiobooks, mode: rw}
+      - {dataset: video, mode: rw}
+      - {dataset: immich, mode: ro}
+
+  - name: dubhe             # production apps: aispector, callosal, docgen (from vega)
+    vmid: 101
+    cores: 6
+    memory_mb: "{{ arcturus_memory.vm_mb.dubhe }}"
+    disk_gb: 200
+    address_cidr: ""
+
+  - name: alioth            # media: Jellyfin, Audiobookshelf, Navidrome
+    vmid: 104
+    cores: 4
+    memory_mb: "{{ arcturus_memory.vm_mb.alioth }}"
+    disk_gb: 64
+    address_cidr: ""
+    virtiofs:
+      - {dataset: music, mode: ro}
+      - {dataset: audiobooks, mode: ro}
+      - {dataset: video, mode: ro}
+    # Uncomment together with proxmox_gpu_passthrough: true.
+    # pci_devices: ["0000:00:02.0"]
+
+  - name: alkaid            # immich (from mpnas); CPU-only machine learning
+    vmid: 105
+    cores: 4
+    memory_mb: "{{ arcturus_memory.vm_mb.alkaid }}"
+    disk_gb: 128
+    address_cidr: ""
+    virtiofs:
+      - {dataset: immich, mode: rw}
+
+  - name: merak             # backups and checks: reads everything read-only
+    vmid: 102
+    cores: 2
+    memory_mb: "{{ arcturus_memory.vm_mb.merak }}"
+    disk_gb: 32
+    address_cidr: ""
+    virtiofs:
+      - {dataset: documents, mode: ro}
+      - {dataset: immich, mode: ro}
+      - {dataset: music, mode: ro}
+      - {dataset: audiobooks, mode: ro}
+      - {dataset: video, mode: ro}
+      - {dataset: vzdump, mode: ro}
+    # Backup drives (vega's two 6 TB LUKS drives), by USB vendor:product id
+    # (lsusb on arcturus), e.g. 1058:25ee.
+    usb_devices: []
+
+  - name: mizar             # dev: demo (callosal dev), csa (from rigel); 48gb profile only
+    vmid: 107
+    cores: 4
+    memory_mb: "{{ arcturus_memory.vm_mb.mizar }}"
+    disk_gb: 64
+    address_cidr: ""
+
+  # Isolated sandbox for the OpenClaw agent. Ready but not created while
+  # OpenClaw is not in use: set enabled: true and its address, rerun
+  # production, then bootstrap/foundation/production for alcor.
+  - name: alcor
+    enabled: false
+    vmid: 108
+    cores: 2
+    memory_mb: "{{ arcturus_memory.vm_mb.alcor }}"
+    disk_gb: 32
+    address_cidr: ""

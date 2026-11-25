@@ -1,0 +1,119 @@
+---
+- name: Skip app_navidrome role if not enabled
+  when: not (navidrome_enabled | default(false))
+  debug:
+    msg: "Skipping app_navidrome role (navidrome_enabled is false)"
+
+- name: Deploy Navidrome
+  when: navidrome_enabled | default(false)
+  block:
+    - name: Require a pinned Navidrome version
+      assert:
+        that:
+          - navidrome_image_tag | length > 0
+          - navidrome_image_tag not in ['latest', 'develop']
+        fail_msg: |
+          ============================================================================
+          ERROR: navidrome_image_tag is not pinned.
+          ============================================================================
+          Read https://github.com/navidrome/navidrome/releases, choose the
+          current stable release, and set it in host_vars, e.g.
+            navidrome_image_tag: "0.x.y"
+          Floating tags are refused so an update is always a deliberate change.
+          ============================================================================
+        quiet: true
+
+    - name: Require Navidrome settings to use the ND_ prefix
+      assert:
+        that: navidrome_env.keys() | reject('match', '^ND_[A-Z0-9_]+$') | list | length == 0
+        fail_msg: "Every key in navidrome_env must be an ND_ setting, e.g. ND_SCANSCHEDULE."
+        quiet: true
+
+    - name: Check the deploy user exists (created by docker_deploy)
+      command: id deploy
+      register: navidrome_deploy_user
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with guidance if the deploy user is missing
+      assert:
+        that: navidrome_deploy_user.rc == 0
+        fail_msg: >-
+          The 'deploy' user does not exist. Set enable_docker_deploy: true for
+          this host and run docker_deploy before app_navidrome.
+        quiet: true
+
+    - name: Read the deploy user's uid and gid
+      getent:
+        database: passwd
+        key: deploy
+
+    - name: Require the music library to be mounted
+      stat:
+        path: "{{ navidrome_music_dir }}"
+      register: navidrome_music_stat
+      failed_when: not (navidrome_music_stat.stat.isdir | default(false))
+
+    - name: Create the Navidrome directories (on the VM disk)
+      become: true
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: "0750"
+      loop:
+        - "{{ navidrome_dir }}"
+        - "{{ navidrome_data_dir }}"
+
+    - name: Read the filesystem type of the Navidrome data directory
+      command: findmnt -n -o FSTYPE --target {{ navidrome_data_dir }}
+      register: navidrome_state_fstype
+      changed_when: false
+
+    - name: Refuse to keep Navidrome's database on a virtiofs share
+      assert:
+        that: navidrome_state_fstype.stdout | trim != 'virtiofs'
+        fail_msg: >-
+          {{ navidrome_data_dir }} is on virtiofs. Navidrome's SQLite database
+          must live on the VM's own disk; set navidrome_dir to a local path.
+        quiet: true
+
+    - name: Render the Navidrome compose file
+      become: true
+      become_user: deploy
+      template:
+        src: docker-compose.yml.j2
+        dest: "{{ navidrome_dir }}/docker-compose.yml"
+        mode: "0640"
+      register: navidrome_compose
+
+    - name: Pull the pinned Navidrome image
+      become: true
+      become_user: deploy
+      command: docker compose pull
+      args:
+        chdir: "{{ navidrome_dir }}"
+      when: navidrome_compose.changed
+      changed_when: true
+
+    - name: Start Navidrome (docker compose up -d; recreates only on change)
+      become: true
+      become_user: deploy
+      command: docker compose up -d
+      args:
+        chdir: "{{ navidrome_dir }}"
+      register: navidrome_up
+      changed_when: >-
+        'Recreat' in (navidrome_up.stdout + navidrome_up.stderr)
+        or 'Creat' in (navidrome_up.stdout + navidrome_up.stderr)
+        or 'Start' in (navidrome_up.stdout + navidrome_up.stderr)
+
+    - name: Wait for Navidrome to answer on /ping
+      uri:
+        url: "http://127.0.0.1:{{ navidrome_port }}/ping"
+        status_code: [200]
+      register: navidrome_health
+      retries: 30
+      delay: 5
+      until: navidrome_health.status is defined and navidrome_health.status == 200

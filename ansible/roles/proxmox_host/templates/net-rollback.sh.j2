@@ -1,0 +1,14 @@
+#!/bin/sh
+# {{ ansible_managed | default('Managed by Ansible (proxmox_host)') }}
+# Restores the network configuration that was active before the switch to
+# bridge {{ proxmox_bridge }}. Armed by a timer; runs only if the new network
+# did not come back in time.
+set -u
+cp /etc/network/interfaces.rollback /etc/network/interfaces
+ifreload -a || true
+if [ -d /etc/netplan.pre-proxmox ]; then
+    cp -a /etc/netplan.pre-proxmox/. /etc/netplan/
+    rm -f /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+    systemctl enable --now systemd-networkd.socket systemd-networkd.service
+    netplan apply
+fi

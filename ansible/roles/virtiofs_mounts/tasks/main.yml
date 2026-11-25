@@ -1,0 +1,111 @@
+---
+- name: Skip virtiofs_mounts role if not enabled
+  when: not (virtiofs_mounts_enabled | default(false))
+  debug:
+    msg: "Skipping virtiofs_mounts role (virtiofs_mounts_enabled is false)"
+
+- name: Mount the host's virtiofs shares
+  when: virtiofs_mounts_enabled | default(false)
+  become: true
+  block:
+    - name: Validate the declared virtiofs mounts
+      assert:
+        that:
+          - m.tag is defined and m.tag is match('^[a-z0-9-]+$')
+          - m.path is defined and m.path is match('^/[^\s]*[^/\s]$')
+          - m.mode is defined and m.mode in ['ro', 'rw']
+        fail_msg: >-
+          Invalid virtiofs mount {{ m }}: needs tag (lowercase letters, digits,
+          dashes, e.g. music-ro), an absolute path without a trailing slash
+          (e.g. /mnt/music), and mode ro or rw.
+        quiet: true
+      loop: "{{ virtiofs_mounts }}"
+      loop_control:
+        loop_var: m
+        label: "{{ m.tag | default(m) }}"
+
+    - name: Require unique virtiofs tags and mount points
+      assert:
+        that:
+          - virtiofs_mounts | map(attribute='tag') | unique | length == virtiofs_mounts | length
+          - virtiofs_mounts | map(attribute='path') | unique | length == virtiofs_mounts | length
+        fail_msg: "Two virtiofs mounts share a tag or a mount point."
+        quiet: true
+
+    - name: Create the mount points
+      file:
+        path: "{{ m.path }}"
+        state: directory
+        mode: "0755"
+      loop: "{{ virtiofs_mounts }}"
+      loop_control:
+        loop_var: m
+        label: "{{ m.path }}"
+
+    - name: Mount each share and record it in /etc/fstab
+      ansible.posix.mount:
+        src: "{{ m.tag }}"
+        path: "{{ m.path }}"
+        fstype: virtiofs
+        opts: "{{ virtiofs_mount_options }}{{ ',ro' if m.mode == 'ro' else '' }}"
+        state: mounted
+      loop: "{{ virtiofs_mounts }}"
+      loop_control:
+        loop_var: m
+        label: "{{ m.tag }} -> {{ m.path }} ({{ m.mode }})"
+
+    - name: Read the filesystem type of each mount point
+      command: findmnt -n -o FSTYPE --target {{ m.path }}
+      register: virtiofs_fstype
+      changed_when: false
+      loop: "{{ virtiofs_mounts }}"
+      loop_control:
+        loop_var: m
+        label: "{{ m.path }}"
+
+    - name: Require every mount point to be a virtiofs mount
+      assert:
+        that: r.stdout | trim == 'virtiofs'
+        fail_msg: >-
+          {{ r.m.path }} is not a virtiofs mount (found '{{ r.stdout | trim }}').
+          Is tag '{{ r.m.tag }}' exported to this VM by the host?
+        quiet: true
+      loop: "{{ virtiofs_fstype.results }}"
+      loop_control:
+        loop_var: r
+        label: "{{ r.m.path }}"
+
+    # Run as root: if even root cannot write, the mount is truly read-only.
+    - name: Try to write to each read-only mount (must fail)
+      command: touch {{ m.path }}/.virtiofs-ro-test
+      register: virtiofs_ro_write
+      changed_when: false
+      failed_when: false
+      loop: "{{ virtiofs_mounts | selectattr('mode', 'equalto', 'ro') | list }}"
+      loop_control:
+        loop_var: m
+        label: "{{ m.path }}"
+
+    - name: Remove a test file left by a writable "ro" mount
+      file:
+        path: "{{ r.m.path }}/.virtiofs-ro-test"
+        state: absent
+      when: r.rc == 0
+      loop: "{{ virtiofs_ro_write.results }}"
+      loop_control:
+        loop_var: r
+        label: "{{ r.m.path }}"
+
+    - name: Require read-only mounts to refuse writes
+      assert:
+        that: r.rc != 0
+        fail_msg: >-
+          SECURITY: {{ r.m.path }} (tag {{ r.m.tag }}) is declared read-only
+          but accepted a write. Fix the mount and the host's export before
+          running any service on this VM.
+        success_msg: "{{ r.m.path }} refuses writes"
+        quiet: true
+      loop: "{{ virtiofs_ro_write.results }}"
+      loop_control:
+        loop_var: r
+        label: "{{ r.m.path }}"

@@ -1,0 +1,7 @@
+# {{ ansible_managed | default('Managed by Ansible (backup_hub)') }}
+[Unit]
+Description=Check that backups and mpnas pulls are fresh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/backup-hub-check

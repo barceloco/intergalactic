@@ -1,0 +1,140 @@
+---
+- name: Skip app_jellyfin role if not enabled
+  when: not (jellyfin_enabled | default(false))
+  debug:
+    msg: "Skipping app_jellyfin role (jellyfin_enabled is false)"
+
+- name: Deploy Jellyfin
+  when: jellyfin_enabled | default(false)
+  block:
+    - name: Require a pinned Jellyfin version
+      assert:
+        that:
+          - jellyfin_image_tag | length > 0
+          - jellyfin_image_tag not in ['latest', 'stable', 'unstable', 'preview']
+        fail_msg: |
+          ============================================================================
+          ERROR: jellyfin_image_tag is not pinned.
+          ============================================================================
+          Read https://github.com/jellyfin/jellyfin/releases, choose the current
+          stable release, and set it in host_vars, e.g.
+            jellyfin_image_tag: "10.x.y"
+          Floating tags (latest, stable) are refused so an update is always a
+          deliberate change.
+          ============================================================================
+        quiet: true
+
+    - name: Check the deploy user exists (created by docker_deploy)
+      command: id deploy
+      register: jellyfin_deploy_user
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with guidance if the deploy user is missing
+      assert:
+        that: jellyfin_deploy_user.rc == 0
+        fail_msg: >-
+          The 'deploy' user does not exist. Set enable_docker_deploy: true for
+          this host and run docker_deploy before app_jellyfin.
+        quiet: true
+
+    - name: Read the deploy user's uid and gid
+      getent:
+        database: passwd
+        key: deploy
+
+    - name: Read the render group (hardware acceleration)
+      when: jellyfin_hw_accel | bool
+      getent:
+        database: group
+        key: render
+
+    - name: Check for the GPU render device
+      when: jellyfin_hw_accel | bool
+      stat:
+        path: /dev/dri/renderD128
+      register: jellyfin_render_node
+
+    - name: Require the GPU render device for hardware acceleration
+      when: jellyfin_hw_accel | bool
+      assert:
+        that: jellyfin_render_node.stat.exists
+        fail_msg: >-
+          jellyfin_hw_accel is true but /dev/dri/renderD128 does not exist.
+          Pass the iGPU through to this VM (proxmox_gpu_passthrough and
+          pci_devices on arcturus), restart the VM, then rerun.
+        quiet: true
+
+    - name: Require every media library to be mounted
+      stat:
+        path: "{{ item.host }}"
+      register: jellyfin_media_stat
+      failed_when: not (jellyfin_media_stat.stat.isdir | default(false))
+      loop: "{{ jellyfin_media }}"
+      loop_control:
+        label: "{{ item.host }}"
+
+    - name: Create the Jellyfin directories (on the VM disk)
+      become: true
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: "0750"
+      loop:
+        - "{{ jellyfin_dir }}"
+        - "{{ jellyfin_config_dir }}"
+        - "{{ jellyfin_cache_dir }}"
+
+    - name: Read the filesystem type of the Jellyfin state directory
+      command: findmnt -n -o FSTYPE --target {{ jellyfin_config_dir }}
+      register: jellyfin_state_fstype
+      changed_when: false
+
+    - name: Refuse to keep Jellyfin's database on a virtiofs share
+      assert:
+        that: jellyfin_state_fstype.stdout | trim != 'virtiofs'
+        fail_msg: >-
+          {{ jellyfin_config_dir }} is on virtiofs. Jellyfin's SQLite database
+          must live on the VM's own disk; set jellyfin_dir to a local path.
+        quiet: true
+
+    - name: Render the Jellyfin compose file
+      become: true
+      become_user: deploy
+      template:
+        src: docker-compose.yml.j2
+        dest: "{{ jellyfin_dir }}/docker-compose.yml"
+        mode: "0640"
+      register: jellyfin_compose
+
+    - name: Pull the pinned Jellyfin image
+      become: true
+      become_user: deploy
+      command: docker compose pull
+      args:
+        chdir: "{{ jellyfin_dir }}"
+      when: jellyfin_compose.changed
+      changed_when: true
+
+    - name: Start Jellyfin (docker compose up -d; recreates only on change)
+      become: true
+      become_user: deploy
+      command: docker compose up -d
+      args:
+        chdir: "{{ jellyfin_dir }}"
+      register: jellyfin_up
+      changed_when: >-
+        'Recreat' in (jellyfin_up.stdout + jellyfin_up.stderr)
+        or 'Creat' in (jellyfin_up.stdout + jellyfin_up.stderr)
+        or 'Start' in (jellyfin_up.stdout + jellyfin_up.stderr)
+
+    - name: Wait for Jellyfin to answer on /health
+      uri:
+        url: "http://127.0.0.1:{{ jellyfin_port }}/health"
+        status_code: [200]
+      register: jellyfin_health
+      retries: 30
+      delay: 5
+      until: jellyfin_health.status is defined and jellyfin_health.status == 200

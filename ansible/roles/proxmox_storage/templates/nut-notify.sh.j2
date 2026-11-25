@@ -1,0 +1,14 @@
+#!/bin/sh
+# {{ ansible_managed | default('Managed by Ansible (proxmox_storage)') }}
+# upsmon NOTIFYCMD: forward UPS events (on battery, low battery, shutdown,
+# power back, battery needs replacing) to fleet-notify.
+NOTIFY=/usr/local/sbin/fleet-notify
+[ -x "${NOTIFY}" ] || exit 0
+case "${NOTIFYTYPE}" in
+  ONLINE|COMMOK) prio=default ;;
+  ONBATT|REPLBATT|COMMBAD|NOCOMM) prio=high ;;
+  LOWBATT|FSD|SHUTDOWN) prio=urgent ;;
+  *) prio=default ;;
+esac
+"${NOTIFY}" -p "${prio}" "UPS ${NOTIFYTYPE:-event}" "$*"
+exit 0

@@ -1,0 +1,190 @@
+---
+- name: Skip proxmox_vms (proxmox_enabled is false)
+  when: not (proxmox_enabled | default(false))
+  debug:
+    msg: "Skipping proxmox_vms (proxmox_enabled is false)"
+
+- name: Create the VM template and the declared VMs
+  when: proxmox_enabled | default(false)
+  block:
+    - name: Determine the active VMs
+      include_tasks: active.yml
+
+    - name: Validate the declared VMs
+      assert:
+        that:
+          - vm.name is match('^[a-z][a-z0-9-]{0,14}$')
+          - vm.vmid | int >= 100 and vm.vmid | int != proxmox_template_vmid | int
+          - vm.cores | int >= 1
+          - vm.memory_mb | int >= 512
+          - vm.disk_gb | int >= 4
+          - vm.address_cidr is match('^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$')
+          - vm.address_cidr != proxmox_address_cidr
+          - vm.usb_devices | default([]) | reject('match', '^[0-9a-f]{4}:[0-9a-f]{4}$') | list | length == 0
+          - vm.pci_devices | default([]) | reject('match', '^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$') | list | length == 0
+          - vm.pci_devices | default([]) | length == 0 or proxmox_gpu_passthrough | default(false)
+          - vm.virtiofs | default([]) | rejectattr('mode', 'in', ['ro', 'rw']) | list | length == 0
+          - vm.virtiofs | default([]) | map(attribute='dataset') | difference(proxmox_pool_datasets | default([]) | map(attribute='name')) | length == 0
+        fail_msg: >-
+          Invalid VM {{ vm }}: needs name (lowercase, max 15 chars), vmid >= 100
+          (not {{ proxmox_template_vmid }}), cores, memory_mb >= 512, disk_gb >= 4,
+          a static address_cidr different from the host's; usb_devices as
+          vendor:product (e.g. 1058:25ee); pci_devices as 0000:00:02.0, and only
+          with proxmox_gpu_passthrough: true; virtiofs entries as
+          {dataset: <a dataset in proxmox_pool_datasets>, mode: ro|rw}.
+        quiet: true
+      loop: "{{ proxmox_vms_active }}"
+      loop_control:
+        loop_var: vm
+        label: "{{ vm.name | default(vm) }}"
+
+    - name: Require unique VM names, ids and addresses
+      assert:
+        that:
+          - proxmox_vms_active | map(attribute='name') | unique | length == proxmox_vms_active | length
+          - proxmox_vms_active | map(attribute='vmid') | unique | length == proxmox_vms_active | length
+          - proxmox_vms_active | map(attribute='address_cidr') | unique | length == proxmox_vms_active | length
+        fail_msg: "Two declared VMs share a name, vmid or address."
+        quiet: true
+
+    - name: Read the host's memory
+      shell: set -o pipefail; free -m | awk '/^Mem:/ {print $2}'
+      args:
+        executable: /bin/bash
+      register: proxmox_host_mem
+      changed_when: false
+
+    - name: Require the VMs to fit in memory next to Proxmox and the ZFS cache
+      assert:
+        that: (proxmox_vms_active | map(attribute='memory_mb') | map('int') | sum) + (proxmox_host_reserve_mb | int) <= (proxmox_host_mem.stdout | int)
+        fail_msg: >-
+          The declared VMs need {{ proxmox_vms_active | map(attribute='memory_mb') | map('int') | sum }} MB plus
+          {{ proxmox_host_reserve_mb }} MB for the host, but it has {{ proxmox_host_mem.stdout }} MB.
+          Add memory or shrink memory_mb.
+        quiet: true
+
+    - name: Create the unlock configuration directory
+      file:
+        path: "{{ proxmox_unlock_conf_dir | default('/etc/proxmox-unlock') }}"
+        state: directory
+        mode: "0755"
+
+    - name: List the VMs the unlock helper starts, in order
+      copy:
+        dest: "{{ proxmox_unlock_conf_dir | default('/etc/proxmox-unlock') }}/vm-start-order"
+        mode: "0644"
+        content: |
+          {% for vm in proxmox_vms_active if (vm.onboot | default(proxmox_vm_onboot_default)) | int == 0 %}
+          {{ vm.vmid }}
+          {% endfor %}
+
+    - name: Collect the bootstrap user's SSH keys
+      set_fact:
+        proxmox_vm_keys: >-
+          {{ (human_users | default([]) | selectattr('name', 'equalto', proxmox_vm_user)
+              | map(attribute='authorized_keys') | first | default([])) }}
+
+    - name: Require at least one SSH key for the bootstrap user
+      assert:
+        that: proxmox_vm_keys | length > 0
+        fail_msg: "No authorized_keys for '{{ proxmox_vm_user }}' in human_users (all_secrets.yml)."
+        quiet: true
+
+    # --------------------------------------------------------------- template
+    - name: Create the cloud image directory
+      file:
+        path: "{{ proxmox_cloud_image_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Require the PCI devices to be in a single VM each
+      assert:
+        that: >-
+          proxmox_vms_active | map(attribute='pci_devices', default=[]) | flatten | unique | length
+          == proxmox_vms_active | map(attribute='pci_devices', default=[]) | flatten | length
+        fail_msg: "A PCI device can be passed through to one VM only."
+        quiet: true
+
+    - name: Download the Debian 13 cloud image (checked against Debian's SHA512SUMS)
+      get_url:
+        url: "{{ proxmox_cloud_image_base }}/{{ proxmox_cloud_image_name }}"
+        dest: "{{ proxmox_cloud_image_dir }}/{{ proxmox_cloud_image_name }}"
+        checksum: "sha512:{{ proxmox_cloud_image_base }}/SHA512SUMS"
+        mode: "0644"
+
+    - name: Create the snippets directory
+      file:
+        path: "{{ proxmox_vm_storage_path }}/snippets"
+        state: directory
+        mode: "0755"
+
+    - name: Install the cloud-init vendor data (installs qemu-guest-agent)
+      template:
+        src: vendor-data.yml.j2
+        dest: "{{ proxmox_vm_storage_path }}/snippets/vendor-data.yml"
+        mode: "0644"
+
+    - name: Write the bootstrap SSH keys for cloud-init
+      copy:
+        dest: /root/proxmox-vm-authorized-keys
+        content: "{{ proxmox_vm_keys | join('\n') }}\n"
+        mode: "0600"
+
+    - name: Check for the template
+      command: qm status {{ proxmox_template_vmid }}
+      register: proxmox_template_status
+      changed_when: false
+      failed_when: false
+
+    - name: Build the template from the cloud image
+      when: proxmox_template_status.rc != 0
+      block:
+        - name: Create the template VM
+          command: >-
+            qm create {{ proxmox_template_vmid }} --name {{ proxmox_template_name }}
+            --ostype l26 --cores 1 --memory 1024 --cpu host
+            --net0 virtio,bridge={{ proxmox_bridge }}
+            --scsihw virtio-scsi-single --agent enabled=1
+            --serial0 socket --vga serial0
+          changed_when: true
+
+        - name: Import the cloud image as the template's disk
+          command: >-
+            qm set {{ proxmox_template_vmid }}
+            --scsi0 {{ proxmox_template_storage }}:0,import-from={{ proxmox_cloud_image_dir }}/{{ proxmox_cloud_image_name }},format=qcow2,discard=on
+          changed_when: true
+
+        - name: Add the cloud-init drive, boot order and vendor data
+          command: >-
+            qm set {{ proxmox_template_vmid }}
+            --ide2 {{ proxmox_template_storage }}:cloudinit
+            --boot order=scsi0
+            --cicustom vendor={{ proxmox_vm_storage }}:snippets/vendor-data.yml
+          changed_when: true
+
+        - name: Convert it into a template
+          command: qm template {{ proxmox_template_vmid }}
+          changed_when: true
+
+    # -------------------------------------------------------------------- VMs
+    # VM disks live on the encrypted pool: nothing to do while it is locked.
+    - name: Read the key status of the encrypted pool
+      command: zfs get -H -o value keystatus {{ proxmox_pool_name | default('tank') }}
+      register: proxmox_vms_pool_key
+      changed_when: false
+      failed_when: false
+
+    - name: Report that VMs wait for the pool
+      when: proxmox_vms_pool_key.stdout | trim != 'available'
+      debug:
+        msg: >-
+          The encrypted pool is missing or locked, so no VM is created or started.
+          Unlock it (./scripts/unlock-arcturus.sh) and rerun the production phase.
+
+    - name: Create and start each declared VM
+      when: proxmox_vms_pool_key.stdout | trim == 'available'
+      include_tasks: vm.yml
+      loop: "{{ proxmox_vms_active }}"
+      loop_control:
+        loop_var: vm
+        label: "{{ vm.name }}"

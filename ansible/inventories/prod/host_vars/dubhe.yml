@@ -1,0 +1,50 @@
+---
+# dubhe: VM on arcturus. The production apps, moved from vega: docgen,
+# callosal, aispector. Same branches and ports as on vega (production tracks
+# main). App databases live on this VM's own disk (on the encrypted pool).
+hostname: "dubhe"
+enable_desktop: false
+enable_docker: true
+enable_docker_deploy: true
+notify_enabled: true
+
+# Per-repo Git SSH for the deploy user. New host, new keys: register each
+# printed public key as a read-only GitHub deploy key on its repo.
+docker_deploy_git_repos:
+  - aispector       # /srv/aispector      -> git@github-aispector:exnada/aispector.git
+  - callosal        # /srv/callosal       -> git@github-callosal:barceloco/callosal.git
+  - docgen          # /srv/docgen         -> git@github-docgen:exnada/docgen.git
+  - docgen-exnada   # /srv/docgen-exnada  -> github-docgen-exnada:exnada/docgen-exnada.git
+
+# docgen (as on vega). DOCGEN_ADMINS is the Tailscale-IP allow-list kept in
+# all_secrets.yml as docgen_admins.
+docgen_enabled: true
+docgen_repo_ref: main    # production (see the convention in CLAUDE.md)
+docgen_brand_ref: main
+docgen_env:
+  DOCGEN_ADMINS: "{{ docgen_admins }}"
+  DOCGEN_PORT: "8048"   # deterministic: 8000 + D+O+C+G+E+N
+
+# callosal production instance (callosal.exnada.com).
+callosal_enabled: true
+callosal_repo_ref: main
+
+# aispector production instance (aispector.exnada.com). Stateful stack. Its
+# Postgres, Redis and MinIO published all interfaces on vega (known drift):
+# bind them to 127.0.0.1 in aispector's compose before or during the move.
+aispector_enabled: true
+aispector_repo_ref: main
+
+# Firewall: the app backends are reached only by Traefik on megrez.
+# megrez must be in fleet_tailscale_ipv4 (group_vars/all.yml) once it has a
+# Tailscale address.
+firewall_rules:
+  - port: 8000
+    from: [megrez]
+    comment: "AISpector backend for Traefik on megrez -> aispector.exnada.com"
+  - port: 8001
+    from: [megrez]
+    comment: "Callosal backend for Traefik on megrez -> callosal.exnada.com"
+  - port: 8048
+    from: [megrez]
+    comment: "Docgen backend for Traefik on megrez -> docgen.exnada.com"
