@@ -59,3 +59,14 @@
   loop: "{{ fleet_tailscale_ipv4 | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
+
+- name: Validate the forward mode
+  assert:
+    that:
+      - firewall_forward_mode in ['', 'docker', 'drop', 'bridge']
+      - firewall_forward_mode != 'bridge' or not (enable_docker | default(false))
+    fail_msg: >-
+      firewall_forward_mode must be empty, docker, drop or bridge, and bridge
+      cannot be combined with enable_docker (Docker-published ports would then
+      be unfiltered).
+    quiet: true

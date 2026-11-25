@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# {{ ansible_managed | default('Managed by Ansible (backup_hub)') }}
+# Daily freshness check for the backup hub. Alerts through fleet-notify when:
+#  - the newest VM backup below {{ backup_hub_source_root }}/{{ backup_hub_vzdump_dir }} is
+#    older than {{ backup_hub_vzdump_max_age_h }} h (or there is none);
+#  - the pull account {{ backup_hub_pull_user }} (mpnas) has not logged in
+#    successfully for {{ backup_hub_pull_max_age_h }} h.
+set -uo pipefail
+
+NOTIFY=/usr/local/sbin/fleet-notify
+VZDUMP_DIR={{ (backup_hub_source_root ~ '/' ~ backup_hub_vzdump_dir) | quote }}
+VZDUMP_MAX_H={{ backup_hub_vzdump_max_age_h | int }}
+PULL_USER={{ backup_hub_pull_user | quote }}
+PULL_MAX_H={{ backup_hub_pull_max_age_h | int }}
+problems=0
+
+alert() {
+  problems=$((problems + 1))
+  logger -t backup-hub-check -- "$1: $2"
+  if [ -x "${NOTIFY}" ]; then "${NOTIFY}" -p high -t warning "$1" "$2"; fi
+}
+
+# 1. VM backups
+if ! mountpoint -q "${VZDUMP_DIR}" && [ ! -d "${VZDUMP_DIR}" ]; then
+  alert "backups missing" "${VZDUMP_DIR} is not mounted."
+else
+  newest="$(find "${VZDUMP_DIR}" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -1)"
+  if [ -z "${newest}" ]; then
+    alert "backups missing" "No files below ${VZDUMP_DIR}."
+  else
+    age_h=$(( ( $(date +%s) - ${newest%.*} ) / 3600 ))
+    if [ "${age_h}" -ge "${VZDUMP_MAX_H}" ]; then
+      alert "backups stale" "Newest VM backup is ${age_h} h old (limit ${VZDUMP_MAX_H} h)."
+    fi
+  fi
+fi
+
+# 2. mpnas pulls (sshd logs as sshd or, on OpenSSH 9.8+, sshd-session)
+if ! journalctl --quiet --no-pager --since "-${PULL_MAX_H}h" -o cat \
+     SYSLOG_IDENTIFIER=sshd SYSLOG_IDENTIFIER=sshd-session \
+     | grep -q "Accepted publickey for ${PULL_USER} "; then
+  alert "mpnas pull missing" "No successful pull by ${PULL_USER} in the last ${PULL_MAX_H} h. Check mpnas's scheduled task and its Tailscale key."
+fi
+
+if [ "${problems}" -eq 0 ]; then
+  logger -t backup-hub-check -- "ok: backups and pulls are fresh"
+fi
+exit 0

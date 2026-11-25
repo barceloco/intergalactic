@@ -1,0 +1,44 @@
+---
+# alioth: VM on arcturus. Media: Jellyfin (with the iGPU once passed
+# through), Audiobookshelf, Navidrome. The media datasets are mounted
+# read-only (enforced by arcturus, checked again here).
+hostname: "alioth"
+enable_desktop: false
+enable_docker: true
+enable_docker_deploy: true
+docker_deploy_git_repos: []
+notify_enabled: true
+
+virtiofs_mounts_enabled: true
+virtiofs_mounts:
+  - tag: music-ro
+    path: /mnt/music
+    mode: ro
+  - tag: audiobooks-ro
+    path: /mnt/audiobooks
+    mode: ro
+  - tag: video-ro
+    path: /mnt/video
+    mode: ro
+
+# Image versions are pinned on purpose: set each to a current stable release
+# after reading its release notes (the roles refuse an empty or floating tag).
+jellyfin_enabled: true
+jellyfin_image_tag: ""
+jellyfin_hw_accel: false      # true once the iGPU is passed through to alioth
+audiobookshelf_enabled: true
+audiobookshelf_image_tag: ""
+navidrome_enabled: true
+navidrome_image_tag: ""
+
+# Firewall: reached only by Traefik on megrez.
+firewall_rules:
+  - port: 8096
+    from: [megrez]
+    comment: "Jellyfin backend for Traefik on megrez -> jellyfin.exnada.com"
+  - port: 13378
+    from: [megrez]
+    comment: "Audiobookshelf backend for Traefik on megrez -> audiobookshelf.exnada.com"
+  - port: 4533
+    from: [megrez]
+    comment: "Navidrome backend for Traefik on megrez -> navidrome.exnada.com"

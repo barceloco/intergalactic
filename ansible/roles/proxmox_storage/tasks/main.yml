@@ -1,0 +1,267 @@
+---
+# Encrypted pool, datasets, storages, shares, snapshots, backups, alerts.
+# Never creates the pool itself (that needs the passphrase, which only the
+# operator types): ./scripts/create-encrypted-pool.sh does that.
+- name: Skip proxmox_storage (proxmox_storage_enabled is false)
+  when: not (proxmox_storage_enabled | default(false))
+  debug:
+    msg: "Skipping proxmox_storage (proxmox_storage_enabled is false)"
+
+- name: Set up the encrypted pool and its services
+  when: proxmox_storage_enabled | default(false)
+  block:
+    # ---------------------------------------------------------------- tools
+    - name: Install storage tools (snapshots, drive health)
+      apt:
+        name: [sanoid, smartmontools]
+        state: present
+
+    - name: Create the unlock configuration directory
+      file:
+        path: "{{ proxmox_unlock_conf_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Install the unlock helper
+      template:
+        src: proxmox-unlock.sh.j2
+        dest: /usr/local/sbin/proxmox-unlock
+        mode: "0750"
+
+    # Shares only for the active VMs (the same rule proxmox_vms uses).
+    - name: Determine the active VMs
+      include_role:
+        name: proxmox_vms
+        tasks_from: active
+
+    - name: Collect the shares of the active VMs
+      set_fact:
+        proxmox_storage_shares: "{{ proxmox_vms_active | map(attribute='virtiofs', default=[]) | flatten | unique }}"
+
+    - name: List the datasets VMs receive read-only
+      copy:
+        dest: "{{ proxmox_unlock_conf_dir }}/ro-shares"
+        mode: "0644"
+        content: |
+          {% for ds in proxmox_storage_shares | selectattr('mode', 'equalto', 'ro') | map(attribute='dataset') | unique | sort %}
+          {{ ds }}
+          {% endfor %}
+
+    - name: Cap the ZFS cache (ARC) so the VMs keep their memory
+      when: proxmox_zfs_arc_max_mb | int > 0
+      block:
+        - name: Set the ARC limit for future boots
+          copy:
+            dest: /etc/modprobe.d/zfs.conf
+            mode: "0644"
+            content: |
+              # Managed by Ansible (proxmox_storage): ZFS cache limit, {{ proxmox_zfs_arc_max_mb }} MB.
+              options zfs zfs_arc_max={{ (proxmox_zfs_arc_max_mb | int) * 1048576 }}
+          register: proxmox_arc_conf
+
+        - name: Apply the ARC limit now
+          when: proxmox_arc_conf is changed
+          shell: >-
+            if [ -w /sys/module/zfs/parameters/zfs_arc_max ]; then
+            echo {{ (proxmox_zfs_arc_max_mb | int) * 1048576 }} > /sys/module/zfs/parameters/zfs_arc_max;
+            fi
+          changed_when: true
+
+    - name: Install the boot reminder (notifies when the pool is locked after a boot)
+      copy:
+        dest: /etc/systemd/system/proxmox-unlock-reminder.service
+        mode: "0644"
+        content: |
+          # Managed by Ansible (proxmox_storage)
+          [Unit]
+          Description=Notify the operator when the encrypted pool needs unlocking
+          Wants=network-online.target
+          After=network-online.target tailscaled.service zfs-mount.service
+
+          [Service]
+          Type=oneshot
+          # Give Tailscale a moment to connect before notifying.
+          ExecStartPre=/bin/sleep 30
+          ExecStart=/usr/local/sbin/proxmox-unlock --reminder
+
+          [Install]
+          WantedBy=multi-user.target
+      register: proxmox_storage_reminder_unit
+
+    - name: Enable the boot reminder
+      systemd:
+        name: proxmox-unlock-reminder.service
+        enabled: true
+        daemon_reload: "{{ proxmox_storage_reminder_unit is changed }}"
+
+    # -------------------------------------------------------- drive and pool alerts
+    - name: Install the smartd and ZED alert hooks
+      template:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: "0755"
+      loop:
+        - {src: smartd-notify.sh.j2, dest: /usr/local/sbin/smartd-fleet-notify}
+        - {src: zed-fleet-notify.sh.j2, dest: /etc/zfs/zed.d/fleet-notify.sh}
+
+    # ZED runs every zedlet named <event class>-<anything>.sh.
+    - name: Run the ZED hook for scrub results and device problems
+      file:
+        src: /etc/zfs/zed.d/fleet-notify.sh
+        dest: "/etc/zfs/zed.d/{{ item }}-fleet-notify.sh"
+        state: link
+      loop: [scrub_finish, statechange, checksum, data, io]
+      notify: Restart zed
+
+    - name: Configure smartd (all drives; self-tests; temperature; alerts)
+      copy:
+        dest: /etc/smartd.conf
+        mode: "0644"
+        content: |
+          # Managed by Ansible (proxmox_storage)
+          # Short self-test daily at 02:00, long self-test Saturdays at 03:00.
+          DEVICESCAN -a -o on -S on -n standby,q -s (S/../.././02|L/../../6/03) -W 0,{{ proxmox_smart_temp_info }},{{ proxmox_smart_temp_crit }} -m root -M exec /usr/local/sbin/smartd-fleet-notify
+      notify: Restart smartd
+
+    - name: Check that ZFS's monthly scrub schedule is installed
+      stat:
+        path: /etc/cron.d/zfsutils-linux
+      register: proxmox_storage_scrub_cron
+
+    - name: Install a monthly scrub when the distribution does not provide one
+      when: not proxmox_storage_scrub_cron.stat.exists
+      copy:
+        dest: /etc/cron.d/zfs-scrub-monthly
+        mode: "0644"
+        content: |
+          # Managed by Ansible (proxmox_storage): scrub every pool on the 2nd Sunday.
+          24 0 8-14 * * root [ $(date +\%w) -eq 0 ] && zpool list -H -o name | xargs -r -n1 zpool scrub
+
+    - name: Configure snapshots (sanoid)
+      template:
+        src: sanoid.conf.j2
+        dest: /etc/sanoid/sanoid.conf
+        mode: "0644"
+
+    - name: Set up the UPS
+      when: proxmox_nut_enabled | default(false)
+      include_tasks: nut.yml
+
+    # ------------------------------------------------------------------ pool
+    - name: Check for the pool
+      command: zpool list -H -o name {{ proxmox_pool_name }}
+      register: proxmox_pool_check
+      changed_when: false
+      failed_when: false
+
+    - name: Report that the pool does not exist yet
+      when: proxmox_pool_check.rc != 0
+      debug:
+        msg: >-
+          Pool {{ proxmox_pool_name }} does not exist. Create it from the Mac with
+          ./scripts/create-encrypted-pool.sh (it asks for the passphrase and the
+          disks), then rerun the production phase. Until then no VM is created.
+
+    - name: Read the pool's encryption settings
+      when: proxmox_pool_check.rc == 0
+      command: zfs get -H -o value encryption,keyformat,keylocation,keystatus {{ proxmox_pool_name }}
+      register: proxmox_pool_crypt
+      changed_when: false
+
+    # A key file, an https URL or any other keylocation would let the host
+    # unlock without the operator: refused, whatever the convenience.
+    - name: Require operator-only encryption (passphrase, prompted, never stored)
+      when: proxmox_pool_check.rc == 0
+      assert:
+        that:
+          - proxmox_pool_crypt.stdout_lines[0] != 'off'
+          - proxmox_pool_crypt.stdout_lines[1] == 'passphrase'
+          - proxmox_pool_crypt.stdout_lines[2] == 'prompt'
+        fail_msg: >-
+          Pool {{ proxmox_pool_name }} must be encrypted with keyformat=passphrase and
+          keylocation=prompt (found {{ proxmox_pool_crypt.stdout_lines[:3] | join(', ') }}).
+          No key may be stored on this host.
+        quiet: true
+
+    - name: Record whether the pool is present and unlocked
+      set_fact:
+        proxmox_pool_present: "{{ proxmox_pool_check.rc == 0 }}"
+        proxmox_pool_unlocked: "{{ proxmox_pool_check.rc == 0 and proxmox_pool_crypt.stdout_lines[3] == 'available' }}"
+
+    - name: Report that the pool is locked
+      when: proxmox_pool_present and not proxmox_pool_unlocked
+      debug:
+        msg: >-
+          Pool {{ proxmox_pool_name }} is locked. Unlock it from the Mac with
+          ./scripts/unlock-arcturus.sh and rerun the production phase to finish
+          datasets, storages, shares and VMs.
+
+    - name: Datasets, storages, shares and backups (pool unlocked)
+      when: proxmox_pool_unlocked
+      block:
+        - name: Create the datasets
+          command: >-
+            zfs create
+            {% if item.recordsize is defined %}-o recordsize={{ item.recordsize }}{% endif %}
+            {{ proxmox_pool_name }}/{{ item.name }}
+          args:
+            creates: "{{ proxmox_pool_mountpoint }}/{{ item.name }}"
+          loop: "{{ proxmox_pool_datasets }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Mount everything and create the read-only shares
+          command: /usr/local/sbin/proxmox-unlock --shares
+          changed_when: false
+
+        - name: Read the Proxmox storages
+          command: pvesm status
+          register: proxmox_storage_status
+          changed_when: false
+
+        - name: Add the VM disk storage (thin-provisioned zvols on the pool)
+          when: proxmox_storage_status.stdout is not search('(?m)^' ~ proxmox_pool_vm_storage ~ '\s')
+          command: >-
+            pvesm add zfspool {{ proxmox_pool_vm_storage }}
+            --pool {{ proxmox_pool_name }}/vm --content images --sparse 1
+          changed_when: true
+
+        - name: Add the backup storage (refuses to write while the pool is unmounted)
+          when: proxmox_storage_status.stdout is not search('(?m)^' ~ proxmox_pool_backup_storage ~ '\s')
+          command: >-
+            pvesm add dir {{ proxmox_pool_backup_storage }}
+            --path {{ proxmox_pool_mountpoint }}/vzdump --content backup
+            --is_mountpoint {{ proxmox_pool_mountpoint }}/vzdump
+            --prune-backups {{ proxmox_vzdump_prune }}
+          changed_when: true
+
+        - name: Read the backup jobs
+          command: pvesh get /cluster/backup --output-format json
+          register: proxmox_backup_jobs
+          changed_when: false
+
+        - name: Back up every VM nightly
+          when: proxmox_vzdump_job_id not in (proxmox_backup_jobs.stdout | from_json | map(attribute='id') | list)
+          command: >-
+            pvesh create /cluster/backup --id {{ proxmox_vzdump_job_id }}
+            --schedule {{ proxmox_vzdump_schedule | quote }} --storage {{ proxmox_pool_backup_storage }}
+            --all 1 --mode snapshot --compress zstd --enabled 1
+          changed_when: true
+
+        # Directory mappings let VMs mount datasets with virtiofs. Read-only
+        # mappings point at the host's read-only bind mounts.
+        - name: Read the directory mappings
+          command: pvesh get /cluster/mapping/dir --output-format json
+          register: proxmox_dir_mappings
+          changed_when: false
+
+        - name: Create the directory mappings VMs use
+          when: (share.dataset ~ '-' ~ share.mode) not in (proxmox_dir_mappings.stdout | from_json | map(attribute='id') | list)
+          command: >-
+            pvesh create /cluster/mapping/dir --id {{ share.dataset }}-{{ share.mode }}
+            --map node={{ inventory_hostname }},path={{ (proxmox_ro_share_root if share.mode == 'ro' else proxmox_pool_mountpoint) ~ '/' ~ share.dataset }}
+          loop: "{{ proxmox_storage_shares }}"
+          loop_control:
+            loop_var: share
+            label: "{{ share.dataset }}-{{ share.mode }}"
+          changed_when: true

@@ -23,6 +23,39 @@ all:
   children:
     home_milkyway:
       children:
+        x86:
+          hosts:
+            arcturus:
+              # Proxmox host, over Tailscale (name assigned during foundation).
+              ansible_host: arcturus.tailb821ac.ts.net
+              ansible_user: ansible
+        arcturus_vms:
+          # VMs on arcturus, over Tailscale (names assigned during foundation).
+          hosts:
+            megrez:
+              ansible_host: megrez.tailb821ac.ts.net
+              ansible_user: ansible
+            phecda:
+              ansible_host: phecda.tailb821ac.ts.net
+              ansible_user: ansible
+            dubhe:
+              ansible_host: dubhe.tailb821ac.ts.net
+              ansible_user: ansible
+            alioth:
+              ansible_host: alioth.tailb821ac.ts.net
+              ansible_user: ansible
+            alkaid:
+              ansible_host: alkaid.tailb821ac.ts.net
+              ansible_user: ansible
+            merak:
+              ansible_host: merak.tailb821ac.ts.net
+              ansible_user: ansible
+            mizar:
+              ansible_host: mizar.tailb821ac.ts.net
+              ansible_user: ansible
+            alcor:
+              ansible_host: alcor.tailb821ac.ts.net
+              ansible_user: ansible
         rpi5:
           hosts:
             vega:

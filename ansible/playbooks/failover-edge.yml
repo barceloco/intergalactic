@@ -1,0 +1,303 @@
+---
+# Failover of DNS (CoreDNS) and the reverse proxy (Traefik) for exnada.com to
+# ONE standby Pi, for when arcturus (megrez) is down. Either Pi alone is
+# enough. Runbook, including the manual Tailscale DNS switch and the drill:
+# docs/runbooks/failover-to-pi.md. UNTESTED until the first drill.
+#
+#   ./scripts/run-ansible.sh prod vega failover -e failover_mode=activate
+#   ./scripts/run-ansible.sh prod vega failover -e failover_mode=deactivate
+#
+# activate:   opens 53 and 80/443 to the tailnet in the Pi's firewall, starts a
+#             maintenance page, CoreDNS and Traefik. Every app domain shows the
+#             maintenance page except those in failover_apps (key apps you
+#             restored on this Pi). The wildcard certificate is copied from
+#             megrez when reachable, else from failover_acme_json_src on the
+#             Mac, else Traefik requests a new one (GoDaddy DNS-01).
+# deactivate: stops and removes all of it, including the GoDaddy credentials
+#             and the certificate, and closes the ports again.
+#
+# Refuses a host whose host_vars enable edge_ingress or internal_dns: that host
+# is the live edge, not a standby.
+- name: Failover of DNS and reverse proxy to a standby Pi
+  # Unset matches no host, so the playbook never runs by accident.
+  hosts: "{{ failover_host | default('no_host_selected') }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
+  vars:
+    failover_mode: ""                 # activate | deactivate (no default action)
+    failover_allowed_hosts: [vega, rigel]
+    failover_domain: exnada.com
+    # Every app domain (without the domain); all get the maintenance page
+    # unless failover_apps routes them to a restored app.
+    failover_app_domains:
+      - aispector
+      - callosal
+      - docgen
+      - demo
+      - csa
+      - immich
+      - jellyfin
+      - audiobookshelf
+      - navidrome
+    # Key apps restored on this Pi, as edge_ingress routes, e.g.
+    #   - {host: docgen.exnada.com, backend: "http://127.0.0.1:8048", health_path: /health}
+    failover_apps: []
+    # DNS-only names (resolve to their own Tailscale IPs).
+    failover_dns_private_hosts: [vega, rigel, mpnas, arcturus]
+    # Certificate source: Traefik's acme.json on megrez, else a copy on the Mac.
+    failover_cert_source_host: megrez
+    failover_cert_source_path: /opt/traefik/acme.json
+    failover_acme_json_src: ""
+    failover_maintenance_image: "nginx:1.28-alpine"
+    failover_maintenance_port: 8099
+    failover_maintenance_dir: /opt/failover-maintenance
+    failover_routes: >-
+      {%- set out = [] -%}
+      {%- for d in failover_app_domains -%}
+      {%- set h = d ~ '.' ~ failover_domain -%}
+      {%- set app = failover_apps | selectattr('host', 'equalto', h) | list -%}
+      {%- set page = {'host': h, 'backend': 'http://127.0.0.1:' ~ failover_maintenance_port} -%}
+      {%- set _ = out.append(app[0] if app else page) -%}
+      {%- endfor -%}
+      {{ out + (failover_apps | rejectattr('host', 'in', out | map(attribute='host') | list) | list) }}
+    # All DNS names: the DNS-only hosts plus every routed subdomain. Passed
+    # complete to internal_dns (and to edge_ingress, which runs internal_dns
+    # again as a dependency), so both runs render identical records.
+    failover_dns_hosts: >-
+      {{ failover_dns_private_hosts
+         | union(failover_routes | map(attribute='host')
+                 | map('regex_replace', '^([^.]+)\..*', '\1') | list) }}
+  pre_tasks:
+    - name: Import host key verification tasks
+      import_tasks: shared/host-key-verification.yml
+      tags: always
+
+    - name: Import production validation tasks
+      import_tasks: shared/production-validation.yml
+      tags: always
+
+  tasks:
+    - name: Require an explicit mode, one standby Pi, and no live edge on it
+      assert:
+        that:
+          - failover_mode in ['activate', 'deactivate']
+          - ansible_play_hosts_all | length == 1
+          - inventory_hostname in failover_allowed_hosts
+          - not (edge_ingress_enabled | default(false) | bool)
+          - not (internal_dns_enabled | default(false) | bool)
+        fail_msg: >-
+          Run with -e failover_mode=activate|deactivate against exactly one of
+          {{ failover_allowed_hosts }}. A host whose host_vars enable
+          edge_ingress or internal_dns is the live edge (today: rigel), not a
+          standby; failover is for after the move to megrez.
+        quiet: true
+
+    # ============================================================== activate
+    - name: Activate DNS and reverse proxy
+      when: failover_mode == 'activate'
+      block:
+        - name: Require the GoDaddy credentials (Traefik's certificate resolver)
+          assert:
+            that:
+              - godaddy_api_key | default('') | length > 0
+              - godaddy_api_secret | default('') | length > 0
+            fail_msg: "godaddy_api_key/godaddy_api_secret missing from all_secrets.yml."
+            quiet: true
+          no_log: true
+
+        - name: Validate the failover routes
+          assert:
+            that:
+              - item.host is match('^[a-z0-9-]+\.' ~ (failover_domain | regex_escape) ~ '$')
+              - item.backend is match('^https?://')
+            fail_msg: "Invalid route {{ item }} (host must be <name>.{{ failover_domain }}, backend a URL)."
+            quiet: true
+          loop: "{{ failover_routes }}"
+          loop_control:
+            label: "{{ item.host }}"
+
+        - name: Create the Traefik data directory
+          file:
+            path: /opt/traefik
+            state: directory
+            owner: root
+            group: root
+            mode: "0700"
+
+        - name: Read the current certificate store from {{ failover_cert_source_host }}
+          when: failover_cert_source_host in groups['all']
+          slurp:
+            src: "{{ failover_cert_source_path }}"
+          delegate_to: "{{ failover_cert_source_host }}"
+          register: failover_cert_remote
+          ignore_unreachable: true
+          failed_when: false
+          no_log: true
+
+        - name: Install the certificate store from {{ failover_cert_source_host }}
+          when:
+            - failover_cert_remote.content is defined
+            - (failover_cert_remote.content | b64decode | length) > 2
+          copy:
+            content: "{{ failover_cert_remote.content | b64decode }}"
+            dest: /opt/traefik/acme.json
+            owner: root
+            group: root
+            mode: "0600"
+          register: failover_cert_from_remote
+          no_log: true
+
+        - name: Install the certificate store from the Mac
+          when:
+            - failover_cert_from_remote is skipped
+            - failover_acme_json_src | length > 0
+          copy:
+            src: "{{ failover_acme_json_src }}"
+            dest: /opt/traefik/acme.json
+            owner: root
+            group: root
+            mode: "0600"
+          register: failover_cert_from_mac
+          no_log: true
+
+        - name: Open DNS and HTTPS to the tailnet in the firewall
+          include_role:
+            name: firewall_nftables
+          vars:
+            internal_dns_enabled: true
+            edge_ingress_enabled: true
+
+        - name: Create the maintenance page directory
+          file:
+            path: "{{ failover_maintenance_dir }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Write the maintenance page
+          template:
+            src: "templates/failover/{{ item.src }}"
+            dest: "{{ failover_maintenance_dir }}/{{ item.dest }}"
+            owner: root
+            group: root
+            mode: "0644"
+          loop:
+            - {src: maintenance-compose.yml.j2, dest: docker-compose.yml}
+            - {src: maintenance-nginx.conf.j2, dest: default.conf}
+            - {src: maintenance.html.j2, dest: maintenance.html}
+
+        - name: Start the maintenance page
+          command: docker compose -f {{ failover_maintenance_dir }}/docker-compose.yml up -d
+          register: failover_maintenance_up
+          changed_when: >-
+            'Creat' in (failover_maintenance_up.stdout + failover_maintenance_up.stderr)
+            or 'Start' in (failover_maintenance_up.stdout + failover_maintenance_up.stderr)
+
+        - name: Run CoreDNS for {{ failover_domain }}
+          include_role:
+            name: internal_dns
+          vars:
+            internal_dns_enabled: true
+            internal_dns_domain: "{{ failover_domain }}"
+            internal_dns_private_hosts: "{{ failover_dns_hosts }}"
+            edge_ingress_routes: "{{ failover_routes }}"
+
+        - name: Run Traefik with the failover routes
+          include_role:
+            name: edge_ingress
+          vars:
+            internal_dns_enabled: true
+            internal_dns_domain: "{{ failover_domain }}"
+            internal_dns_private_hosts: "{{ failover_dns_hosts }}"
+            edge_ingress_enabled: true
+            edge_ingress_domain: "{{ failover_domain }}"
+            edge_ingress_routes: "{{ failover_routes }}"
+
+        # curl, not uri: --resolve sets the TLS server name (SNI) per domain.
+        - name: Check that Traefik answers for every route  # noqa: command-instead-of-module
+          command: >-
+            curl -sk -o /dev/null -w '%{http_code}' --max-time 10
+            --resolve {{ item.host }}:443:127.0.0.1 https://{{ item.host }}/
+          loop: "{{ failover_routes }}"
+          loop_control:
+            label: "{{ item.host }}"
+          register: failover_route_check
+          changed_when: false
+          failed_when: false
+
+        - name: Report
+          debug:
+            msg:
+              - >-
+                Certificate:
+                {{ 'copied from ' ~ failover_cert_source_host if failover_cert_from_remote is not skipped
+                   else ('copied from the Mac' if failover_cert_from_mac is not skipped
+                   else 'none copied; Traefik requests a new one (takes minutes)') }}
+              - >-
+                Routes (HTTP status via Traefik):
+                {{ failover_route_check.results | map(attribute='item.host')
+                   | zip(failover_route_check.results | map(attribute='stdout'))
+                   | map('join', ' ') | list }}
+              - >-
+                NEXT, by hand: Tailscale admin console > DNS > exnada.com nameserver
+                -> {{ inventory_hostname }}'s Tailscale IP (runbook step 4).
+
+    # ============================================================ deactivate
+    - name: Deactivate DNS and reverse proxy
+      when: failover_mode == 'deactivate'
+      block:
+        - name: Check which failover services are installed
+          stat:
+            path: "/etc/systemd/system/{{ item }}.service"
+          loop: [traefik, coredns]
+          register: failover_units
+
+        - name: Stop and disable the failover services
+          systemd:
+            name: "{{ item.item }}"
+            state: stopped
+            enabled: false
+          loop: "{{ failover_units.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+          when: item.stat.exists
+
+        - name: Check for the maintenance page
+          stat:
+            path: "{{ failover_maintenance_dir }}/docker-compose.yml"
+          register: failover_maintenance_compose
+
+        - name: Stop the maintenance page
+          when: failover_maintenance_compose.stat.exists
+          command: docker compose -f {{ failover_maintenance_dir }}/docker-compose.yml down
+          changed_when: true
+
+        - name: Remove the services, credentials and certificate store
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /etc/systemd/system/traefik.service
+            - /etc/systemd/system/coredns.service
+            - /opt/traefik
+            - /opt/coredns
+            - "{{ failover_maintenance_dir }}"
+
+        - name: Reload systemd
+          systemd:
+            daemon_reload: true
+
+        - name: Close DNS and HTTPS again (firewall back to host_vars)
+          include_role:
+            name: firewall_nftables
+
+        - name: Report
+          debug:
+            msg:
+              - >-
+                {{ inventory_hostname }} is a plain standby again: no edge
+                services, no GoDaddy credentials, no certificate.
+              - "Make sure the Tailscale DNS for exnada.com points at megrez again (runbook step 4, reverse)."

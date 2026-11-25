@@ -1,0 +1,31 @@
+---
+# mizar: VM on arcturus. The dev apps, moved from rigel: csa and the callosal
+# demo instance. Same branches and ports as on rigel.
+hostname: "mizar"
+enable_desktop: false
+enable_docker: true
+enable_docker_deploy: true
+notify_enabled: true
+
+docker_deploy_git_repos:
+  - callosal    # /srv/callosal  -> git@github-callosal:barceloco/callosal.git
+  - csa         # /srv/csa       -> git@github-csa:exnada/csa.git
+
+# csa (csa.exnada.com)
+csa_enabled: true
+csa_repo_ref: main   # as on rigel
+csa_env:
+  CSA_PORT: "8023"   # deterministic: 8000 + C+S+A
+
+# callosal demo instance (demo.exnada.com), dev branch as on rigel.
+callosal_enabled: true
+callosal_repo_ref: dev
+
+# Firewall: the app backends are reached only by Traefik on megrez.
+firewall_rules:
+  - port: 8001
+    from: [megrez]
+    comment: "Callosal demo backend for Traefik on megrez -> demo.exnada.com"
+  - port: 8023
+    from: [megrez]
+    comment: "csa backend for Traefik on megrez -> csa.exnada.com"

@@ -1,0 +1,21 @@
+#!/bin/sh
+# {{ ansible_managed | default('Managed by Ansible (proxmox_storage)') }}
+# ZFS event daemon hook: forward pool problems and scrub results to
+# fleet-notify. ZED runs this for the event classes it is linked under.
+NOTIFY=/usr/local/sbin/fleet-notify
+[ -x "${NOTIFY}" ] || exit 0
+
+case "${ZEVENT_SUBCLASS}" in
+  scrub_finish)
+    status=$(zpool status -x "${ZEVENT_POOL}" 2>&1)
+    if echo "${status}" | grep -q "is healthy"; then
+      "${NOTIFY}" -p low "Scrub finished" "Pool ${ZEVENT_POOL}: scrub finished, no errors."
+    else
+      "${NOTIFY}" -p high "Scrub found problems" "Pool ${ZEVENT_POOL}: ${status}"
+    fi ;;
+  statechange)
+    "${NOTIFY}" -p urgent "Pool device state" "Pool ${ZEVENT_POOL}: ${ZEVENT_VDEV_PATH:-device} is ${ZEVENT_VDEV_STATE_STR:-changed}." ;;
+  checksum|data|io)
+    "${NOTIFY}" -p high "Pool error" "Pool ${ZEVENT_POOL}: ${ZEVENT_SUBCLASS} error on ${ZEVENT_VDEV_PATH:-a device}." ;;
+esac
+exit 0

@@ -12,6 +12,41 @@ all:
   children:
     home_milkyway:
       children:
+        x86:
+          hosts:
+            arcturus:
+              # Proxmox host (HP Elite Mini 800 G9). Set its LAN address here
+              # once Debian 13 is installed (see docs/runbooks/proxmox-arcturus.md).
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: armand
+        arcturus_vms:
+          # VMs on arcturus. Each address is the VM's address_cidr (without the
+          # /prefix) from host_vars/arcturus.yml; cloud-init creates armand.
+          hosts:
+            megrez:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: armand
+            phecda:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: armand
+            dubhe:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: armand
+            alioth:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: armand
+            alkaid:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: armand
+            merak:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: armand
+            mizar:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: armand
+            alcor:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: armand
         rpi5:
           hosts:
             vega:

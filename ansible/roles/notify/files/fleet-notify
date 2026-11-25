@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# fleet-notify: send a push notification through ntfy.
+# Managed by Ansible (role notify). Configuration: /etc/fleet-notify.conf.
+#
+# Usage: fleet-notify [-p priority] [-t tag[,tag]] "<title>" "<message>"
+#   priority: 1-5 or min, low, default, high, urgent
+#
+# Never fails its caller: when ntfy is not configured or unreachable it logs
+# to the journal (tag fleet-notify) and exits 0. The access token is passed to
+# curl on stdin, so it never appears in the process list or in any output.
+set -uo pipefail
+
+CONF=/etc/fleet-notify.conf
+PRIORITY=""
+TAGS=""
+
+log() { logger -t fleet-notify -- "$*"; }
+
+while getopts ":p:t:" opt; do
+  case "${opt}" in
+    p) PRIORITY="${OPTARG}" ;;
+    t) TAGS="${OPTARG}" ;;
+    *) log "usage error: fleet-notify [-p priority] [-t tags] <title> <message>"; exit 0 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+TITLE="${1:-notification}"
+MESSAGE="${2:-${TITLE}}"
+HOST="$(hostname -s)"
+TITLE="[${HOST}] ${TITLE}"
+
+if [ ! -r "${CONF}" ]; then
+  log "not configured (${CONF} missing or unreadable): ${TITLE}: ${MESSAGE}"
+  exit 0
+fi
+
+NTFY_URL=""
+NTFY_TOPIC=""
+NTFY_TOKEN=""
+NTFY_DEFAULT_PRIORITY="default"
+# shellcheck source=/dev/null
+. "${CONF}"
+
+if [ -z "${NTFY_URL}" ] || [ -z "${NTFY_TOPIC}" ]; then
+  log "not configured (no URL or topic): ${TITLE}: ${MESSAGE}"
+  exit 0
+fi
+
+PRIORITY="${PRIORITY:-${NTFY_DEFAULT_PRIORITY}}"
+
+# curl reads its options from stdin (-K -): headers, including the token, stay
+# out of argv. Header values have newlines stripped.
+clean() { printf '%s' "$1" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+ERR="$(mktemp)" || { log "mktemp failed: ${TITLE}: ${MESSAGE}"; exit 0; }
+trap 'rm -f "${ERR}"' EXIT
+{
+  printf 'url = "%s/%s"\n' "${NTFY_URL%/}" "$(clean "${NTFY_TOPIC}")"
+  printf 'header = "Title: %s"\n' "$(clean "${TITLE}")"
+  printf 'header = "Priority: %s"\n' "$(clean "${PRIORITY}")"
+  if [ -n "${TAGS}" ]; then printf 'header = "Tags: %s"\n' "$(clean "${TAGS}")"; fi
+  if [ -n "${NTFY_TOKEN}" ]; then printf 'header = "Authorization: Bearer %s"\n' "$(clean "${NTFY_TOKEN}")"; fi
+} | curl --silent --show-error --fail --max-time 20 --retry 3 --retry-delay 5 \
+      -K - --data-binary "${MESSAGE}" -o /dev/null 2> "${ERR}"
+rc=$?
+if [ "${rc}" -ne 0 ]; then
+  log "delivery failed (curl exit ${rc}: $(tr -d '\n' < "${ERR}")): ${TITLE}: ${MESSAGE}"
+else
+  log "sent: ${TITLE}: ${MESSAGE}"
+fi
+exit 0

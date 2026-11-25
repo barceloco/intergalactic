@@ -1,0 +1,86 @@
+---
+# NUT: watch a USB-connected UPS and shut the host down cleanly (Proxmox stops
+# the VMs first) when the battery runs low. upsd listens on localhost only;
+# letting the Synology follow it is a separate, firewall-scoped decision.
+- name: Install NUT
+  apt:
+    name: [nut-server, nut-client]
+    state: present
+
+# The local upsmon password never leaves the host and protects nothing beyond
+# the UPS monitor itself, so it is generated here instead of kept in secrets.
+- name: Generate the local upsmon password once
+  shell: umask 077; openssl rand -hex 24 > /etc/nut/upsmon.pass
+  args:
+    creates: /etc/nut/upsmon.pass
+
+- name: Read the local upsmon password
+  slurp:
+    src: /etc/nut/upsmon.pass
+  register: proxmox_nut_pass_file
+  no_log: true
+
+- name: Install the UPS alert hook
+  template:
+    src: nut-notify.sh.j2
+    dest: /usr/local/sbin/nut-fleet-notify
+    mode: "0755"
+
+- name: Configure NUT
+  copy:
+    dest: "/etc/nut/{{ item.name }}"
+    mode: "{{ item.mode }}"
+    group: nut
+    content: "{{ item.content }}"
+  loop:
+    - name: nut.conf
+      mode: "0644"
+      content: |
+        # Managed by Ansible (proxmox_storage)
+        MODE=standalone
+    - name: ups.conf
+      mode: "0644"
+      content: |
+        # Managed by Ansible (proxmox_storage)
+        [{{ proxmox_nut_ups_name }}]
+          driver = {{ proxmox_nut_driver }}
+          port = {{ proxmox_nut_port }}
+    - name: upsd.conf
+      mode: "0640"
+      content: |
+        # Managed by Ansible (proxmox_storage): local only.
+        LISTEN 127.0.0.1 3493
+    - name: upsd.users
+      mode: "0640"
+      content: |
+        # Managed by Ansible (proxmox_storage)
+        [upsmon]
+          password = {{ proxmox_nut_pass_file.content | b64decode | trim }}
+          upsmon primary
+    - name: upsmon.conf
+      mode: "0640"
+      content: |
+        # Managed by Ansible (proxmox_storage)
+        MONITOR {{ proxmox_nut_ups_name }}@localhost 1 upsmon {{ proxmox_nut_pass_file.content | b64decode | trim }} primary
+        MINSUPPLIES 1
+        SHUTDOWNCMD "/sbin/shutdown -h +0"
+        NOTIFYCMD /usr/local/sbin/nut-fleet-notify
+        NOTIFYFLAG ONLINE SYSLOG+EXEC
+        NOTIFYFLAG ONBATT SYSLOG+EXEC
+        NOTIFYFLAG LOWBATT SYSLOG+EXEC
+        NOTIFYFLAG FSD SYSLOG+EXEC
+        NOTIFYFLAG SHUTDOWN SYSLOG+EXEC
+        NOTIFYFLAG REPLBATT SYSLOG+EXEC
+        NOTIFYFLAG COMMBAD SYSLOG+EXEC
+        NOTIFYFLAG NOCOMM SYSLOG+EXEC
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  notify: Restart nut
+
+- name: Enable the NUT services
+  systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop: [nut-server, nut-monitor]

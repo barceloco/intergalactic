@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# {{ ansible_managed | default('Managed by Ansible (backup_hub)') }}
+# Copy selected backup data to a LUKS-encrypted USB drive.
+#
+# Usage: backup-to-usb [-n] <mountpoint>
+#   -n  dry run (show what would change, write nothing)
+#
+# Refuses unless <mountpoint> is a mounted filesystem on a dm-crypt (LUKS)
+# device. Unlocking and mounting the drive stays manual: the key is piped over
+# SSH from the operator's Mac and never stored here.
+set -euo pipefail
+
+SOURCE_ROOT={{ backup_hub_source_root | quote }}
+SOURCES=({% for s in backup_hub_usb_sources %}{{ s | quote }} {% endfor %})
+NOTIFY=/usr/local/sbin/fleet-notify
+DRY=""
+
+notify() { if [ -x "${NOTIFY}" ]; then "${NOTIFY}" "$@"; fi; }
+die() { logger -t backup-to-usb -- "refused: $*"; echo "ERROR: $*" >&2; exit 1; }
+
+while getopts ":n" opt; do
+  case "${opt}" in
+    n) DRY="--dry-run" ;;
+    *) die "usage: backup-to-usb [-n] <mountpoint>" ;;
+  esac
+done
+shift $((OPTIND - 1))
+TARGET="${1:-}"
+[ -n "${TARGET}" ] || die "usage: backup-to-usb [-n] <mountpoint>"
+[ "$(id -u)" -eq 0 ] || die "run as root (sudo)"
+
+TARGET="$(realpath -e "${TARGET}")" || die "${TARGET} does not exist"
+mountpoint -q "${TARGET}" || die "${TARGET} is not a mounted filesystem"
+SRC_DEV="$(findmnt -n -o SOURCE --mountpoint "${TARGET}")"
+[ "$(lsblk -ndo TYPE "${SRC_DEV}" 2>/dev/null)" = "crypt" ] \
+  || die "${TARGET} (${SRC_DEV}) is not on a LUKS/dm-crypt device"
+case "${TARGET}" in
+  "${SOURCE_ROOT}"|"${SOURCE_ROOT}"/*) die "${TARGET} is inside the source tree ${SOURCE_ROOT}" ;;
+esac
+
+exec 9> /run/backup-to-usb.lock
+flock -n 9 || die "another backup-to-usb is running"
+
+DEST="${TARGET}/arcturus"
+mkdir -p "${DEST}"
+start="$(date +%s)"
+failed=()
+for s in "${SOURCES[@]}"; do
+  src="${SOURCE_ROOT}/${s}"
+  if ! mountpoint -q "${src}" && [ ! -d "${src}" ]; then
+    echo "skip ${s}: ${src} not present" >&2
+    failed+=("${s} (missing)")
+    continue
+  fi
+  echo "== ${s} -> ${DEST}/${s}"
+  if ! rsync -aHAX --numeric-ids --delete-after --info=stats1 ${DRY} "${src}/" "${DEST}/${s}/"; then
+    failed+=("${s}")
+  fi
+done
+mins=$(( ( $(date +%s) - start ) / 60 ))
+
+if [ -n "${DRY}" ]; then
+  echo "Dry run finished in ${mins} min; nothing written."
+  exit 0
+fi
+if [ "${#failed[@]}" -gt 0 ]; then
+  logger -t backup-to-usb -- "finished with errors: ${failed[*]}"
+  notify -p high -t warning "USB backup incomplete" "Failed: ${failed[*]} (${mins} min)."
+  exit 1
+fi
+sync
+date -u +%Y-%m-%dT%H:%M:%SZ > "${DEST}/LAST_COMPLETED"
+logger -t backup-to-usb -- "completed in ${mins} min: ${SOURCES[*]}"
+notify -t floppy_disk "USB backup done" "Copied ${SOURCES[*]} in ${mins} min."

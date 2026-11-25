@@ -1,0 +1,10 @@
+# {{ ansible_managed | default('Managed by Ansible (backup_hub)') }}
+[Unit]
+Description=Daily backup freshness check
+
+[Timer]
+OnCalendar={{ backup_hub_check_time }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

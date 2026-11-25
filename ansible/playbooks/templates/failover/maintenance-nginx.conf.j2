@@ -1,0 +1,17 @@
+# {{ ansible_managed | default('Managed by Ansible (failover-edge.yml)') }}
+server {
+    listen 80 default_server;
+    server_tokens off;
+    root /usr/share/nginx/html;
+    error_page 503 /maintenance.html;
+
+    location = /maintenance.html {
+        internal;
+        add_header Retry-After 3600 always;
+        add_header Cache-Control "no-store" always;
+    }
+
+    location / {
+        return 503;
+    }
+}

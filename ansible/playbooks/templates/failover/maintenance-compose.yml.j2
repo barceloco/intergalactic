@@ -1,0 +1,18 @@
+# {{ ansible_managed | default('Managed by Ansible (failover-edge.yml)') }}
+# Maintenance page for every app domain while arcturus is down. Loopback only:
+# Traefik (host network) is its only client.
+services:
+  maintenance:
+    image: {{ failover_maintenance_image }}
+    container_name: failover-maintenance
+    ports:
+      - "127.0.0.1:{{ failover_maintenance_port }}:80"
+    volumes:
+      - {{ failover_maintenance_dir }}/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - {{ failover_maintenance_dir }}/maintenance.html:/usr/share/nginx/html/maintenance.html:ro
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp

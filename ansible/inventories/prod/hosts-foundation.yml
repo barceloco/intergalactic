@@ -15,6 +15,39 @@ all:
   children:
     home_milkyway:
       children:
+        x86:
+          hosts:
+            arcturus:
+              # Proxmox host. Same LAN address as in hosts-bootstrap.yml.
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: ansible
+        arcturus_vms:
+          # VMs on arcturus. Same LAN addresses as in hosts-bootstrap.yml.
+          hosts:
+            megrez:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: ansible
+            phecda:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: ansible
+            dubhe:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: ansible
+            alioth:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: ansible
+            alkaid:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: ansible
+            merak:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: ansible
+            mizar:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: ansible
+            alcor:
+              ansible_host: CHANGE_ME_LAN_IP
+              ansible_user: ansible
         rpi5:
           hosts:
             vega:

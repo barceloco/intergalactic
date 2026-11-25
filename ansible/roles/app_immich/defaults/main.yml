@@ -1,0 +1,45 @@
+---
+# app_immich: run immich (open-source photo and video library) in Docker, as
+# the deploy user, from immich's OFFICIAL release docker-compose.yml for a
+# pinned version. Runs in its own VM (alkaid), CPU only.
+#
+# Storage split, by design:
+# - the photo library (UPLOAD_LOCATION) is the host's virtiofs share, writable
+#   (phone uploads), mounted at immich_upload_location;
+# - the Postgres database (DB_DATA_LOCATION) is on the VM's own disk. A
+#   database must never live on a network or virtiofs share; the role refuses.
+immich_enabled: false
+
+# REQUIRED, no defaults on purpose:
+# immich_version: the release tag, e.g. "v1.x.y". Read the release notes first
+#   (https://github.com/immich-app/immich/releases): some releases need manual
+#   migration steps.
+# immich_compose_sha256: SHA-256 of that release's docker-compose.yml. Obtain
+#   it on your Mac, then READ the file before trusting it:
+#     curl -fsSLO https://github.com/immich-app/immich/releases/download/<version>/docker-compose.yml
+#     less docker-compose.yml      # services, ports, volumes
+#     shasum -a 256 docker-compose.yml
+#   Changing immich_version always requires a new checksum.
+immich_version: ""
+immich_compose_sha256: ""
+immich_compose_url: "https://github.com/immich-app/immich/releases/download/{{ immich_version }}/docker-compose.yml"
+
+# Database password: from all_secrets.yml (immich_db_password), never in
+# host_vars. immich supports only letters and digits here; 16+ characters.
+
+# Compose project directory and the database, on the VM disk.
+immich_dir: /home/deploy/immich
+immich_db_data_location: "{{ immich_dir }}/postgres"
+
+# The photo library: the virtiofs share (mode rw) from role virtiofs_mounts.
+immich_upload_location: /mnt/immich
+
+immich_db_username: postgres
+immich_db_database_name: immich
+
+# Optional time zone for the containers, e.g. "America/New_York".
+immich_timezone: ""
+
+# Port the official compose publishes immich-server on (2283). The VM firewall
+# admits only the reverse proxy.
+immich_port: 2283

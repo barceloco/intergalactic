@@ -1,0 +1,54 @@
+---
+# phecda: VM on arcturus. The file server: Samba shares of the encrypted
+# pool's datasets, for the Mac and PCs (tailnet and LAN, as on vega today).
+hostname: "phecda"
+enable_desktop: false
+enable_docker: false
+notify_enabled: true
+
+virtiofs_mounts_enabled: true
+virtiofs_mounts:
+  - tag: documents-rw
+    path: /mnt/documents
+    mode: rw
+  - tag: music-rw
+    path: /mnt/music
+    mode: rw
+  - tag: audiobooks-rw
+    path: /mnt/audiobooks
+    mode: rw
+  - tag: video-rw
+    path: /mnt/video
+    mode: rw
+  - tag: immich-ro
+    path: /mnt/immich
+    mode: ro
+
+# Samba (password from samba_armand_passwords['phecda'] in all_secrets.yml).
+enable_samba: true
+samba_shares:
+  - name: documents
+    comment: Documents
+    path: /mnt/documents
+  - name: music
+    comment: Music (Navidrome library)
+    path: /mnt/music
+  - name: audiobooks
+    comment: Audiobooks (Audiobookshelf library)
+    path: /mnt/audiobooks
+  - name: video
+    comment: Video (Jellyfin library)
+    path: /mnt/video
+  - name: photos
+    comment: Photos (immich library, read-only; add photos through immich)
+    path: /mnt/immich
+    read_only: true
+
+firewall_rules:
+  - port: [139, 445]
+    from: [tailnet, lan]
+    comment: "Samba (SMB)"
+  - port: [137, 138]
+    proto: udp
+    from: [tailnet, lan]
+    comment: "Samba (NetBIOS name and datagram service)"

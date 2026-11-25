@@ -112,9 +112,15 @@ table inet filter {
     counter drop
   }
 
+{% set forward_mode = firewall_forward_mode if firewall_forward_mode | length > 0 else ('docker' if enable_docker | default(false) else 'drop') %}
   chain forward {
     type filter hook forward priority 0;
-{% if enable_docker | default(false) %}
+{% if forward_mode == 'bridge' %}
+    # Hypervisor: VMs are bridged onto the LAN and are hosts in their own
+    # right, each with its own firewall. The host does not filter their
+    # traffic; the input chain above still protects the hypervisor itself.
+    policy accept;
+{% elif forward_mode == 'docker' %}
     # Docker routes container traffic through here and manages its own chains
     # in 'ip filter'; only NEW connections to published ports are filtered.
     policy accept;
@@ -128,7 +134,7 @@ table inet filter {
     policy drop;
 {% endif %}
   }
-{% if enable_docker | default(false) %}
+{% if forward_mode == 'docker' %}
 
   chain published {
     jump allowed_published

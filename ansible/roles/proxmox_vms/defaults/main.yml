@@ -1,0 +1,56 @@
+---
+# proxmox_vms: create a Debian 13 cloud-init template and the VMs declared in
+# proxmox_vms. Each VM boots with the bootstrap user (armand) and the human SSH
+# keys, so it then goes through the fleet's normal bootstrap / foundation /
+# production phases like any other host.
+#
+# Existing VMs are never modified or destroyed: the role only creates what is
+# missing and makes sure declared VMs are running.
+
+# Debian's official cloud image. Its SHA-512 is checked against the
+# SHA512SUMS file Debian publishes next to it, over HTTPS.
+# The "generic" variant, not "genericcloud": genericcloud uses ifupdown, where
+# cloud-init on Debian 13 puts Proxmox's DNS servers on the loopback stanza and
+# they never take effect (Proxmox forum thread 170804, unfixed as of 2026-06).
+# "generic" uses netplan + systemd-networkd, where they work. It is also the
+# image arcturus itself is installed from, so host and VMs share one base.
+proxmox_cloud_image_base: https://cloud.debian.org/images/cloud/trixie/latest
+proxmox_cloud_image_name: debian-13-generic-amd64.qcow2
+proxmox_cloud_image_dir: /var/lib/vz/template/cloud
+
+proxmox_template_vmid: 9000
+proxmox_template_name: debian13-cloud
+
+# User cloud-init creates in each VM: the bootstrap phase connects as this user.
+proxmox_vm_user: armand
+
+# Storage for the template's disk (not sensitive: a stock Debian image) and for
+# VM disks. VM disks hold app databases and secrets, so by default they live
+# on the encrypted pool's storage (proxmox_storage role).
+proxmox_template_storage: "{{ proxmox_vm_storage | default('vmstore') }}"
+proxmox_vm_disk_storage: "{{ proxmox_pool_vm_storage | default('tank-vm') }}"
+
+# VMs on the encrypted pool cannot start at boot (their disks are locked):
+# they start after unlocking, in the order of proxmox_vms, via the unlock
+# helper. Set onboot: 1 on a VM only if its disk is on unencrypted storage.
+proxmox_vm_onboot_default: 0
+
+# Memory kept free for Proxmox itself and the ZFS cache. The role refuses a
+# VM list whose memory does not fit next to it.
+proxmox_host_reserve_mb: 6144
+
+# Declared VMs, in start order. Keys: name, vmid, cores, memory_mb, disk_gb,
+# address_cidr, and optionally storage, onboot, nameservers, usb_devices,
+# pci_devices, and virtiofs (list of {dataset, mode: ro|rw}: datasets of the
+# encrypted pool shared into the VM; inside the VM the virtiofs tag is
+# "<dataset>-<mode>"). Example:
+#   proxmox_vms:
+#     - name: dubhe
+#       vmid: 101
+#       cores: 4
+#       memory_mb: 8192
+#       disk_gb: 128
+#       address_cidr: 192.168.1.42/24
+#       virtiofs:
+#         - {dataset: music, mode: ro}
+proxmox_vms: []

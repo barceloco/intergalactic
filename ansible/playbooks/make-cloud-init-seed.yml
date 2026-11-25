@@ -1,0 +1,40 @@
+---
+# Render a cloud-init NoCloud seed (user-data + meta-data) for a bare-metal
+# host installed from Debian's "generic" image. No connection to the host.
+#   ./scripts/make-cloud-init-seed.sh <host>
+- name: Render a cloud-init seed
+  hosts: "{{ seed_host | default('no_host_selected') }}"
+  connection: local
+  gather_facts: false
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
+  vars:
+    seed_user: armand
+  tasks:
+    - name: Collect the bootstrap user's SSH public keys
+      set_fact:
+        seed_keys: >-
+          {{ human_users | default([]) | selectattr('name', 'equalto', seed_user)
+             | map(attribute='authorized_keys') | first | default([]) }}
+
+    - name: Require public keys only, at least one
+      assert:
+        that:
+          - seed_keys | length > 0
+          - seed_keys | reject('match', '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com) ') | list | length == 0
+        fail_msg: "human_users['{{ seed_user }}'].authorized_keys must hold SSH public keys."
+        quiet: true
+
+    - name: Write user-data
+      template:
+        src: templates/seed-user-data.j2
+        dest: "{{ seed_out_dir }}/user-data"
+        mode: "0644"
+
+    - name: Write meta-data
+      copy:
+        dest: "{{ seed_out_dir }}/meta-data"
+        mode: "0644"
+        content: |
+          instance-id: {{ inventory_hostname }}-1
+          local-hostname: {{ inventory_hostname }}

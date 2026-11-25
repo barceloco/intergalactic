@@ -1,0 +1,37 @@
+---
+# Photos: immich (moved from mpnas)
+# Runs over Tailscale only, as the ansible user, like every production phase.
+- name: "Alkaid Production (Photos: immich (moved from mpnas))"
+  hosts: alkaid
+  become: true
+  gather_facts: false
+  vars_files:
+    - "../inventories/prod/group_vars/all_secrets.yml"
+  tags:
+    - production
+  pre_tasks:
+    # Host key verification MUST be first - before any connection attempts
+    - name: Import host key verification tasks
+      import_tasks: shared/host-key-verification.yml
+      tags: always
+
+    # Import shared production validation (Tailscale verification)
+    - name: Import production validation tasks
+      import_tasks: shared/production-validation.yml
+      tags: always
+  roles:
+    # Alerts (fleet-notify) first: later roles' checks report through it.
+    - role: notify
+      tags: [production, notify]
+
+    - role: docker_deploy
+      tags: [production, services]
+
+    - role: virtiofs_mounts
+      tags: [production, storage]
+
+    - role: app_immich
+      tags: [production, services, immich]
+
+    - role: monitoring_docker
+      tags: [production, monitoring]

@@ -1,0 +1,123 @@
+---
+# One declared VM: create it from the template if it does not exist yet, then
+# make sure it runs. An existing VM is never reconfigured or recreated.
+- name: "Check for VM {{ vm.name }}"
+  command: qm status {{ vm.vmid }}
+  register: proxmox_vm_status
+  changed_when: false
+  failed_when: false
+
+- name: "Refuse if VM id {{ vm.vmid }} belongs to another VM"
+  when: proxmox_vm_status.rc == 0
+  block:
+    - name: "Read the name of VM {{ vm.vmid }}"
+      shell: set -o pipefail; qm config {{ vm.vmid }} | awk '$1=="name:" {print $2}'
+      args:
+        executable: /bin/bash
+      register: proxmox_vm_existing_name
+      changed_when: false
+
+    - name: "Require VM {{ vm.vmid }} to be {{ vm.name }}"
+      assert:
+        that: proxmox_vm_existing_name.stdout == vm.name
+        fail_msg: "VM id {{ vm.vmid }} is '{{ proxmox_vm_existing_name.stdout }}', not '{{ vm.name }}'."
+        quiet: true
+
+- name: "Create VM {{ vm.name }}"
+  when: proxmox_vm_status.rc != 0
+  block:
+    - name: "Clone the template into {{ vm.name }}"
+      command: >-
+        qm clone {{ proxmox_template_vmid }} {{ vm.vmid }} --name {{ vm.name }} --full
+        --storage {{ vm.storage | default(proxmox_vm_disk_storage) }}
+      changed_when: true
+
+    - name: "Size {{ vm.name }} and set its cloud-init identity"
+      command: >-
+        qm set {{ vm.vmid }}
+        --cores {{ vm.cores }} --memory {{ vm.memory_mb }}
+        --ciuser {{ proxmox_vm_user }}
+        --sshkeys /root/proxmox-vm-authorized-keys
+        --ipconfig0 ip={{ vm.address_cidr }},gw={{ proxmox_gateway }}
+        --nameserver "{{ (vm.nameservers | default(proxmox_dns_servers if proxmox_dns_servers | default([]) | length > 0 else [proxmox_gateway])) | join(' ') }}"
+        --searchdomain {{ proxmox_dns_domain }}
+        --onboot {{ vm.onboot | default(proxmox_vm_onboot_default) }}
+      changed_when: true
+
+    - name: "Grow the disk of {{ vm.name }} to {{ vm.disk_gb }} GB"
+      command: qm resize {{ vm.vmid }} scsi0 {{ vm.disk_gb }}G
+      changed_when: true
+
+# Passthrough devices are the one setting also added to existing VMs: adding a
+# device is non-destructive. A running VM only sees it after a restart, which
+# is reported, never done automatically.
+- name: "Read the configuration of {{ vm.name }}"
+  command: qm config {{ vm.vmid }}
+  register: proxmox_vm_config
+  changed_when: false
+
+- name: "Use the q35 machine type on {{ vm.name }} (required for PCIe passthrough)"
+  command: qm set {{ vm.vmid }} --machine q35
+  when:
+    - vm.pci_devices | default([]) | length > 0
+    - proxmox_vm_config.stdout is not search('(?m)^machine:.*q35')
+  register: proxmox_vm_machine
+  changed_when: true
+
+- name: "Pass PCI devices through to {{ vm.name }}"
+  command: qm set {{ vm.vmid }} --hostpci{{ idx }} {{ dev }},pcie=1
+  loop: "{{ vm.pci_devices | default([]) }}"
+  loop_control:
+    loop_var: dev
+    index_var: idx
+  when: >-
+    proxmox_vm_config.stdout is not search('(?m)^hostpci' ~ idx ~ ': ' ~ (dev | regex_escape))
+  register: proxmox_vm_pci
+  changed_when: true
+
+- name: "Pass USB devices through to {{ vm.name }}"
+  command: qm set {{ vm.vmid }} --usb{{ idx }} host={{ dev }},usb3=1
+  loop: "{{ vm.usb_devices | default([]) }}"
+  loop_control:
+    loop_var: dev
+    index_var: idx
+  when: >-
+    proxmox_vm_config.stdout is not search('(?m)^usb' ~ idx ~ ': host=' ~ (dev | regex_escape))
+  register: proxmox_vm_usb
+  changed_when: true
+
+# Shared datasets (virtiofs). The tag the VM mounts is the mapping id,
+# "<dataset>-<mode>". Read-only mappings point at the host's read-only binds.
+- name: "Share datasets with {{ vm.name }}"
+  command: >-
+    qm set {{ vm.vmid }} --virtiofs{{ idx }}
+    dirid={{ share.dataset }}-{{ share.mode }},cache=auto{{ ',expose-acl=1' if share.mode == 'rw' else '' }}
+  loop: "{{ vm.virtiofs | default([]) }}"
+  loop_control:
+    loop_var: share
+    index_var: idx
+    label: "{{ share.dataset }}-{{ share.mode }}"
+  when: >-
+    proxmox_vm_config.stdout is not search('(?m)^virtiofs' ~ idx ~ ': (dirid=)?' ~ ((share.dataset ~ '-' ~ share.mode) | regex_escape) ~ '(,|$)')
+  register: proxmox_vm_virtiofs
+  changed_when: true
+
+- name: "Read the state of {{ vm.name }}"
+  command: qm status {{ vm.vmid }}
+  register: proxmox_vm_state
+  changed_when: false
+
+- name: "Start {{ vm.name }}"
+  command: qm start {{ vm.vmid }}
+  when: proxmox_vm_state.stdout is not search('running')
+  changed_when: true
+
+- name: "Report that {{ vm.name }} needs a restart for new devices"
+  when:
+    - proxmox_vm_state.stdout is search('running')
+    - proxmox_vm_status.rc == 0
+    - (proxmox_vm_machine is changed) or (proxmox_vm_pci is changed) or (proxmox_vm_usb is changed) or (proxmox_vm_virtiofs is changed)
+  debug:
+    msg: >-
+      {{ vm.name }} was given new hardware while running. Restart it when
+      convenient (qm reboot {{ vm.vmid }}) for the change to take effect.

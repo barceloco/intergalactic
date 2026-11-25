@@ -1,0 +1,18 @@
+# {{ ansible_managed | default('Managed by Ansible (proxmox_storage)') }}
+# Snapshots of the pool's datasets. VMs cannot reach or delete these.
+{% for ds, policy in proxmox_snapshot_datasets.items() %}
+[{{ proxmox_pool_name }}/{{ ds }}]
+	use_template = {{ policy }}
+
+{% endfor %}
+{% for name, p in proxmox_snapshot_policies.items() %}
+[template_{{ name }}]
+	frequently = 0
+	hourly = {{ p.hourly }}
+	daily = {{ p.daily }}
+	monthly = {{ p.monthly }}
+	yearly = 0
+	autosnap = yes
+	autoprune = yes
+
+{% endfor %}

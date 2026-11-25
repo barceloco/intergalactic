@@ -1,0 +1,6 @@
+# {{ ansible_managed | default('Managed by Ansible (notify)') }}
+# Read by /usr/local/sbin/fleet-notify. Holds a secret: root only (0600).
+NTFY_URL={{ notify_ntfy_url | quote }}
+NTFY_TOPIC={{ notify_ntfy_topic | quote }}
+NTFY_TOKEN={{ notify_ntfy_token | default('') | quote }}
+NTFY_DEFAULT_PRIORITY={{ notify_default_priority | quote }}

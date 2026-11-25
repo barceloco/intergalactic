@@ -1,0 +1,13 @@
+#!/bin/bash
+# Fake Proxmox qm for tests/unit/check_os_upgrade_workloads.py: dubhe running
+# with onboot, merak stopped, alkaid running without onboot.
+case "$1" in
+  list)
+    printf '      VMID NAME     STATUS     MEM(MB)\n'
+    printf '       101 dubhe    running    9216\n'
+    printf '       102 merak    stopped    2048\n'
+    printf '       105 alkaid   running    6144\n'
+    ;;
+  config) [ "$2" = 101 ] && echo 'onboot: 1'; exit 0 ;;
+  *) echo "fake qm: unexpected arguments: $*" >&2; exit 9 ;;
+esac

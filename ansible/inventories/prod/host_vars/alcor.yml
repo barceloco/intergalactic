@@ -1,0 +1,14 @@
+---
+# alcor: VM on arcturus, defined but NOT created yet (OpenClaw is not in use;
+# uncomment alcor in host_vars/arcturus.yml to bring it up). Isolated sandbox
+# for the OpenClaw agent workspace from vega (its gateway listened on vega's
+# localhost:18789). No shared
+# datasets, no app credentials beyond what the agent itself needs, and no
+# ports open beyond the built-in SSH and ping. To do before moving the agent
+# here: limit its outgoing traffic (allow-list), and decide whether it needs a
+# browser (headless, not a desktop).
+hostname: "alcor"
+enable_desktop: false
+enable_docker: false
+notify_enabled: true
+firewall_rules: []

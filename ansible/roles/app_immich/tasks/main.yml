@@ -1,0 +1,197 @@
+---
+- name: Skip app_immich role if not enabled
+  when: not (immich_enabled | default(false))
+  debug:
+    msg: "Skipping app_immich role (immich_enabled is false)"
+
+- name: Deploy immich
+  when: immich_enabled | default(false)
+  block:
+    - name: Require a pinned immich version and the checksum of its compose file
+      assert:
+        that:
+          - immich_version is match('^v\d+\.\d+\.\d+$')
+          - immich_compose_sha256 is match('^[0-9a-f]{64}$')
+        fail_msg: |
+          ============================================================================
+          ERROR: immich_version or immich_compose_sha256 is not set.
+          ============================================================================
+          1. Read https://github.com/immich-app/immich/releases and choose a
+             release; note any manual migration steps it requires.
+          2. On your Mac, download that release's compose file and READ it:
+               curl -fsSLO https://github.com/immich-app/immich/releases/download/<version>/docker-compose.yml
+               shasum -a 256 docker-compose.yml
+          3. Set in host_vars:
+               immich_version: "v1.x.y"
+               immich_compose_sha256: "<64 hex characters>"
+          ============================================================================
+        quiet: true
+
+    - name: Require the immich database password (from all_secrets.yml)
+      assert:
+        that:
+          - immich_db_password is defined
+          - immich_db_password is match('^[A-Za-z0-9]{16,}$')
+          - immich_db_password != 'CHANGE_ME'
+        fail_msg: >-
+          Set immich_db_password in all_secrets.yml: 16 or more letters and
+          digits only (immich does not support other characters there).
+        quiet: true
+      no_log: true
+
+    - name: Check the deploy user exists (created by docker_deploy)
+      command: id deploy
+      register: immich_deploy_user
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with guidance if the deploy user is missing
+      assert:
+        that: immich_deploy_user.rc == 0
+        fail_msg: >-
+          The 'deploy' user does not exist. Set enable_docker_deploy: true for
+          this host and run docker_deploy before app_immich.
+        quiet: true
+
+    # ------------------------------------------------------------ storage
+    - name: Create the immich directory (on the VM disk)
+      become: true
+      file:
+        path: "{{ immich_dir }}"
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: "0750"
+
+    # Postgres takes ownership of its data directory on first start, so it is
+    # only ever created here, never re-owned (that would break the database).
+    - name: Check for the database directory
+      stat:
+        path: "{{ immich_db_data_location }}"
+      register: immich_db_dir
+
+    - name: Create the database directory on first deploy
+      become: true
+      file:
+        path: "{{ immich_db_data_location }}"
+        state: directory
+        mode: "0700"
+      when: not immich_db_dir.stat.exists
+
+    - name: Read the filesystem type of the database directory
+      command: findmnt -n -o FSTYPE --target {{ immich_db_data_location }}
+      register: immich_db_fstype
+      changed_when: false
+
+    - name: Refuse to keep the immich database on a virtiofs share
+      assert:
+        that: immich_db_fstype.stdout | trim != 'virtiofs'
+        fail_msg: >-
+          {{ immich_db_data_location }} is on virtiofs. Postgres must live on
+          the VM's own disk; set immich_db_data_location to a local path.
+        quiet: true
+
+    - name: Read the filesystem type of the photo library
+      command: findmnt -n -o FSTYPE --target {{ immich_upload_location }}
+      register: immich_upload_fstype
+      changed_when: false
+      failed_when: false
+
+    - name: Require the photo library to be the host's virtiofs share
+      assert:
+        that: immich_upload_fstype.stdout | trim == 'virtiofs'
+        fail_msg: >-
+          {{ immich_upload_location }} is not a virtiofs mount. Mount the
+          host's immich share first (role virtiofs_mounts, mode rw), or the
+          library would silently land on the VM disk.
+        quiet: true
+
+    - name: Check that the photo library is writable (phone uploads)
+      become: true
+      command: touch {{ immich_upload_location }}/.immich-write-test
+      changed_when: false
+
+    - name: Remove the write test file
+      become: true
+      file:
+        path: "{{ immich_upload_location }}/.immich-write-test"
+        state: absent
+
+    # ------------------------------------------------- official compose file
+    - name: Download immich's official compose file (refused unless its SHA-256 matches)
+      become: true
+      become_user: deploy
+      get_url:
+        url: "{{ immich_compose_url }}"
+        dest: "{{ immich_dir }}/docker-compose.yml"
+        checksum: "sha256:{{ immich_compose_sha256 }}"
+        mode: "0640"
+      register: immich_compose
+
+    - name: Read the compose file
+      slurp:
+        src: "{{ immich_dir }}/docker-compose.yml"
+      register: immich_compose_raw
+
+    # The checksum proves the file is the one you read; these checks keep the
+    # security assumptions true even after a version bump.
+    - name: Require that only immich-server publishes a port, and the database stays on DB_DATA_LOCATION
+      vars:
+        immich_services: "{{ (immich_compose_raw.content | b64decode | from_yaml).services }}"
+      assert:
+        that:
+          - "'immich-server' in immich_services"
+          - immich_services | dict2items | rejectattr('key', 'equalto', 'immich-server')
+            | selectattr('value.ports', 'defined') | list | length == 0
+          - immich_compose_raw.content | b64decode is search('\$\{DB_DATA_LOCATION\}')
+          - immich_compose_raw.content | b64decode is search('\$\{UPLOAD_LOCATION\}')
+        fail_msg: >-
+          immich's compose file for {{ immich_version }} no longer matches the
+          expected layout (only immich-server publishes a port; the database
+          and library use DB_DATA_LOCATION and UPLOAD_LOCATION). Read it and
+          adapt the role before deploying.
+        quiet: true
+
+    - name: Render immich's .env (contains the database password)
+      become: true
+      become_user: deploy
+      template:
+        src: immich.env.j2
+        dest: "{{ immich_dir }}/.env"
+        mode: "0600"
+      register: immich_env_file
+      no_log: true
+
+    # ------------------------------------------------------------------ run
+    - name: Pull the pinned immich images
+      become: true
+      become_user: deploy
+      command: docker compose pull
+      args:
+        chdir: "{{ immich_dir }}"
+      when: immich_compose.changed or immich_env_file.changed
+      changed_when: true
+
+    - name: Start immich (docker compose up -d; recreates only on change)
+      become: true
+      become_user: deploy
+      command: docker compose up -d
+      args:
+        chdir: "{{ immich_dir }}"
+      register: immich_up
+      changed_when: >-
+        'Recreat' in (immich_up.stdout + immich_up.stderr)
+        or 'Creat' in (immich_up.stdout + immich_up.stderr)
+        or 'Start' in (immich_up.stdout + immich_up.stderr)
+      # immich's official compose sets restart: always on every service, so
+      # the stack returns after a reboot (os-upgrade.yml checks policies).
+
+    - name: Wait for immich to answer on /api/server/ping
+      uri:
+        url: "http://127.0.0.1:{{ immich_port }}/api/server/ping"
+        status_code: [200]
+      register: immich_health
+      retries: 60
+      delay: 5
+      until: immich_health.status is defined and immich_health.status == 200
+      # First start runs database migrations; give it time.

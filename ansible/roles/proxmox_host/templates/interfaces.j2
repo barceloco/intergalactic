@@ -1,0 +1,18 @@
+# {{ ansible_managed | default('Managed by Ansible (proxmox_host)') }}
+# The physical NIC carries no address; it is a port of {{ proxmox_bridge }}, which
+# holds the host's address and bridges VMs onto the LAN.
+
+auto lo
+iface lo inet loopback
+
+iface {{ proxmox_bridge_nic }} inet manual
+
+auto {{ proxmox_bridge }}
+iface {{ proxmox_bridge }} inet static
+    address {{ proxmox_address_cidr }}
+    gateway {{ proxmox_gateway }}
+    bridge-ports {{ proxmox_bridge_nic }}
+    bridge-stp off
+    bridge-fd 0
+
+source /etc/network/interfaces.d/*

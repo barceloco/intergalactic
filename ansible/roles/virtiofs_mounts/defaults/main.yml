@@ -1,0 +1,26 @@
+---
+# virtiofs_mounts: mount folders that the Proxmox host shares into this VM
+# with virtiofs (e.g. arcturus's ZFS datasets for media and photos). Runs
+# inside the VM.
+#
+# The real access control is on the host: a share the VM must not write to is
+# exported read-only by Proxmox. Mounting it read-only here as well is the
+# second layer, and this role proves it: after mounting, a write test on every
+# "ro" mount must fail, or the run stops.
+virtiofs_mounts_enabled: false
+
+# One entry per share:
+#   tag:  the virtiofs tag the host exports (Proxmox directory mapping name),
+#         lowercase letters, digits and dashes, e.g. music-ro
+#   path: absolute mount point inside the VM, e.g. /mnt/music
+#   mode: ro or rw
+# Example:
+#   virtiofs_mounts:
+#     - { tag: music-ro, path: /mnt/music, mode: ro }
+#     - { tag: immich-rw, path: /mnt/immich, mode: rw }
+virtiofs_mounts: []
+
+# Mount options added to every entry ("ro" is added for mode ro). nofail keeps
+# the VM booting if the host has not exported a share (e.g. pool still
+# locked); the role itself fails loudly when a mount is missing.
+virtiofs_mount_options: "defaults,nofail"

@@ -1,0 +1,26 @@
+---
+# notify: push notifications from any fleet host through ntfy (open source).
+# Installs /usr/local/sbin/fleet-notify, which other roles and scripts call:
+#   fleet-notify [-p priority] [-t tags] "<title>" "<message>"
+# The title is prefixed with the hostname. If notify is not configured the
+# script logs to the journal and exits 0, so a caller never fails because of it.
+notify_enabled: false
+
+# ntfy server. ntfy.sh is the public instance; a self-hosted server on the
+# tailnet works the same way.
+notify_ntfy_url: "https://ntfy.sh"
+
+# Secrets, from all_secrets.yml. On a public server the topic name is the only
+# thing standing between the world and your alerts: make it long and random.
+# The token is optional (access token of a protected topic).
+notify_ntfy_topic: ""
+notify_ntfy_token: ""
+
+# Default priority when the caller passes none (1-5 or min/low/default/high/urgent).
+notify_default_priority: default
+
+# Send "<host> booted" once per boot (systemd oneshot fleet-notify-boot.service).
+notify_boot_message: false
+
+notify_config_file: /etc/fleet-notify.conf
+notify_script_path: /usr/local/sbin/fleet-notify

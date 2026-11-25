@@ -1,0 +1,10 @@
+#!/bin/bash
+# Fake docker for tests/unit/check_os_upgrade_workloads.py: two running
+# containers (web, db) and one stuck restarting (restarter).
+case "$*" in
+  "ps --format {{.Names}}") printf 'web\nrestarter\ndb\n' ;;
+  "ps --filter status=running --format {{.Names}}") printf 'web\ndb\n' ;;
+  "ps -q") printf 'a1\nb2\nc3\n' ;;
+  inspect*) printf '/web unless-stopped\n/restarter always\n/db no\n' ;;
+  *) echo "fake docker: unexpected arguments: $*" >&2; exit 9 ;;
+esac

@@ -1,0 +1,17 @@
+# {{ ansible_managed | default('Managed by Ansible (app_audiobookshelf role)') }}
+# Audiobookshelf, run as the deploy user. Libraries are mounted read-only;
+# config and metadata live in {{ audiobookshelf_dir }} on the VM disk.
+services:
+  audiobookshelf:
+    image: "{{ audiobookshelf_image }}:{{ audiobookshelf_image_tag }}"
+    container_name: audiobookshelf
+    user: "{{ ansible_facts.getent_passwd.deploy[1] }}:{{ ansible_facts.getent_passwd.deploy[2] }}"
+    ports:
+      - "{{ audiobookshelf_port }}:80"
+    volumes:
+      - "{{ audiobookshelf_config_dir }}:/config"
+      - "{{ audiobookshelf_metadata_dir }}:/metadata"
+{% for m in audiobookshelf_media %}
+      - "{{ m.host }}:{{ m.container }}:ro"
+{% endfor %}
+    restart: {{ audiobookshelf_restart_policy }}
