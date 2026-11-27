@@ -67,6 +67,8 @@
         name: fleet-notify-boot.service
         enabled: true
         daemon_reload: "{{ notify_boot_unit is changed }}"
+      # In --check on a first install the unit does not exist yet.
+      ignore_errors: "{{ ansible_check_mode }}"
 
     - name: Disable the boot notification when not wanted
       when: not (notify_boot_message | default(false))

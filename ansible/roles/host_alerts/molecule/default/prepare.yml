@@ -16,11 +16,23 @@
         shell: /bin/bash
       loop: [armand, ansible]
 
-    - name: Install fleet-notify (unconfigured, logs pushes to the journal)
+    # A stand-in for fleet-notify with the same interface: it logs every push to
+    # the journal as "sent: [host] <title>: <message>" and reports delivery,
+    # unless /tmp/fail-sends exists (then -s exits 1, like an unreachable ntfy).
+    - name: Install a fake fleet-notify that records pushes
       copy:
-        src: "{{ lookup('env', 'ANSIBLE_ROLES_PATH') }}/notify/files/fleet-notify"
         dest: /usr/local/sbin/fleet-notify
         mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          strict=0
+          while getopts ":sp:t:" o; do case "$o" in s) strict=1 ;; *) ;; esac; done
+          shift $((OPTIND - 1))
+          if [ -e /tmp/fail-sends ]; then
+            logger -t fleet-notify -- "undelivered: [$(hostname -s)] $1: ${2:-}"
+            exit "$strict"
+          fi
+          logger -t fleet-notify -- "sent: [$(hostname -s)] $1: ${2:-}"
 
     - name: Create a key for a real SSH login
       command: ssh-keygen -q -t ed25519 -N "" -f /root/test_key

@@ -28,22 +28,26 @@ slow SSH or sudo, and removing it is removing one unit.
 | privileged user (`deploy`) from an operator source / elsewhere | high / urgent |
 | human user (from `human_users`) | high |
 | any other user | urgent |
-| `sudo` by anyone but `ansible` and root, with the command | high |
+| `sudo` by anyone but `ansible` and root, with the command (values that look like secrets masked) | high |
 | refused `sudo` | high |
 | local console, desktop or `su` session | high |
 
 Each push names the user, the source address and the key fingerprint.
+Only journal entries whose trusted sender (`_UID`, set by journald) is root are
+used, so an unprivileged process cannot forge a login with `logger`.
 **An "automation session" push while you are not deploying is the
 indicator to act on.**
 
 ### host-alerts-check (timer, every 5 min)
-- **Problems**, pushed when seen in two runs in a row and again when they
-  clear: filesystem above `host_alerts_disk_percent`, a container with restart
-  policy `always`/`unless-stopped` not running, reboot required, security
-  updates pending longer than `host_alerts_security_update_days`, the follower
-  not running (urgent).
-- **Events**, pushed once: container restarts, kernel storage errors (I/O,
-  ext4, mmc, nvme; the SD card has no SMART), new fail2ban bans.
+- **Problems**, pushed when seen in two runs in a row and resolved after two
+  clean runs: filesystem above `host_alerts_disk_percent`, the Docker daemon
+  not answering (urgent; container problems then stay open), a container with
+  restart policy `always`/`unless-stopped` not running, reboot required,
+  security updates pending longer than `host_alerts_security_update_days`, the
+  follower not running (urgent).
+- **Events**, pushed once: container restarts (a crash loop at most hourly),
+  kernel storage errors (I/O, ext4, mmc, nvme; the SD card has no SMART; the
+  first run scans the whole boot), new fail2ban bans.
 - **Integrity**: SHA-256 baselines of the security-critical files every run
   (`/etc/ssh/authorized_keys.d`, which is where sshd reads keys on these hosts,
   sshd config, sudoers, passwd/shadow/group, PAM, `ld.so.preload`, nftables,
@@ -55,8 +59,13 @@ indicator to act on.**
 - Changes made while an operator automation session is active, or right after
   a package installation, are labeled so; the label lowers the priority one
   step but never below default for the security-critical set.
-- **Dead-man**: pings the host's Healthchecks.io URL (`/fail` when the
-  follower is down). If the pings stop, Healthchecks.io alerts you.
+- **Dead-man**, first in every run: pings the host's Healthchecks.io URL
+  (`/fail` when the follower is down or a push failed in the last 15 min).
+  If the pings stop, Healthchecks.io alerts you. Give it an **email**
+  integration as well as ntfy, so a broken ntfy channel is still noticed.
+- Change alerts list security-relevant lines first and at most 25 lines; the
+  full diff is kept in `/var/lib/host-alerts/last-diff.<name>`. A missing
+  baseline outside an install is itself a high-priority alert.
 - Pushes use `fleet-notify -s`; state is committed only after delivery, so an
   alert lost to a network problem is sent again on the next run. State that
   changes every run lives in `/run`; baselines and alerted problems in

@@ -5,10 +5,13 @@
       - notify_enabled | default(false)
       - host_alerts_operator_sources | length > 0
       # IPv4 or IPv6 literals only (no names: the journal shows addresses).
-      - host_alerts_operator_sources | reject('match', '^(([0-9]{1,3}\.){3}[0-9]{1,3}|[0-9A-Fa-f:]+)$') | list | length == 0
+      - >-
+        host_alerts_operator_sources
+        | reject('match', '^(([0-9]{1,3}\.){3}[0-9]{1,3}|[0-9A-Fa-f:]+)$') | list | length == 0
       - >-
         not (host_alerts_require_deadman | bool)
-        or (host_alerts_healthchecks_urls[inventory_hostname] | default('')) is match('^https://[^/]+/')
+        or ((host_alerts_healthchecks_urls[inventory_hostname] | default('')) is match('^https://[^/]+/')
+            and (host_alerts_healthchecks_urls[inventory_hostname] | default('')) is not search('CHANGE_ME'))
     fail_msg: |
       ============================================================================
       ERROR: host_alerts is enabled but not configured.
@@ -18,16 +21,19 @@
           host_alerts_operator_sources: ["<your Mac's Tailscale IP>"]
           host_alerts_healthchecks_urls:
             {{ inventory_hostname }}: "https://hc-ping.com/<uuid>"
-        (create one check per host at healthchecks.io: period 5 min, grace 10 min)
-        or set host_alerts_require_deadman: false to run without the dead-man ping.
+        (one check per host at healthchecks.io: period 5 min, grace 10 min;
+        give it an email integration too, so a broken ntfy is still noticed)
+        or set host_alerts_require_deadman: false to run without the dead-man.
       ============================================================================
     success_msg: "host_alerts settings present"
     quiet: true
 
 - name: Install the tools the alert scripts use
   apt:
-    name: [jq, curl, util-linux]
+    name: [jq, curl, util-linux, iproute2]
     state: present
+    update_cache: true
+    cache_valid_time: 3600
 
 - name: Install the alert scripts
   copy:
@@ -37,7 +43,7 @@
     group: root
     mode: "0755"
   loop: [host-alerts-follow, host-alerts-check]
-  notify: Restart host-alerts-follow
+  register: host_alerts_scripts
 
 - name: Write the host_alerts configuration (root only)
   template:
@@ -47,7 +53,7 @@
     group: root
     mode: "0600"
   no_log: true
-  notify: Restart host-alerts-follow
+  register: host_alerts_conf
 
 - name: Install the host_alerts units
   template:
@@ -63,22 +69,6 @@
     - host-alerts-digest.service
     - host-alerts-digest.timer
   register: host_alerts_units
-  notify: Restart host-alerts-follow
-
-- name: Reload systemd after unit changes
-  when: host_alerts_units is changed
-  systemd:
-    daemon_reload: true
-
-- name: Enable and start the follower and the timers
-  systemd:
-    name: "{{ item }}"
-    enabled: true
-    state: started
-  loop:
-    - host-alerts-follow.service
-    - host-alerts-check.timer
-    - host-alerts-digest.timer
 
 - name: Set up SMART monitoring (smartd)
   when: host_alerts_smart | bool
@@ -112,11 +102,27 @@
         name: smartmontools.service
         enabled: true
         state: started
+      # In --check on a first install the unit does not exist yet.
+      ignore_errors: "{{ ansible_check_mode }}"
 
-- name: Flush handlers (follower restarted on changes before the gate)
-  meta: flush_handlers
+- name: Reload systemd after unit changes
+  when: host_alerts_units is changed
+  systemd:
+    daemon_reload: true
+
+# Restart right here (not via a handler) so a later failure in the play can
+# never leave an old follower running.
+- name: Start or restart the follower
+  systemd:
+    name: host-alerts-follow.service
+    enabled: true
+    state: >-
+      {{ 'restarted' if (host_alerts_scripts is changed or host_alerts_conf is changed
+         or host_alerts_units is changed) else 'started' }}
+  ignore_errors: "{{ ansible_check_mode }}"
 
 - name: Gate - the follower is running
+  when: not ansible_check_mode
   systemd:
     name: host-alerts-follow.service
   register: host_alerts_follow_state
@@ -124,7 +130,27 @@
   delay: 2
   until: host_alerts_follow_state.status.ActiveState | default('') == 'active'
 
+# Enable (symlinks in timers.target.wants) before the baseline, start after:
+# the first check must see no change this role made itself.
+- name: Enable the timers
+  systemd:
+    name: "{{ item }}"
+    enabled: true
+  loop:
+    - host-alerts-check.timer
+    - host-alerts-digest.timer
+  ignore_errors: "{{ ansible_check_mode }}"
+
 - name: Record the integrity baselines on first install
-  command: /usr/local/sbin/host-alerts-check check
+  command: /usr/local/sbin/host-alerts-check baseline
   args:
     creates: "{{ host_alerts_state_dir }}/baseline.crown"
+
+- name: Start the timers
+  systemd:
+    name: "{{ item }}"
+    state: started
+  loop:
+    - host-alerts-check.timer
+    - host-alerts-digest.timer
+  ignore_errors: "{{ ansible_check_mode }}"

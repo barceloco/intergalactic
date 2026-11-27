@@ -1,15 +1,16 @@
 ---
-# Each push shows up in the journal as
-#   fleet-notify: not configured (...): [instance] <title>: <message>
+# The fake fleet-notify (prepare.yml) logs each delivered push to the journal
+# as "sent: [instance] <title>: <message>".
 - name: Verify
   hosts: all
   become: true
   gather_facts: false
   vars:
     pushes: "journalctl -t fleet-notify -o cat --no-pager --since @{{ t0.stdout }}"
+    check: /usr/local/sbin/host-alerts-check check
   tasks:
-    - name: The follower is running
-      command: systemctl is-active host-alerts-follow.service
+    - name: The follower and the timers are running
+      command: systemctl is-active host-alerts-follow.service host-alerts-check.timer host-alerts-digest.timer
       changed_when: false
 
     - name: Mark the start of the test
@@ -17,7 +18,8 @@
       register: t0
       changed_when: false
 
-    - name: Inject login and sudo log lines (sshd-session is trixie's identifier)
+    # ------------------------------------------------------------------ logins
+    - name: Inject login and sudo log lines as root (sshd-session is trixie's identifier)
       shell: |
         logger -t sshd-session "Accepted publickey for ansible from 100.64.0.5 port 1 ssh2: ED25519 SHA256:op"
         logger -t sshd-session "Accepted publickey for ansible from 100.64.0.9 port 1 ssh2: ED25519 SHA256:stolen"
@@ -25,13 +27,20 @@
         logger -t sshd-session "Accepted publickey for mallory from 100.64.0.5 port 1 ssh2: ED25519 SHA256:x"
         logger -t sshd-session "Accepted publickey for deploy from 100.64.0.7 port 1 ssh2: ED25519 SHA256:d"
         logger -t sudo "armand : TTY=pts/0 ; PWD=/home/armand ; USER=root ; COMMAND=/usr/bin/id"
+        logger -t sudo "armand : TTY=pts/0 ; PWD=/ ; USER=root ; COMMAND=/usr/bin/curl -H token=s3cr3tvalue https://x/QWERTYUIOPASDFGHJKLZXCVBNM123"
         logger -t sudo "ansible : PWD=/home/ansible ; USER=root ; COMMAND=/bin/sh -c echo BECOME-SUCCESS"
         for i in $(seq 1 50); do
           logger -t sshd-session "Accepted publickey for ansible from 100.64.0.5 port $i ssh2: ED25519 SHA256:op"
         done
       changed_when: false
 
-    - name: A real key login over sshd (proves the log format on trixie)
+    - name: A non-root user forges a login line (must be ignored)
+      command: >-
+        runuser -u armand -- logger -t sshd-session
+        "Accepted publickey for forged from 100.64.0.66 port 1 ssh2: ED25519 SHA256:f"
+      changed_when: false
+
+    - name: A real key login over sshd (proves the log format and _UID on trixie)
       command: >-
         ssh -i /root/test_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
         -o BatchMode=yes armand@127.0.0.1 true
@@ -45,22 +54,25 @@
       delay: 2
       until: outside.stdout | int >= 1
 
-    - name: Collect the pushes
+    - name: Collect the login pushes
       shell: "sleep 3; {{ pushes }}"
       register: got
       changed_when: false
 
-    - name: Every class was pushed once, automation bursts collapsed, ansible sudo silent
+    - name: Each class pushed once, bursts collapsed, ansible sudo silent, forgery ignored, secrets masked
       assert:
         that:
-          - "got.stdout_lines | select('search', 'automation session: ansible from 100.64.0.5') | list | length == 1"
-          - "got.stdout_lines | select('search', 'automation login from an UNEXPECTED source: ansible from 100.64.0.9') | list | length == 1"
+          - "got.stdout_lines | select('search', 'sent: .*automation session: ansible from 100.64.0.5') | list | length == 1"
+          - "got.stdout_lines | select('search', 'UNEXPECTED source: ansible from 100.64.0.9') | list | length == 1"
           - "got.stdout_lines | select('search', 'SSH login: armand from 192.168.1.20') | list | length == 1"
-          - "got.stdout_lines | select('search', 'SSH login by an UNEXPECTED user: mallory') | list | length == 1"
+          - "got.stdout_lines | select('search', 'UNEXPECTED user: mallory') | list | length == 1"
           - "got.stdout_lines | select('search', 'privileged login from an UNEXPECTED source: deploy from 100.64.0.7') | list | length == 1"
           - "got.stdout_lines | select('search', 'sudo: armand: /usr/bin/id') | list | length == 1"
           - "got.stdout_lines | select('search', 'BECOME-SUCCESS') | list | length == 0"
-          - "got.stdout_lines | select('search', 'SSH login from OUTSIDE the tailnet and LAN: armand from 127.0.0.1') | list | length == 1"
+          - "got.stdout_lines | select('search', 'forged') | list | length == 0"
+          - "got.stdout_lines | select('search', 's3cr3tvalue|QWERTYUIOPASDFGHJKLZXCVBNM123') | list | length == 0"
+          - "got.stdout_lines | select('search', 'sudo: armand: /usr/bin/curl -H token=\\*\\*\\*') | list | length == 1"
+          - "got.stdout_lines | select('search', 'OUTSIDE the tailnet and LAN: armand from 127.0.0.1') | list | length == 1"
         fail_msg: "{{ got.stdout_lines }}"
 
     - name: A follower restart does not replay old events
@@ -73,13 +85,46 @@
         [ "${before}" -eq "${after}" ]
       changed_when: false
 
-    # Checks: a forced disk problem must be pushed on the second consecutive
-    # run, and a new key file must trip the integrity check.
-    - name: Run the checks twice, with a planted key in between
+    # ------------------------------------------------------------------ checks
+    # The baseline was recorded at install, before the timer ran: a check now
+    # must report no file change.
+    - name: Stop the timer so only the test runs checks
+      systemd:
+        name: host-alerts-check.timer
+        state: stopped
+
+    - name: First manual check after install
+      command: "{{ check }}"
+      changed_when: false
+
+    - name: Collect pushes after the first check
+      shell: "{{ pushes }}"
+      register: selfmade
+      changed_when: false
+
+    - name: No self-made change after install
+      assert:
+        that: "selfmade.stdout_lines | select('search', 'files changed') | list | length == 0"
+        fail_msg: "{{ selfmade.stdout_lines }}"
+
+    - name: Second run raises the forced disk problem (two consecutive runs)
+      command: "{{ check }}"
+      changed_when: false
+
+    - name: Plant a key while pushes fail, then let them work again
       shell: |
-        /usr/local/sbin/host-alerts-check check
+        touch /tmp/fail-sends
         echo "ssh-ed25519 AAAA planted" > /etc/ssh/authorized_keys.d/intruder
-        /usr/local/sbin/host-alerts-check check
+        {{ check }}
+        rm -f /tmp/fail-sends
+        {{ check }}
+      changed_when: false
+
+    - name: Clear the disk problem (threshold back to 100 %) and run twice
+      shell: |
+        sed -i 's/^DISK_PERCENT=.*/DISK_PERCENT=100/' /etc/host-alerts.conf
+        {{ check }}
+        {{ check }}
       changed_when: false
 
     - name: Collect the check pushes
@@ -87,19 +132,29 @@
       register: checks
       changed_when: false
 
-    - name: Disk problem and the planted key were reported
+    - name: Problem, resolution, the planted key (delivered on retry) were pushed
       assert:
         that:
-          - "checks.stdout_lines | select('search', ' is [0-9]+% full') | list | length >= 1"
-          - "checks.stdout_lines | select('search', 'security-critical files changed') | list | length >= 1"
-          - "checks.stdout_lines | select('search', '/etc/ssh/authorized_keys.d/intruder') | list | length >= 1"
+          - "checks.stdout_lines | select('search', 'sent: .* is [0-9]+% full') | list | length >= 1"
+          - "checks.stdout_lines | select('search', 'sent: .*resolved: .* is [0-9]+% full') | list | length >= 1"
+          - "checks.stdout_lines | select('search', 'undelivered: .*security-critical files changed') | list | length == 1"
+          - "checks.stdout_lines | select('search', 'sent: .*security-critical files changed') | list | length >= 1"
+          # The threshold edit below is itself a watched change (host-alerts.conf).
+          - "checks.stdout_lines | select('search', '/etc/host-alerts.conf') | list | length >= 1"
+          - "checks.stdout_lines | select('search', '/etc/ssh/authorized_keys.d/intruder') | list | length >= 2"
         fail_msg: "{{ checks.stdout_lines }}"
+
+    - name: A failed push marks the channel as failing for the dead-man
+      stat:
+        path: /run/host-alerts/send-failed
+      register: sendfailed
+      failed_when: not sendfailed.stat.exists
 
     - name: The digest runs
       command: /usr/local/sbin/host-alerts-check digest
       changed_when: false
 
-    # Revert path: disabling the role removes everything, enabling restores it.
+    # ------------------------------------------------------------------ revert
     - name: Disable the role
       include_role:
         name: host_alerts
@@ -121,6 +176,6 @@
       include_role:
         name: host_alerts
 
-    - name: The follower runs again
-      command: systemctl is-active host-alerts-follow.service
+    - name: The follower and the timers run again
+      command: systemctl is-active host-alerts-follow.service host-alerts-check.timer
       changed_when: false

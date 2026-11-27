@@ -107,6 +107,13 @@ on_login() {  # on_login <user> <source> <method> <key>
   fi
 }
 
+# Pushes leave the host (ntfy.sh): mask values that look like secrets.
+redact() {
+  printf "%s" "$1" | sed -E \
+    -e "s/((pass|pwd|token|secret|key|auth)[A-Za-z0-9_-]*[=: ]+)[^ ]+/\\1***/Ig" \
+    -e "s/[A-Za-z0-9+_=-]{24,}/***/g"   # long tokens; not paths (no slash)
+}
+
 on_sudo() {  # on_sudo <message after the user>  (sudo's own log line)
   local user="$1" rest="$2" cmd
   # The automation user is covered by its login; root gains nothing by sudo.
@@ -114,12 +121,13 @@ on_sudo() {  # on_sudo <message after the user>  (sudo's own log line)
   [ "${user}" = root ] && return 0
   cmd="${rest##*COMMAND=}"
   [ "${cmd}" = "${rest}" ] && cmd=""
-  cmd="${cmd:0:200}"
+  cmd="$(redact "${cmd}")"
+  cmd="${cmd:0:160}"
   case "${rest}" in
     *"incorrect password"*|*"command not allowed"*|*"a password is required"*|*"NOT in sudoers"*)
-      push high warning "sudo refused" "${user}: ${rest:0:250}" "sudo-x:${user}" "${DEDUPE_SECONDS}" ;;
+      push high warning "sudo refused" "${user}: $(redact "${rest}" | cut -c1-200)" "sudo-x:${user}" "${DEDUPE_SECONDS}" ;;
     *)
-      push high zap "sudo" "${user}: ${cmd:-${rest:0:200}}" "sudo:${user}:${cmd}" 10 ;;
+      push high zap "sudo" "${user}: ${cmd:-(no command)}" "sudo:${user}:${cmd}" 10 ;;
   esac
 }
 
@@ -152,15 +160,25 @@ handle() {  # handle <syslog identifier> <message>
 # Reap finished background pushes now and then.
 reap() { wait -n 2> /dev/null || true; }
 
-journalctl --follow --lines=0 --output=json \
-  --cursor-file="${RUN_DIR}/journal.cursor" \
-  SYSLOG_IDENTIFIER=sshd SYSLOG_IDENTIFIER=sshd-session SYSLOG_IDENTIFIER=sudo \
+# journalctl saves its cursor only on a clean exit. After a crash an old
+# cursor would replay everything since then as fresh alerts: use it only if
+# it is recent (a normal restart), otherwise start at the end.
+CURSOR="${RUN_DIR}/journal.cursor"
+if [ -f "${CURSOR}" ] && [ $(( $(date +%s) - $(stat -c %Y "${CURSOR}") )) -gt 300 ]; then
+  rm -f "${CURSOR}"
+fi
+
+# Only entries whose trusted sender (_UID, set by journald, not forgeable by
+# the client) is root: any local user can log with an arbitrary identifier
+# ("logger -t sshd-session ..."), but sshd, sudo, login, su and display
+# managers log these lines as root.
+journalctl --follow --lines=0 --output=json --cursor-file="${CURSOR}" \
+  _UID=0 SYSLOG_IDENTIFIER=sshd SYSLOG_IDENTIFIER=sshd-session SYSLOG_IDENTIFIER=sudo \
   SYSLOG_IDENTIFIER=login SYSLOG_IDENTIFIER=lightdm SYSLOG_IDENTIFIER=su \
   SYSLOG_IDENTIFIER=su-l SYSLOG_IDENTIFIER=gdm-password SYSLOG_IDENTIFIER=sddm \
   | jq --unbuffered -r '
-      [ (.SYSLOG_IDENTIFIER // ""),
-        (.MESSAGE | if type == "array" then implode else (. // "") end) ]
-      | @tsv' \
+      (.SYSLOG_IDENTIFIER // "") + "\t" +
+      ((.MESSAGE | if type == "array" then implode else (. // "") end) | gsub("[\t\r\n]"; " "))' \
   | while IFS=$'\t' read -r ident msg; do
       handle "${ident}" "${msg}"
       [ "$(jobs -rp | wc -l)" -gt 20 ] && reap

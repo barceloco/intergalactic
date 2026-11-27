@@ -20,9 +20,7 @@ provisioner:
     host_vars:
       instance:
         ansible_python_interpreter: /usr/bin/python3
-        # fleet-notify is installed without a configuration: it then logs
-        # every push to the journal ("not configured ...: <title>: <message>")
-        # and sends nothing, which is exactly what the verifier reads.
+        # fleet-notify is replaced by a fake that records pushes (prepare.yml).
         notify_enabled: true
         human_users:
           - name: armand
