@@ -1,0 +1,10 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run the network sysctl hardening
+      include_role:
+        name: common
+        tasks_from: sysctl.yml

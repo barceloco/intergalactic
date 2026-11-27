@@ -38,6 +38,7 @@ CONTAINER_TESTABLE_ROLES=(
     "fail2ban"
     "updates"
     "host_alerts"
+    "common"
 )
 # Roles whose scenario converges the full role logic (config generation and
 # validation) but then deploys a systemd-managed Docker container (CoreDNS,

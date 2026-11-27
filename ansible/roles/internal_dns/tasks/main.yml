@@ -1,8 +1,8 @@
 ---
-- name: Install dnsutils for DNS testing (dig, nslookup)
+- name: Install bind9-dnsutils for DNS testing (dig, nslookup)
   when: internal_dns_enabled | default(false)
   apt:
-    name: dnsutils
+    name: bind9-dnsutils
     state: present
     update_cache: true
   become: true

@@ -1,0 +1,14 @@
+---
+# common: base packages, time sync, authorized_keys, the default pi user, and
+# network sysctl hardening.
+
+# Kernel network hardening, written to /etc/sysctl.d/ (Debian 13 no longer
+# reads /etc/sysctl.conf at boot).
+common_sysctl_file: /etc/sysctl.d/60-intergalactic-hardening.conf
+
+# Reverse-path filter: 2 (loose) drops packets whose source has no route at
+# all. Not 1 (strict): the Pis are on the LAN twice (eth0 and wlan0, same
+# subnet), and strict mode drops traffic to the address of the non-preferred
+# interface (rigel's foundation address is its wlan0 address). The firewall
+# already ties each source to its interface.
+common_rp_filter: 2

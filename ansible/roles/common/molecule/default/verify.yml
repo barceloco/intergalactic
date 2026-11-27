@@ -1,0 +1,62 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read /etc/sysctl.conf
+      slurp:
+        src: /etc/sysctl.conf
+      register: legacy
+
+    - name: The old hardening lines are gone, other settings stay
+      vars:
+        text: "{{ legacy.content | b64decode }}"
+      assert:
+        that:
+          - "'rp_filter' not in text"
+          - "'redirects' not in text"
+          - "'syncookies' not in text"
+          - "'net.ipv4.ip_local_port_range = 32768 60999' in text"
+
+    - name: Read the hardening file
+      slurp:
+        src: /etc/sysctl.d/60-intergalactic-hardening.conf
+      register: hardening
+
+    - name: The file sets loose rp_filter and covers every interface
+      vars:
+        text: "{{ hardening.content | b64decode }}"
+      assert:
+        that:
+          - "'net.ipv4.conf.all.rp_filter = 2' in text"
+          - "'net.ipv4.conf.*.rp_filter = 2' in text"
+          - "'net.ipv4.conf.*.send_redirects = 0' in text"
+          - "'net.ipv4.conf.*.accept_redirects = 0' in text"
+          - "'rp_filter = 1' not in text"
+
+    # "sysctl --system" also reads /etc/sysctl.conf, last. Reloading that file
+    # must no longer bring strict rp_filter back. (Only this file: --system
+    # would also set non-network keys on the Docker VM kernel.)
+    - name: Reload /etc/sysctl.conf the way sysctl --system would
+      command: sysctl -p /etc/sysctl.conf
+      changed_when: false
+
+    - name: Read the live values on every interface
+      shell: |
+        set -eu
+        cd /proc/sys/net/ipv4/conf
+        for d in *; do
+          printf '%s %s %s %s\n' "$d" "$(cat "$d/rp_filter")" "$(cat "$d/accept_redirects")" "$(cat "$d/send_redirects")"
+        done
+      args:
+        executable: /bin/bash
+      register: live
+      changed_when: false
+
+    - name: Every interface is loose, ignores and sends no redirects
+      assert:
+        that:
+          - live.stdout_lines | length >= 4
+          - live.stdout_lines | reject('match', '^\S+ 2 0 0$') | list | length == 0
+        fail_msg: "{{ live.stdout_lines }}"
