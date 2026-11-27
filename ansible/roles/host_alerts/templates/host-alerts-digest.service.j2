@@ -1,0 +1,9 @@
+# {{ ansible_managed | default('Managed by Ansible (host_alerts)') }}
+[Unit]
+Description=Daily host digest push (host_alerts)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/host-alerts-check digest
+TimeoutStartSec=5min

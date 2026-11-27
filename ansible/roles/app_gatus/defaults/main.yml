@@ -1,0 +1,51 @@
+---
+# app_gatus: one Gatus instance (open-source uptime monitor) that checks every
+# route through the edge host's DNS and Traefik, the way real clients reach
+# them, plus internal and public DNS. Alerts go to ntfy (same topic as
+# fleet-notify); the status page is served at status.exnada.com through
+# Traefik. Runs on vega so it survives the edge host (rigel) dying.
+#
+# Root-owned under /opt/gatus (app code runs as the deploy user and must not
+# read the ntfy topic). Disabling the role (gatus_enabled: false, role still in
+# the play) stops the container and removes /opt/gatus.
+gatus_enabled: false
+
+# Image, REQUIRED pinned version and digest (multi-arch index digest).
+# Read https://github.com/TwiN/gatus/releases before changing them.
+gatus_image: twinproduction/gatus
+gatus_image_tag: ""
+gatus_image_digest: ""
+
+gatus_dir: /opt/gatus
+# Deterministic port: Gatus' internal port 8080 + letter sum of "gatus" (68).
+gatus_port: 8148
+gatus_internal_port: 8080
+
+# The edge host whose edge_ingress_routes are checked, and its DNS server.
+gatus_edge_host: rigel
+gatus_dns_server: "{{ fleet_tailscale_ipv4[gatus_edge_host] }}"
+# Routes not to check (the status page itself).
+gatus_skip_hosts: ["status.exnada.com"]
+
+gatus_interval: 2m
+gatus_timeout: 15s
+# Alert when a route's certificate expires in less than this.
+gatus_certificate_min: 240h
+# Consecutive failures before an alert, successes before "resolved".
+gatus_failure_threshold: 3
+gatus_success_threshold: 2
+
+# Internal DNS answers to verify: name -> expected address.
+gatus_internal_dns_checks: {}
+
+# Public DNS records to verify against a public resolver (hijack detection).
+# pattern uses Gatus' pat(): * matches anything.
+gatus_public_dns_resolver: "1.1.1.1"
+gatus_public_dns_checks: []
+#  - {name: exnada.com, type: NS, pattern: "*.domaincontrol.com."}
+
+# ntfy (from the notify role's secrets).
+gatus_ntfy_url: "{{ notify_ntfy_url | default('https://ntfy.sh') }}"
+gatus_ntfy_topic: "{{ notify_ntfy_topic | default('') }}"
+gatus_ntfy_token: "{{ notify_ntfy_token | default('') }}"
+gatus_ntfy_priority: 4

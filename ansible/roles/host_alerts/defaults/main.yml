@@ -1,0 +1,107 @@
+---
+# host_alerts: tripwires and health checks that push to fleet-notify (role
+# notify). Two parts:
+#   1. host-alerts-follow (service): follows the journal and pushes SSH logins,
+#      sudo use and local sessions, classified by user and source address.
+#   2. host-alerts-check (timer, every 5 min): disk, containers, kernel storage
+#      errors, fail2ban bans, pending security updates, reboot required,
+#      changes to security-critical files and to the host's inventory
+#      (containers, listening ports, tailnet peers, enabled units, login
+#      users), plus a dead-man ping to Healthchecks.io and a daily digest.
+# These are entry tripwires, not tamper-proof detection: root can stop them.
+# The dead-man ping is what makes that silence visible.
+#
+# Disabling the role (host_alerts_enabled: false, role still in the play)
+# removes everything it installed.
+host_alerts_enabled: false
+
+# Who is who. Human users come from human_users (all_secrets.yml).
+host_alerts_human_users: "{{ human_users | default([]) | map(attribute='name') | list }}"
+host_alerts_automation_user: "{{ automation_user | default('ansible') }}"
+# Accounts that are not human but can become root (deploy has NOPASSWD sudo
+# and the docker group): every login is pushed.
+host_alerts_privileged_users: [deploy]
+
+# REQUIRED: the operator's source addresses (the Mac's Tailscale IP, and its
+# LAN IP if you deploy over the LAN), from all_secrets.yml. An automation or
+# privileged login from any other address is urgent.
+host_alerts_operator_sources: []
+
+# The LAN (for "login from outside the tailnet and the LAN": urgent).
+host_alerts_lan_subnet: "{{ firewall_lan_subnet | default('192.168.1.0/24') }}"
+
+# Seconds within which a repeated login of the same user from the same source
+# is not pushed again. Automation runs open many SSH connections per deploy.
+host_alerts_dedupe_seconds: 60
+host_alerts_automation_dedupe_seconds: 900
+
+# Dead-man check-in (Healthchecks.io ping URL per host), from all_secrets.yml:
+#   host_alerts_healthchecks_urls: { rigel: "https://hc-ping.com/<uuid>", ... }
+# Required unless host_alerts_require_deadman is false.
+host_alerts_healthchecks_urls: {}
+host_alerts_require_deadman: true
+
+# Health thresholds.
+host_alerts_disk_percent: 90
+host_alerts_security_update_days: 3
+# Daily digest push (systemd OnCalendar).
+host_alerts_digest_time: "*-*-* 08:00:00"
+
+# SMART monitoring with smartd (only on hosts with SMART-capable drives; an SD
+# card has none).
+host_alerts_smart: false
+
+# Security-critical paths, checked every run (5 min). Directories are hashed
+# recursively.
+host_alerts_crown_paths:
+  - /etc/ssh/authorized_keys.d
+  - /etc/ssh/sshd_config
+  - /etc/ssh/sshd_config.d
+  - /etc/sudoers
+  - /etc/sudoers.d
+  - /etc/passwd
+  - /etc/shadow
+  - /etc/group
+  - /etc/gshadow
+  - /etc/pam.d
+  - /etc/ld.so.preload
+  - /etc/nftables.conf
+  - /etc/fleet-notify.conf
+  - /etc/host-alerts.conf
+  - /usr/local/sbin
+  - /usr/local/bin
+  - /etc/systemd/system/host-alerts-follow.service
+  - /etc/systemd/system/host-alerts-check.service
+  - /etc/systemd/system/host-alerts-check.timer
+  - /etc/systemd/system/host-alerts-digest.service
+  - /etc/systemd/system/host-alerts-digest.timer
+# Second tier, checked hourly.
+host_alerts_tier2_paths:
+  - /etc/systemd/system
+  - /etc/crontab
+  - /etc/cron.d
+  - /etc/cron.hourly
+  - /etc/cron.daily
+  - /etc/cron.weekly
+  - /var/spool/cron/crontabs
+  - /etc/docker/daemon.json
+  - /etc/apt/sources.list
+  - /etc/apt/sources.list.d
+  - /etc/apt/trusted.gpg.d
+  - /etc/apt/keyrings
+  - /etc/apt/apt.conf.d
+  - /etc/fail2ban
+  - /etc/profile
+  - /etc/profile.d
+  - /etc/bash.bashrc
+  - /etc/environment
+  - /root/.bashrc
+  - /root/.profile
+# Per-host additions (e.g. Traefik and CoreDNS config on the edge host).
+host_alerts_extra_paths: []
+# Paths that legitimately change on their own (regular expression on the
+# path), e.g. Traefik's certificate store.
+host_alerts_exclude_regex: '/acme\.json$'
+
+host_alerts_conf_path: /etc/host-alerts.conf
+host_alerts_state_dir: /var/lib/host-alerts

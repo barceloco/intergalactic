@@ -2,25 +2,31 @@
 # fleet-notify: send a push notification through ntfy.
 # Managed by Ansible (role notify). Configuration: /etc/fleet-notify.conf.
 #
-# Usage: fleet-notify [-p priority] [-t tag[,tag]] "<title>" "<message>"
+# Usage: fleet-notify [-s] [-p priority] [-t tag[,tag]] "<title>" "<message>"
 #   priority: 1-5 or min, low, default, high, urgent
+#   -s: strict, exit 1 when the message was not delivered (callers that keep
+#       state use it so an undelivered alert is retried on their next run)
 #
-# Never fails its caller: when ntfy is not configured or unreachable it logs
-# to the journal (tag fleet-notify) and exits 0. The access token is passed to
+# Without -s it never fails its caller: when ntfy is not configured or
+# unreachable it logs to the journal (tag fleet-notify) and exits 0. The access token is passed to
 # curl on stdin, so it never appears in the process list or in any output.
 set -uo pipefail
 
 CONF=/etc/fleet-notify.conf
 PRIORITY=""
 TAGS=""
+STRICT=0
 
 log() { logger -t fleet-notify -- "$*"; }
+# Exit status for "not delivered": 1 in strict mode, else 0.
+undelivered() { exit "$(( STRICT ? 1 : 0 ))"; }
 
-while getopts ":p:t:" opt; do
+while getopts ":sp:t:" opt; do
   case "${opt}" in
+    s) STRICT=1 ;;
     p) PRIORITY="${OPTARG}" ;;
     t) TAGS="${OPTARG}" ;;
-    *) log "usage error: fleet-notify [-p priority] [-t tags] <title> <message>"; exit 0 ;;
+    *) log "usage error: fleet-notify [-s] [-p priority] [-t tags] <title> <message>"; undelivered ;;
   esac
 done
 shift $((OPTIND - 1))
@@ -32,7 +38,7 @@ TITLE="[${HOST}] ${TITLE}"
 
 if [ ! -r "${CONF}" ]; then
   log "not configured (${CONF} missing or unreadable): ${TITLE}: ${MESSAGE}"
-  exit 0
+  undelivered
 fi
 
 NTFY_URL=""
@@ -44,7 +50,7 @@ NTFY_DEFAULT_PRIORITY="default"
 
 if [ -z "${NTFY_URL}" ] || [ -z "${NTFY_TOPIC}" ]; then
   log "not configured (no URL or topic): ${TITLE}: ${MESSAGE}"
-  exit 0
+  undelivered
 fi
 
 PRIORITY="${PRIORITY:-${NTFY_DEFAULT_PRIORITY}}"
@@ -54,7 +60,7 @@ PRIORITY="${PRIORITY:-${NTFY_DEFAULT_PRIORITY}}"
 # --data-raw: with --data-binary, a message starting with @ would make curl
 # read and post a file (as root).
 clean() { printf '%s' "$1" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
-ERR="$(mktemp)" || { log "mktemp failed: ${TITLE}: ${MESSAGE}"; exit 0; }
+ERR="$(mktemp)" || { log "mktemp failed: ${TITLE}: ${MESSAGE}"; undelivered; }
 trap 'rm -f "${ERR}"' EXIT
 {
   printf 'url = "%s/%s"\n' "${NTFY_URL%/}" "$(clean "${NTFY_TOPIC}")"
@@ -67,6 +73,7 @@ trap 'rm -f "${ERR}"' EXIT
 rc=$?
 if [ "${rc}" -ne 0 ]; then
   log "delivery failed (curl exit ${rc}: $(tr -d '\n' < "${ERR}")): ${TITLE}: ${MESSAGE}"
+  undelivered
 else
   log "sent: ${TITLE}: ${MESSAGE}"
 fi

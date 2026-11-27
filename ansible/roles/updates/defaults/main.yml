@@ -1,0 +1,24 @@
+---
+# updates: automatic package updates with unattended-upgrades.
+#
+# The packaged /etc/apt/apt.conf.d/50unattended-upgrades is left as Debian
+# ships it (it allows Debian and Debian-Security). This role adds its own
+# drop-in, 52intergalactic-unattended-upgrades, which apt merges into the same
+# lists. Never edit the packaged file: an earlier version of this role did, and
+# that switched security updates off on every host.
+enable_unattended_upgrades: true
+
+# Extra Origins-Pattern entries, appended to Debian's. Matching is
+# case-sensitive against the repository's Release file ("Origin:" line).
+# The Tailscale repository (Origin: Tailscale) is added automatically when
+# enable_tailscale is true. Example for Raspberry Pi OS kernel/firmware:
+#   updates_extra_origins: ["origin=Raspberry Pi Foundation,codename=${distro_codename}"]
+updates_extra_origins: []
+
+# Reboot automatically when an update requires it. Off by default: rigel
+# carries DNS and Traefik, so a reboot is a user decision. Pending reboots are
+# visible in /var/run/reboot-required.
+updates_automatic_reboot: false
+updates_automatic_reboot_time: "04:00"
+
+updates_dropin_path: /etc/apt/apt.conf.d/52intergalactic-unattended-upgrades

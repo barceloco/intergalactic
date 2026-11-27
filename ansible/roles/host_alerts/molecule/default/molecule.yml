@@ -1,0 +1,35 @@
+---
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: instance
+    # Debian 13 (trixie) with systemd and journald, matching the fleet, so the
+    # follower sees the same sshd/sudo log lines the hosts produce.
+    image: geerlingguy/docker-debian13-ansible:latest
+    pre_build_image: true
+    privileged: true
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      instance:
+        ansible_python_interpreter: /usr/bin/python3
+        # fleet-notify is replaced by a fake that records pushes (prepare.yml).
+        notify_enabled: true
+        human_users:
+          - name: armand
+        automation_user: ansible
+        host_alerts_enabled: true
+        host_alerts_operator_sources: ["100.64.0.5"]
+        host_alerts_require_deadman: false
+        host_alerts_lan_subnet: "192.168.1.0/24"
+        # Force a "disk full" problem so the problem/resolve cycle is tested.
+        host_alerts_disk_percent: 1
+verifier:
+  name: ansible

@@ -1,0 +1,5 @@
+---
+- name: Restart smartd
+  systemd:
+    name: smartmontools.service
+    state: restarted

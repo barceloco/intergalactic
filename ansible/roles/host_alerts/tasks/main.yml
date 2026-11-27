@@ -1,0 +1,9 @@
+---
+- name: Install host alerts
+  when: host_alerts_enabled | default(false)
+  include_tasks: install.yml
+
+# Disabled but still in the play: remove everything this role installed.
+- name: Remove host alerts
+  when: not (host_alerts_enabled | default(false))
+  include_tasks: remove.yml

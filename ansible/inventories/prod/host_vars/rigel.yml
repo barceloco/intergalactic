@@ -111,3 +111,17 @@ edge_ingress_routes:
     backend: http://vega:8048
   - host: immich.exnada.com
     backend: http://100.120.170.43:2283
+  - host: status.exnada.com
+    backend: http://vega:8148   # Gatus (app_gatus on vega)
+    health_path: /health
+
+# Alerts (roles notify + host_alerts): pushes via ntfy (topic in
+# all_secrets.yml), login/sudo tripwires, health and integrity checks, dead-man
+# ping. Operator addresses and the Healthchecks.io URL are in all_secrets.yml.
+notify_enabled: true
+notify_boot_message: true
+host_alerts_enabled: true
+host_alerts_smart: false   # SD card: no SMART; kernel storage errors are watched instead
+host_alerts_extra_paths:
+  - /opt/traefik   # edge_ingress_data_dir (acme.json excluded)
+  - /opt/coredns   # internal_dns_data_dir

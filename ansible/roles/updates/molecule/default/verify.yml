@@ -1,0 +1,39 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read the origins unattended-upgrades will really use
+      shell: "set -o pipefail; unattended-upgrade --dry-run -d 2>&1 | grep '^Allowed origins are:'"
+      args:
+        executable: /bin/bash
+      register: verify_allowed
+      changed_when: false
+
+    - name: Debian, Debian-Security and Tailscale are allowed
+      assert:
+        that:
+          - "'label=Debian-Security' in verify_allowed.stdout"
+          - "'codename=trixie,label=Debian,' in verify_allowed.stdout"
+          - "'origin=Tailscale' in verify_allowed.stdout"
+          - "'origin=tailscale' not in verify_allowed.stdout"
+        fail_msg: "{{ verify_allowed.stdout }}"
+
+    - name: The broken file was backed up
+      stat:
+        path: /var/backups/50unattended-upgrades.broken-by-updates-role
+      register: verify_backup
+      failed_when: not verify_backup.stat.exists
+
+    - name: The packaged file is back unmodified
+      command: >-
+        cmp /etc/apt/apt.conf.d/50unattended-upgrades
+        /usr/share/unattended-upgrades/50unattended-upgrades
+      changed_when: false
+
+    - name: Automatic reboot stays off by default
+      command: apt-config dump Unattended-Upgrade::Automatic-Reboot
+      register: verify_reboot
+      changed_when: false
+      failed_when: "'Unattended-Upgrade::Automatic-Reboot \"false\";' not in verify_reboot.stdout"

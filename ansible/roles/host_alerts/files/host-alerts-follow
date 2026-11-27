@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+# host-alerts-follow: push SSH logins, sudo use and local sessions.
+# Managed by Ansible (role host_alerts). Configuration: /etc/host-alerts.conf.
+#
+# Follows the journal (it is not in the login path, so it can never block or
+# slow a login) and classifies each event by user and source address:
+#   login from outside the tailnet and the LAN        urgent
+#   automation user from an operator source            default, once per burst
+#   automation or privileged user from anywhere else   urgent
+#   privileged user (deploy) from an operator source   high
+#   human user                                         high
+#   any other user                                     urgent
+#   sudo by anyone but the automation user             high (with the command)
+#   local console / desktop / su session               high
+# Runs as a systemd service (Restart=always). journalctl's cursor file in /run
+# lets a restart continue where it stopped without replaying old events.
+set -uo pipefail
+
+CONF=/etc/host-alerts.conf
+NOTIFY=/usr/local/sbin/fleet-notify
+RUN_DIR=/run/host-alerts
+
+HUMAN_USERS=""
+AUTOMATION_USER="ansible"
+PRIVILEGED_USERS="deploy"
+OPERATOR_SOURCES=""
+LAN_SUBNET=""
+DEDUPE_SECONDS=60
+AUTOMATION_DEDUPE_SECONDS=900
+# shellcheck source=/dev/null
+[ -r "${CONF}" ] && . "${CONF}"
+
+mkdir -p "${RUN_DIR}"
+declare -A LAST_SENT=()
+
+in_list() {  # in_list <item> <space-separated list>
+  local item="$1" x
+  for x in $2; do [ "${x}" = "${item}" ] && return 0; done
+  return 1
+}
+
+ipv4_to_int() {  # prints the integer value of a dotted IPv4 address
+  local a b c d
+  IFS=. read -r a b c d <<< "$1"
+  for x in "${a}" "${b}" "${c}" "${d}"; do
+    [[ "${x}" =~ ^[0-9]+$ ]] && [ "${x}" -le 255 ] || return 1
+  done
+  echo $(( (a << 24) | (b << 16) | (c << 8) | d ))
+}
+
+in_cidr4() {  # in_cidr4 <ip> <a.b.c.d/len>
+  local ip net len ipi neti mask
+  ip="$1"; net="${2%/*}"; len="${2#*/}"
+  [[ "${len}" =~ ^[0-9]+$ ]] || return 1
+  ipi="$(ipv4_to_int "${ip}")" || return 1
+  neti="$(ipv4_to_int "${net}")" || return 1
+  mask=$(( len == 0 ? 0 : (0xFFFFFFFF << (32 - len)) & 0xFFFFFFFF ))
+  [ $(( ipi & mask )) -eq $(( neti & mask )) ]
+}
+
+is_tailnet() {
+  case "$1" in
+    fd7a:115c:a1e0:*) return 0 ;;
+  esac
+  in_cidr4 "$1" 100.64.0.0/10
+}
+
+is_lan() { [ -n "${LAN_SUBNET}" ] && in_cidr4 "$1" "${LAN_SUBNET}"; }
+
+# push <priority> <tags> <title> <message> <dedupe key> <window seconds>
+push() {
+  local now
+  now="$(date +%s)"
+  if [ "$6" -gt 0 ] && [ $(( now - ${LAST_SENT[$5]:-0} )) -lt "$6" ]; then
+    return 0
+  fi
+  LAST_SENT[$5]="${now}"
+  # In the background: delivery can take a while (retries) and must never
+  # hold up the journal stream.
+  "${NOTIFY}" -p "$1" -t "$2" "$3" "$4" < /dev/null > /dev/null 2>&1 &
+}
+
+on_login() {  # on_login <user> <source> <method> <key>
+  local user="$1" src="$2" method="$3" key="$4" detail operator=0
+  detail="${user} from ${src} (${method}${key:+ ${key}})"
+  in_list "${src}" "${OPERATOR_SOURCES}" && operator=1
+
+  if ! is_tailnet "${src}" && ! is_lan "${src}"; then
+    push urgent rotating_light "SSH login from OUTSIDE the tailnet and LAN" "${detail}" "out:${user}:${src}" 0
+  elif [ "${user}" = "${AUTOMATION_USER}" ]; then
+    if [ "${operator}" -eq 1 ]; then
+      date +%s > "${RUN_DIR}/last-operator-automation"
+      push default robot "automation session" "${detail}. Expected only while you deploy." "auto:${src}" "${AUTOMATION_DEDUPE_SECONDS}"
+    else
+      push urgent rotating_light "automation login from an UNEXPECTED source" "${detail}" "auto-x:${src}" "${DEDUPE_SECONDS}"
+    fi
+  elif in_list "${user}" "${PRIVILEGED_USERS}"; then
+    if [ "${operator}" -eq 1 ]; then
+      push high key "privileged login" "${detail}" "priv:${user}:${src}" "${DEDUPE_SECONDS}"
+    else
+      push urgent rotating_light "privileged login from an UNEXPECTED source" "${detail}" "priv-x:${user}:${src}" "${DEDUPE_SECONDS}"
+    fi
+  elif in_list "${user}" "${HUMAN_USERS}"; then
+    push high bust_in_silhouette "SSH login" "${detail}" "human:${user}:${src}" "${DEDUPE_SECONDS}"
+  else
+    push urgent rotating_light "SSH login by an UNEXPECTED user" "${detail}" "other:${user}:${src}" "${DEDUPE_SECONDS}"
+  fi
+}
+
+# Pushes leave the host (ntfy.sh): mask values that look like secrets.
+redact() {
+  printf "%s" "$1" | sed -E \
+    -e 's/(^|[ ;"'"'"'?&])((--?)?[A-Za-z0-9_.-]*(passw(or)?d|pass|pwd|token|secret|api[_-]?key|auth[_-]?key|private[_-]?key|credential)[A-Za-z0-9_.-]*"?)(=|: *)("?)[^ ;&"]*/\1\2\6\7***/Ig' \
+    -e 's/(^|[ ;])(--?[A-Za-z0-9_-]*(passw(or)?d|pass|pwd|token|secret|api-?key|auth-?key|credential)[A-Za-z0-9_-]*) +[^ -][^ ;]*/\1\2 ***/Ig' \
+    -e 's/(Bearer|Basic|Token) +[^ ;"]+/\1 ***/Ig' \
+    -e 's#(://[^/ :@]+:)[^@/ ]+@#\1***@#g' \
+    -e 's/[A-Za-z0-9+_=-]{32,}/***/g'   # long tokens; not paths (no slash)
+}
+
+on_sudo() {  # on_sudo <user> <rest of sudo's log line> <sender note>
+  local user="$1" rest="$2" note="$3" cmd reason
+  # The automation user is covered by its login; root gains nothing by sudo.
+  [ "${user}" = "${AUTOMATION_USER}" ] && return 0
+  [ "${user}" = root ] && return 0
+  cmd="${rest##*COMMAND=}"
+  [ "${cmd}" = "${rest}" ] && cmd=""
+  cmd="$(redact "${cmd}")"
+  cmd="${cmd:0:160}"
+  case "${rest}" in
+    *"incorrect password"*|*"command not allowed"*|*"a password is required"*|*"NOT in sudoers"*)
+      # sudo's reason is the first field ("3 incorrect password attempts").
+      reason="${rest%% ; *}"
+      push high warning "sudo refused${note}" "${user}: ${reason:0:80}; COMMAND=${cmd:-?}" "sudo-x:${user}" "${DEDUPE_SECONDS}" ;;
+    *)
+      push high zap "sudo${note}" "${user}: ${cmd:-(no command)}" "sudo:${user}:${cmd}" 10 ;;
+  esac
+}
+
+# sudo and su are setuid, so journald's _UID is the caller's; _EXE (read by
+# journald from /proc) authenticates them. A program that logs and exits at
+# once (a refused sudo) can be gone before journald reads /proc: then _EXE is
+# empty. Such a line cannot be authenticated but must not be dropped, so it
+# is pushed marked as unverified. A different _EXE is a forgery: ignored.
+sender_note() {  # sender_note <expected exe> <actual exe>; prints a note or fails
+  if [ "$2" = "$1" ]; then return 0; fi
+  if [ -z "$2" ]; then printf ' (sender unverified)'; return 0; fi
+  return 1
+}
+
+handle() {  # handle <syslog identifier> <_EXE> <message>
+  local ident="$1" exe="$2" msg="$3" re note
+  case "${ident}" in
+    sudo) note="$(sender_note /usr/bin/sudo "${exe}")" || return 0 ;;
+    su|su-l) note="$(sender_note /usr/bin/su "${exe}")" || return 0 ;;
+  esac
+  case "${ident}" in
+    sshd|sshd-session)
+      re='^Accepted ([^ ]+) for ([^ ]+) from ([^ ]+) port [0-9]+( ssh2)?(: ([^ ]+) ([^ ]+))?'
+      if [[ "${msg}" =~ ${re} ]]; then
+        on_login "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[1]}" "${BASH_REMATCH[7]}"
+      fi
+      ;;
+    sudo)
+      re='^ *([^ ]+) : (.*)$'
+      if [[ "${msg}" =~ ${re} ]]; then
+        on_sudo "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${note:-}"
+      fi
+      ;;
+    login|lightdm|su|su-l|gdm-password|sddm)
+      re='session opened for user ([^( ]+)'
+      if [[ "${msg}" =~ ${re} ]]; then
+        local user="${BASH_REMATCH[1]}"
+        case "${user}" in lightdm|gdm|sddm) return 0 ;; esac
+        push high bust_in_silhouette "local session (${ident})${note:-}" "${user}: ${msg:0:200}" "local:${ident}:${user}" "${DEDUPE_SECONDS}"
+      fi
+      ;;
+  esac
+}
+
+# Reap finished background pushes now and then.
+reap() { wait -n 2> /dev/null || true; }
+
+# journalctl saves its cursor only on a clean exit. After a crash an old
+# cursor would replay everything since then as fresh alerts: use it only if
+# it is recent (a normal restart), otherwise start at the end.
+CURSOR="${RUN_DIR}/journal.cursor"
+if [ -f "${CURSOR}" ] && [ $(( $(date +%s) - $(stat -c %Y "${CURSOR}") )) -gt 300 ]; then
+  rm -f "${CURSOR}"
+fi
+
+# Only entries authenticated by journald's trusted fields (set from the
+# sender's socket credentials, not forgeable by the client): any local user
+# can log with an arbitrary identifier ("logger -t sshd-session ..."). sshd,
+# login and display managers log as root: matched with _UID=0. sudo and su
+# are setuid (their _UID is the caller's): all their lines are read and
+# authenticated by _EXE in handle() (see sender_note).
+journalctl --follow --lines=0 --output=json --cursor-file="${CURSOR}" \
+  _UID=0 SYSLOG_IDENTIFIER=sshd SYSLOG_IDENTIFIER=sshd-session SYSLOG_IDENTIFIER=login \
+  SYSLOG_IDENTIFIER=lightdm SYSLOG_IDENTIFIER=gdm-password SYSLOG_IDENTIFIER=sddm \
+  + SYSLOG_IDENTIFIER=sudo SYSLOG_IDENTIFIER=su SYSLOG_IDENTIFIER=su-l \
+  | jq --unbuffered -r '
+      # "-" for a missing _EXE: read would collapse an empty tab field.
+      (.SYSLOG_IDENTIFIER // "-") + "\t" + (._EXE // "-") + "\t" +
+      ((.MESSAGE | if type == "array" then implode else (. // "") end) | gsub("[\t\r\n]"; " "))' \
+  | while IFS=$'\t' read -r ident exe msg; do
+      [ "${exe}" = "-" ] && exe=""
+      handle "${ident}" "${exe}" "${msg}"
+      [ "$(jobs -rp | wc -l)" -gt 20 ] && reap
+    done
+# journalctl or jq ended: exit non-zero so systemd restarts the follower.
+exit 1

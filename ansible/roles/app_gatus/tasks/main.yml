@@ -1,0 +1,143 @@
+---
+- name: Deploy Gatus
+  when: gatus_enabled | default(false)
+  block:
+    - name: Validate the Gatus settings
+      assert:
+        that:
+          - gatus_image_tag | length > 0
+          - gatus_image_tag not in ['latest', 'stable']
+          - gatus_image_digest is match('^sha256:[0-9a-f]{64}$')
+          - gatus_ntfy_topic | length >= 16
+          - gatus_ntfy_topic is not search('CHANGE_ME')
+          - gatus_ntfy_url is match('^https://[^/]+')
+          - hostvars[gatus_edge_host] is defined
+          - gatus_dns_server | length > 0
+        fail_msg: |
+          ============================================================================
+          ERROR: Gatus is enabled but not configured.
+          ============================================================================
+          Needs in host_vars: gatus_image_tag and gatus_image_digest (pinned; read
+          https://github.com/TwiN/gatus/releases), and notify_ntfy_topic in
+          all_secrets.yml (the same topic fleet-notify uses).
+          ============================================================================
+        quiet: true
+
+    - name: Create the Gatus directory (root only)
+      file:
+        path: "{{ gatus_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Render the Gatus configuration
+      template:
+        src: config.yaml.j2
+        dest: "{{ gatus_dir }}/config.yaml"
+        owner: root
+        group: root
+        # Read by the container's unprivileged user through a bind mount; it
+        # holds no secret (the ntfy topic comes from gatus.env).
+        mode: "0644"
+      register: gatus_config
+
+    - name: Write the Gatus environment (ntfy topic; root only)
+      template:
+        src: gatus.env.j2
+        dest: "{{ gatus_dir }}/gatus.env"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      register: gatus_env
+
+    - name: Render the Gatus compose file
+      template:
+        src: docker-compose.yml.j2
+        dest: "{{ gatus_dir }}/docker-compose.yml"
+        owner: root
+        group: root
+        mode: "0644"
+      register: gatus_compose
+
+    # In --check nothing above was written, so there is nothing to start.
+    - name: Pull the pinned Gatus image
+      when: gatus_compose is changed and not ansible_check_mode
+      command: docker compose pull
+      args:
+        chdir: "{{ gatus_dir }}"
+      changed_when: true
+
+    # The compose file carries a hash of the configuration and environment as
+    # a label, so `up -d` recreates the container exactly when either changed,
+    # also on a rerun after an interrupted one.
+    - name: Start Gatus (recreated when its configuration changed)
+      when: not ansible_check_mode
+      command: docker compose up -d
+      args:
+        chdir: "{{ gatus_dir }}"
+      register: gatus_up
+      changed_when: >-
+        'Recreat' in (gatus_up.stdout + gatus_up.stderr)
+        or 'Creat' in (gatus_up.stdout + gatus_up.stderr)
+        or 'Start' in (gatus_up.stdout + gatus_up.stderr)
+
+    - name: Wait for Gatus to answer on /health
+      when: not ansible_check_mode
+      uri:
+        url: "http://127.0.0.1:{{ gatus_port }}/health"
+        status_code: [200]
+      register: gatus_health
+      retries: 20
+      delay: 3
+      until: gatus_health.status is defined and gatus_health.status == 200
+
+    # Gatus drops an invalid alerting provider with a log line and keeps
+    # running: without this gate a broken ntfy setup would never alert.
+    - name: Read Gatus' provider lines from its log
+      when: not ansible_check_mode
+      shell: >-
+        set -o pipefail;
+        docker logs gatus 2>&1 | grep -E 'configuredProviders=|Ignoring provider=' | tail -n 5 || true
+      args:
+        executable: /bin/bash
+      register: gatus_log
+      changed_when: false
+
+    # The start-up line can rotate out of Docker's log after weeks of uptime;
+    # the container is recreated whenever its configuration changes, so the
+    # line is present after every change that matters. No line: nothing to
+    # judge. A line without ntfy, or "Ignoring provider=ntfy": fail.
+    - name: Gate - the ntfy alerting provider was accepted
+      when:
+        - not ansible_check_mode
+        - gatus_log.stdout | length > 0
+      assert:
+        that:
+          - gatus_log.stdout is not search('Ignoring provider=ntfy')
+          - gatus_providers | length == 0 or 'ntfy' in (gatus_providers | last)
+        fail_msg: "Gatus did not accept its ntfy provider: {{ gatus_log.stdout_lines }}"
+        quiet: true
+      vars:
+        gatus_providers: "{{ gatus_log.stdout | regex_findall('configuredProviders=\\[[^\\]]*\\]') }}"
+
+- name: Remove Gatus
+  when: not (gatus_enabled | default(false))
+  block:
+    - name: Check for a Gatus installation
+      stat:
+        path: "{{ gatus_dir }}/docker-compose.yml"
+      register: gatus_installed
+
+    - name: Stop and remove the Gatus container
+      when: gatus_installed.stat.exists
+      command: docker compose down
+      args:
+        chdir: "{{ gatus_dir }}"
+      changed_when: true
+
+    - name: Remove the Gatus directory
+      file:
+        path: "{{ gatus_dir }}"
+        state: absent

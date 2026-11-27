@@ -1,0 +1,66 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Install sshd, sudo and the notify script's dependencies
+      apt:
+        name: [openssh-server, openssh-client, sudo, curl, iproute2]
+        state: present
+        update_cache: true
+
+    - name: Create the human and automation users
+      user:
+        name: "{{ item }}"
+        shell: /bin/bash
+      loop: [armand, ansible]
+
+    # A stand-in for fleet-notify with the same interface: it logs every push to
+    # the journal as "sent: [host] <title>: <message>" and reports delivery,
+    # unless /tmp/fail-sends exists (then -s exits 1, like an unreachable ntfy).
+    - name: Install a fake fleet-notify that records pushes
+      copy:
+        dest: /usr/local/sbin/fleet-notify
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          strict=0
+          while getopts ":sp:t:" o; do case "$o" in s) strict=1 ;; *) ;; esac; done
+          shift $((OPTIND - 1))
+          if [ -e /tmp/fail-sends ]; then
+            logger -t fleet-notify -- "undelivered: [$(hostname -s)] $1: ${2:-}"
+            exit "$strict"
+          fi
+          logger -t fleet-notify -- "sent: [$(hostname -s)] $1: ${2:-}"
+
+    - name: Create a key for a real SSH login
+      command: ssh-keygen -q -t ed25519 -N "" -f /root/test_key
+      args:
+        creates: /root/test_key
+
+    - name: Authorize the key for armand (where the fleet's sshd reads keys)
+      shell: |
+        install -d -m 0755 /etc/ssh/authorized_keys.d
+        install -m 0644 /root/test_key.pub /etc/ssh/authorized_keys.d/armand
+        printf 'AuthorizedKeysFile /etc/ssh/authorized_keys.d/%%u\n' > /etc/ssh/sshd_config.d/10-test.conf
+      changed_when: true
+
+    - name: Allow real sudo for the test users (armand two commands, ansible all)
+      copy:
+        dest: /etc/sudoers.d/90-test
+        mode: "0440"
+        validate: "visudo -cf %s"
+        content: |
+          armand ALL=(root) NOPASSWD: /usr/bin/id, /usr/bin/echo
+          ansible ALL=(ALL) NOPASSWD: ALL
+
+    - name: Give armand a password (test container only) for a refused sudo
+      shell: echo "armand:test-only-password" | chpasswd
+      changed_when: true
+
+    - name: Start sshd
+      systemd:
+        name: ssh
+        state: restarted
+        enabled: true

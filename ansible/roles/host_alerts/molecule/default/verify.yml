@@ -1,0 +1,219 @@
+---
+# The fake fleet-notify (prepare.yml) logs each delivered push to the journal
+# as "sent: [instance] <title>: <message>".
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    pushes: "journalctl -t fleet-notify -o cat --no-pager --since @{{ t0.stdout }}"
+    check: /usr/local/sbin/host-alerts-check check
+  tasks:
+    - name: The follower and the timers are running
+      command: systemctl is-active host-alerts-follow.service host-alerts-check.timer host-alerts-digest.timer
+      changed_when: false
+
+    - name: Mark the start of the test
+      command: date +%s
+      register: t0
+      changed_when: false
+
+    # ------------------------------------------------------------------ logins
+    - name: Inject login and sudo log lines as root (sshd-session is trixie's identifier)
+      shell: |
+        logger -t sshd-session "Accepted publickey for ansible from 100.64.0.5 port 1 ssh2: ED25519 SHA256:op"
+        logger -t sshd-session "Accepted publickey for ansible from 100.64.0.9 port 1 ssh2: ED25519 SHA256:stolen"
+        logger -t sshd-session "Accepted publickey for armand from 192.168.1.20 port 1 ssh2: ED25519 SHA256:me"
+        logger -t sshd-session "Accepted publickey for mallory from 100.64.0.5 port 1 ssh2: ED25519 SHA256:x"
+        logger -t sshd-session "Accepted publickey for deploy from 100.64.0.7 port 1 ssh2: ED25519 SHA256:d"
+        for i in $(seq 1 50); do
+          logger -t sshd-session "Accepted publickey for ansible from 100.64.0.5 port $i ssh2: ED25519 SHA256:op"
+        done
+      changed_when: false
+
+    # Real sudo (setuid: journald records the caller's uid, so these are
+    # matched by _EXE=/usr/bin/sudo), a refused one, and the automation user.
+    - name: Real sudo calls
+      shell: |
+        # Pause after the 55-line logger burst above: under that load journald
+        # can drop single syslog datagrams, which would test journald, not us.
+        sleep 3
+        runuser -u armand -- sudo -n /usr/bin/id
+        sleep 1
+        runuser -u armand -- sudo -n /usr/bin/echo token=s3cr3tvalue Bearer abc.def QWERTYUIOPASDFGHJKLZXCVBNM1234567890
+        sleep 1
+        runuser -u armand -- sudo -n /usr/bin/echo hdr X-API-Key: abcd1234 https://u:pw123@host/p
+        sleep 1
+        printf "wrong\n" | runuser -u armand -- sudo -S -p "" /usr/bin/cat /etc/shadow || true
+        runuser -u ansible -- sudo -n /bin/sh -c "echo BECOME-SUCCESS"
+      changed_when: false
+
+    - name: A non-root user forges a sudo line (must be ignored)
+      command: >-
+        runuser -u armand -- logger -t sudo
+        "armand : TTY=pts/0 ; PWD=/ ; USER=root ; COMMAND=/usr/bin/forged-sudo"
+      changed_when: false
+
+    - name: A non-root user forges a login line (must be ignored)
+      command: >-
+        runuser -u armand -- logger -t sshd-session
+        "Accepted publickey for forged from 100.64.0.66 port 1 ssh2: ED25519 SHA256:f"
+      changed_when: false
+
+    - name: A real key login over sshd (proves the log format and _UID on trixie)
+      command: >-
+        ssh -i /root/test_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        -o BatchMode=yes armand@127.0.0.1 true
+      changed_when: false
+
+    # Pushes are sent in the background, in no guaranteed order: wait until
+    # every expected one has arrived (a lost push fails here after 60 s).
+    - name: Wait for the pushes
+      shell: >-
+        {{ pushes }} | grep -cE 'OUTSIDE the tailnet|sudo: armand: /usr/bin/id|sudo: armand: /usr/bin/echo token|sudo: armand: /usr/bin/echo hdr|sudo refused: armand|automation session|UNEXPECTED source|UNEXPECTED user|SSH login: armand|privileged login'
+      register: arrived
+      changed_when: false
+      retries: 30
+      delay: 2
+      until: arrived.stdout | int >= 10
+
+    - name: Collect the login pushes
+      shell: "sleep 3; {{ pushes }}"
+      register: got
+      changed_when: false
+
+    - name: What sudo logged (for diagnosis)
+      shell: "journalctl _EXE=/usr/bin/sudo -o cat --no-pager --since @{{ t0.stdout }} | grep -v pam_unix"
+      register: sudolog
+      changed_when: false
+
+    - name: Show the sudo log
+      debug:
+        var: sudolog.stdout_lines
+
+    - name: Each class pushed once, bursts collapsed, ansible sudo silent, forgery ignored, secrets masked
+      assert:
+        that:
+          - "got.stdout_lines | select('search', 'sent: .*automation session: ansible from 100.64.0.5') | list | length == 1"
+          - "got.stdout_lines | select('search', 'UNEXPECTED source: ansible from 100.64.0.9') | list | length == 1"
+          - "got.stdout_lines | select('search', 'SSH login: armand from 192.168.1.20') | list | length == 1"
+          - "got.stdout_lines | select('search', 'UNEXPECTED user: mallory') | list | length == 1"
+          - "got.stdout_lines | select('search', 'privileged login from an UNEXPECTED source: deploy from 100.64.0.7') | list | length == 1"
+          - "got.stdout_lines | select('search', 'sudo: armand: /usr/bin/id') | list | length == 1"
+          - "got.stdout_lines | select('search', 'BECOME-SUCCESS') | list | length == 0"
+          - "got.stdout_lines | select('search', 'for forged from|forged from 100') | list | length == 0"
+          - "got.stdout_lines | select('search', 's3cr3tvalue|abc.def|QWERTYUIOPASDFGHJKLZXCVBNM1234567890') | list | length == 0"
+          - "got.stdout_lines | select('search', 'sudo: armand: /usr/bin/echo token=\\*\\*\\* Bearer') | list | length == 1"
+          - "got.stdout_lines | select('search', 'sudo refused: armand: .*(incorrect password|command not allowed)') | list | length == 1"
+          # A forged line is ignored, or at worst pushed marked unverified
+          # (logger can exit before journald reads its _EXE).
+          - "got.stdout_lines | select('search', 'forged-sudo') | reject('search', 'sender unverified') | list | length == 0"
+          - "got.stdout_lines | select('search', 'abcd1234|pw123') | list | length == 0"
+          - "got.stdout_lines | select('search', 'echo hdr X-API-Key: \\*\\*\\* https://u:\\*\\*\\*@host') | list | length == 1"
+          - "got.stdout_lines | select('search', 'OUTSIDE the tailnet and LAN: armand from 127.0.0.1') | list | length == 1"
+        fail_msg: "{{ got.stdout_lines }}"
+
+    - name: A follower restart does not replay old events
+      shell: |
+        before=$({{ pushes }} | wc -l)
+        systemctl restart host-alerts-follow.service
+        sleep 5
+        after=$({{ pushes }} | wc -l)
+        echo "${before} ${after}"
+        [ "${before}" -eq "${after}" ]
+      changed_when: false
+
+    # ------------------------------------------------------------------ checks
+    # The baseline was recorded at install, before the timer ran: a check now
+    # must report no file change.
+    - name: Stop the timer so only the test runs checks
+      systemd:
+        name: host-alerts-check.timer
+        state: stopped
+
+    - name: First manual check after install
+      command: "{{ check }}"
+      changed_when: false
+
+    - name: Collect pushes after the first check
+      shell: "{{ pushes }}"
+      register: selfmade
+      changed_when: false
+
+    - name: No self-made change after install
+      assert:
+        that: "selfmade.stdout_lines | select('search', 'files changed') | list | length == 0"
+        fail_msg: "{{ selfmade.stdout_lines }}"
+
+    - name: Second run raises the forced disk problem (two consecutive runs)
+      command: "{{ check }}"
+      changed_when: false
+
+    - name: Plant a key while pushes fail, then let them work again
+      shell: |
+        touch /tmp/fail-sends
+        echo "ssh-ed25519 AAAA planted" > /etc/ssh/authorized_keys.d/intruder
+        {{ check }}
+        rm -f /tmp/fail-sends
+        {{ check }}
+      changed_when: false
+
+    - name: Clear the disk problem (threshold back to 100 %) and run twice
+      shell: |
+        sed -i 's/^DISK_PERCENT=.*/DISK_PERCENT=100/' /etc/host-alerts.conf
+        {{ check }}
+        {{ check }}
+      changed_when: false
+
+    - name: Collect the check pushes
+      shell: "{{ pushes }}"
+      register: checks
+      changed_when: false
+
+    - name: Problem, resolution, the planted key (delivered on retry) were pushed
+      assert:
+        that:
+          - "checks.stdout_lines | select('search', 'sent: .* is [0-9]+% full') | list | length >= 1"
+          - "checks.stdout_lines | select('search', 'sent: .*resolved: .* is [0-9]+% full') | list | length >= 1"
+          - "checks.stdout_lines | select('search', 'undelivered: .*security-critical files changed') | list | length == 1"
+          - "checks.stdout_lines | select('search', 'sent: .*security-critical files changed') | list | length >= 1"
+          # The threshold edit below is itself a watched change (host-alerts.conf).
+          - "checks.stdout_lines | select('search', '/etc/host-alerts.conf') | list | length >= 1"
+          - "checks.stdout_lines | select('search', '/etc/ssh/authorized_keys.d/intruder') | list | length >= 2"
+        fail_msg: "{{ checks.stdout_lines }}"
+
+    - name: A failed push marks the channel as failing for the dead-man
+      stat:
+        path: /run/host-alerts/send-failed
+      register: sendfailed
+      failed_when: not sendfailed.stat.exists
+
+    - name: The digest runs
+      command: /usr/local/sbin/host-alerts-check digest
+      changed_when: false
+
+    # ------------------------------------------------------------------ revert
+    - name: Disable the role
+      include_role:
+        name: host_alerts
+      vars:
+        host_alerts_enabled: false
+
+    - name: Nothing of host_alerts is left
+      shell: |
+        set -e
+        ! systemctl is-active --quiet host-alerts-follow.service
+        ! systemctl is-enabled --quiet host-alerts-check.timer 2>/dev/null
+        for p in /etc/systemd/system/host-alerts-follow.service /usr/local/sbin/host-alerts-check \
+                 /usr/local/sbin/host-alerts-follow /etc/host-alerts.conf /var/lib/host-alerts; do
+          [ ! -e "$p" ] || { echo "left: $p"; exit 1; }
+        done
+      changed_when: false
+
+    - name: Enable it again
+      include_role:
+        name: host_alerts
+
+    - name: The follower and the timers run again
+      command: systemctl is-active host-alerts-follow.service host-alerts-check.timer
+      changed_when: false

@@ -1,0 +1,11 @@
+# {{ ansible_managed | default('Managed by Ansible (host_alerts)') }}
+[Unit]
+Description=Run host-alerts-check every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

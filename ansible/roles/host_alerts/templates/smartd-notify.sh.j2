@@ -1,0 +1,7 @@
+#!/bin/sh
+# {{ ansible_managed | default('Managed by Ansible (host_alerts)') }}
+# smartd -M exec hook: forward drive warnings to fleet-notify.
+NOTIFY=/usr/local/sbin/fleet-notify
+[ -x "${NOTIFY}" ] || exit 0
+"${NOTIFY}" -p high -t floppy_disk "Drive warning" "${SMARTD_DEVICE:-a drive}: ${SMARTD_FAILTYPE:-problem}. ${SMARTD_MESSAGE:-}"
+exit 0

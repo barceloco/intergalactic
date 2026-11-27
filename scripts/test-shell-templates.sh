@@ -10,7 +10,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNNER="intergalactic-ansible-runner:latest"
-ROLES=(proxmox_storage backup_hub notify)
+ROLES=(proxmox_storage backup_hub notify host_alerts)
 OUT="$(mktemp -d)"
 trap 'rm -rf "${OUT}"' EXIT
 

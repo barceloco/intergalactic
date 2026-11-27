@@ -10,7 +10,8 @@
     - name: Validate the ntfy settings
       assert:
         that:
-          - notify_ntfy_url is match('^https?://[^/]+')
+          # https only: the topic (and token) must not cross the network in clear.
+          - notify_ntfy_url is match('^https://[^/]+')
           - notify_ntfy_topic | length >= 16
           - notify_ntfy_topic is match('^[A-Za-z0-9_-]+$')
           # The example value would pass the rules above: a guessable topic.
@@ -22,7 +23,7 @@
           Set in all_secrets.yml (never in host_vars):
             notify_ntfy_topic: "<16+ random letters, digits, - or _>"
             notify_ntfy_token: ""   # optional, for a protected topic
-          and optionally notify_ntfy_url (default https://ntfy.sh).
+          and optionally notify_ntfy_url (https only; default https://ntfy.sh).
           On a public server the topic name works like a password.
           ============================================================================
         success_msg: "ntfy settings present (URL {{ notify_ntfy_url }})"
@@ -66,6 +67,8 @@
         name: fleet-notify-boot.service
         enabled: true
         daemon_reload: "{{ notify_boot_unit is changed }}"
+      # In --check on a first install the unit does not exist yet.
+      ignore_errors: "{{ ansible_check_mode }}"
 
     - name: Disable the boot notification when not wanted
       when: not (notify_boot_message | default(false))

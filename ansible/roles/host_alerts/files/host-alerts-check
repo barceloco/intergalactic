@@ -1,0 +1,396 @@
+#!/usr/bin/env bash
+# host-alerts-check: health and integrity checks, pushed through fleet-notify.
+# Managed by Ansible (role host_alerts). Configuration: /etc/host-alerts.conf.
+#
+# Usage: host-alerts-check [check|digest|baseline]
+#   check     (timer, every 5 min) dead-man ping, problems, events, integrity
+#   digest    (timer, daily) one summary push
+#   baseline  record the integrity and inventory baselines without alerting
+#             (run by Ansible at install, before the timer starts)
+#
+# Problems (disk full, container down, Docker down, reboot required, ...) are
+# pushed when seen in two consecutive runs, and "resolved" after two clean
+# runs. Events (restarts, storage errors, bans, file changes) are pushed once.
+# Pushes use fleet-notify -s; state is committed only after a push was
+# delivered, so an alert lost to a network problem is sent again next run.
+# A failed push also turns the next dead-man ping into /fail, so a broken push
+# channel shows up at Healthchecks.io (give it email, not only ntfy).
+# State that changes every run lives in /run; baselines and alerted problems
+# in STATE_DIR are written only when they change (rigel runs from an SD card).
+set -uo pipefail
+
+CONF=/etc/host-alerts.conf
+NOTIFY=/usr/local/sbin/fleet-notify
+RUN_DIR=/run/host-alerts
+MODE="${1:-check}"
+
+HC_URL=""
+DISK_PERCENT=90
+SECURITY_UPDATE_DAYS=3
+STATE_DIR=/var/lib/host-alerts
+CROWN_PATHS=""
+TIER2_PATHS=""
+EXCLUDE_REGEX='^$'
+# shellcheck source=/dev/null
+[ -r "${CONF}" ] && . "${CONF}"
+
+mkdir -p "${RUN_DIR}" "${STATE_DIR}"
+chmod 0700 "${RUN_DIR}" "${STATE_DIR}"
+exec 9> "${RUN_DIR}/check.lock"
+if [ "${MODE}" = check ]; then
+  flock -n 9 || exit 0          # a run is still going: skip this one
+else
+  flock -w 600 9 || exit 1      # digest and baseline wait for a running check
+fi
+
+NOW="$(date +%s)"
+MAX_BODY=3500                   # ntfy.sh accepts at most 4096 bytes per message
+DOCKER=0
+command -v docker > /dev/null 2>&1 && DOCKER=1
+
+send() {  # send <priority> <tags> <title> <message>; returns 0 when delivered
+  local body="$4"
+  if [ "${#body}" -gt "${MAX_BODY}" ]; then body="${body:0:${MAX_BODY}} ...(truncated)"; fi
+  if "${NOTIFY}" -s -p "$1" -t "$2" "$3" "${body}" < /dev/null > /dev/null 2>&1; then
+    return 0
+  fi
+  date +%s > "${RUN_DIR}/send-failed"
+  return 1
+}
+
+# Write a file only when its content changes (spares the SD card).
+write_if_changed() {  # write_if_changed <file>  (content on stdin)
+  local tmp
+  tmp="$(mktemp "${1}.XXXXXX")" || return 1
+  cat > "${tmp}"
+  if [ -f "$1" ] && cmp -s "${tmp}" "$1"; then rm -f "${tmp}"; else mv -f "${tmp}" "$1"; fi
+}
+
+dk() { timeout 20 docker "$@"; }   # a hung daemon must not stall the run
+
+DOCKER_OK=0
+if [ "${DOCKER}" -eq 1 ] && dk ps -q > /dev/null 2>&1; then DOCKER_OK=1; fi
+container_ids() { [ "${DOCKER_OK}" -eq 1 ] && dk ps -aq 2> /dev/null; }
+
+# Context for change alerts: was the operator deploying, or apt/dpkg running,
+# within <window> seconds?
+change_context() {  # change_context <window seconds>
+  local ctx="" last
+  last="$(cat "${RUN_DIR}/last-operator-automation" 2> /dev/null || echo 0)"
+  if [ $(( NOW - last )) -lt "$1" ]; then ctx="during an operator automation session"; fi
+  if [ -f /var/log/dpkg.log ] && [ $(( NOW - $(stat -c %Y /var/log/dpkg.log) )) -lt "$1" ]; then
+    ctx="${ctx:+${ctx}; }coincides with a package installation"
+  fi
+  printf '%s' "${ctx}"
+}
+
+has_key() { awk -F'\t' -v k="$1" '$1 == k { f = 1 } END { exit !f }' <<< "$2"; }
+drop_key() { awk -F'\t' -v k="$1" '$1 != k' <<< "$2"; }
+
+# ---------------------------------------------------------------------------
+# Dead-man first, so nothing below can delay it. /fail when the alerting
+# chain is broken: follower down, or a push failed in the last 15 minutes.
+# ---------------------------------------------------------------------------
+deadman() {
+  [ -n "${HC_URL}" ] || return 0
+  local url="${HC_URL%/}" reason="" failed
+  systemctl is-active --quiet host-alerts-follow.service || reason="follower not running"
+  failed="$(cat "${RUN_DIR}/send-failed" 2> /dev/null || echo 0)"
+  if [ $(( NOW - failed )) -lt 900 ]; then reason="${reason:+${reason}; }push delivery failing"; fi
+  [ -n "${reason}" ] && url="${url}/fail"
+  # The URL goes to curl on stdin, never on the command line (ps).
+  printf 'url = "%s"\n' "${url}" \
+    | curl -fsS -m 10 --retry 2 -K - --data-raw "${reason:-ok}" -o /dev/null 2> /dev/null \
+    || logger -t host-alerts "dead-man ping failed"
+}
+
+# ---------------------------------------------------------------------------
+# Problems: one "key<TAB>priority<TAB>message" line per current problem.
+# ---------------------------------------------------------------------------
+problems() {
+  df -P -x tmpfs -x devtmpfs -x overlay -x squashfs -x efivarfs -x nsfs 2> /dev/null \
+    | awk -v t="${DISK_PERCENT}" 'NR > 1 { p = $5; sub("%", "", p);
+        if (p + 0 >= t) printf "disk:%s\thigh\t%s is %s%% full\n", $6, $6, p }'
+
+  if [ "${DOCKER}" -eq 1 ]; then
+    if [ "${DOCKER_OK}" -eq 0 ]; then
+      printf 'docker-down\turgent\tthe Docker daemon is not answering: its containers may be down\n'
+    else
+      local c policy running
+      while read -r c policy running; do
+        [ -n "${c}" ] || continue
+        case "${policy}" in
+          always|unless-stopped)
+            [ "${running}" = "true" ] || printf 'container:%s\thigh\tcontainer %s is not running\n' "${c#/}" "${c#/}" ;;
+        esac
+      done < <(container_ids | xargs -r timeout 20 docker inspect --format \
+                 '{{.Name}} {{.HostConfig.RestartPolicy.Name}} {{.State.Running}}' 2> /dev/null)
+    fi
+  fi
+
+  if [ -f /var/run/reboot-required ]; then
+    local pkgs
+    pkgs="$(tr '\n' ' ' < /var/run/reboot-required.pkgs 2> /dev/null)"
+    printf 'reboot-required\tdefault\treboot required%s\n' "${pkgs:+ (${pkgs% })}"
+  fi
+
+  # Security updates pending longer than unattended-upgrades should take
+  # (the count is refreshed hourly, with tier 2).
+  local since count
+  count="$(cat "${RUN_DIR}/security-pending" 2> /dev/null || echo 0)"
+  since="$(cat "${STATE_DIR}/security-pending-since" 2> /dev/null || echo 0)"
+  if [ "${count}" -gt 0 ] && [ "${since}" -gt 0 ] \
+     && [ $(( NOW - since )) -ge $(( SECURITY_UPDATE_DAYS * 86400 )) ]; then
+    printf 'security-updates\thigh\t%s security updates pending for more than %s days: unattended-upgrades is not installing them\n' \
+      "${count}" "${SECURITY_UPDATE_DAYS}"
+  fi
+
+  if ! systemctl is-active --quiet host-alerts-follow.service; then
+    printf 'follower-down\turgent\thost-alerts-follow is not running: logins are not reported\n'
+  fi
+}
+
+check_problems() {
+  local cur prev_run known key prio msg alerted changed=0
+  cur="$(problems | sort -u)"
+  prev_run="$(cat "${RUN_DIR}/problems.last" 2> /dev/null)"
+  known="$(cat "${STATE_DIR}/problems.alerted" 2> /dev/null)"
+  printf '%s\n' "${cur}" > "${RUN_DIR}/problems.last"
+  alerted="${known}"
+
+  # New: present now and in the previous run, not yet alerted.
+  while IFS=$'\t' read -r key prio msg; do
+    [ -n "${key}" ] || continue
+    has_key "${key}" "${known}" && continue
+    has_key "${key}" "${prev_run}" || continue
+    if send "${prio}" warning "${msg}" "Seen in two checks in a row (5 min apart). A resolved message follows when it clears."; then
+      alerted="$(printf '%s\n%s\t%s\t%s' "${alerted}" "${key}" "${prio}" "${msg}")"
+      changed=1
+    fi
+  done <<< "${cur}"
+
+  # Resolved: absent now and in the previous run. While Docker is down the
+  # containers' state is unknown, so their problems stay open.
+  while IFS=$'\t' read -r key prio msg; do
+    [ -n "${key}" ] || continue
+    has_key "${key}" "${cur}" && continue
+    has_key "${key}" "${prev_run}" && continue
+    if [ "${key#container:}" != "${key}" ] && has_key docker-down "${cur}"; then continue; fi
+    if send low white_check_mark "resolved: ${msg}" "No longer seen in two checks in a row."; then
+      alerted="$(drop_key "${key}" "${alerted}")"
+      changed=1
+    fi
+  done <<< "${known}"
+
+  if [ "${changed}" -eq 1 ]; then
+    grep -v '^$' <<< "${alerted}" | sort -u | write_if_changed "${STATE_DIR}/problems.alerted"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Events: pushed once.
+# ---------------------------------------------------------------------------
+check_container_restarts() {
+  local c count prev f last
+  [ "${DOCKER_OK}" -eq 1 ] || return 0
+  while read -r c count; do
+    [ -n "${c}" ] || continue
+    c="${c#/}"
+    f="${RUN_DIR}/restarts.${c//\//_}"
+    prev="$(cat "${f}" 2> /dev/null || echo "")"
+    if [ -n "${prev}" ] && [ "${count}" -gt "${prev}" ]; then
+      # A crash loop is pushed at most once an hour per container.
+      last="$(cat "${f}.pushed" 2> /dev/null || echo 0)"
+      if [ $(( NOW - last )) -ge 3600 ]; then
+        send default arrows_counterclockwise "container ${c} restarted" \
+          "${c} restarted $(( count - prev ))x since the last check (RestartCount ${count}). Repeats are pushed at most hourly." \
+          || continue
+        echo "${NOW}" > "${f}.pushed"
+      fi
+    fi
+    echo "${count}" > "${f}"
+  done < <(container_ids | xargs -r timeout 20 docker inspect --format '{{.Name}} {{.RestartCount}}' 2> /dev/null)
+}
+
+check_storage_errors() {
+  local mark="${RUN_DIR}/kernel.since" since lines range
+  since="$(cat "${mark}" 2> /dev/null || echo "")"
+  if [ -n "${since}" ]; then range=(--since "@${since}"); else range=(-b); fi   # first run: the whole boot
+  lines="$(journalctl -k -q --no-pager -o cat "${range[@]}" --until "@${NOW}" 2> /dev/null \
+    | grep -iE 'I/O error|EXT4-fs error|EXT4-fs warning|Buffer I/O error|mmc[0-9]+:.*(error|timeout)|nvme.*(timeout|reset|error)|critical medium error|blk_update_request' \
+    | grep -viE 'Shutdown timeout set to' | head -5)"
+  if [ -n "${lines}" ]; then
+    send high floppy_disk "storage errors in the kernel log" "${lines}" || return 0
+  fi
+  echo "${NOW}" > "${mark}"
+}
+
+check_fail2ban() {
+  local log=/var/log/intergalactic/fail2ban-offenders.log mark="${RUN_DIR}/fail2ban.lines" total prev
+  [ -f "${log}" ] || return 0
+  total="$(wc -l < "${log}")"
+  prev="$(cat "${mark}" 2> /dev/null || echo "")"
+  if [ -n "${prev}" ] && [ "${total}" -gt "${prev}" ]; then
+    send high no_entry "fail2ban ban" "$(tail -n "$(( total - prev ))" "${log}" | head -10)" || return 0
+  fi
+  echo "${total}" > "${mark}"
+}
+
+# ---------------------------------------------------------------------------
+# Integrity and inventory: snapshots compared with a baseline. Each line
+# starts with the path, so a changed file shows as "removed"+"now" of the same
+# path; the exclusion applies to the path only.
+# ---------------------------------------------------------------------------
+snapshot_paths() {  # snapshot_paths <space-separated paths>
+  local p f
+  for p in $1; do
+    if [ -d "${p}" ] && [ ! -L "${p}" ]; then
+      find "${p}" -xdev \( -type f -o -type l \) -print0 2> /dev/null
+    else
+      printf '%s\0' "${p}"
+    fi
+  done | grep -zvE "${EXCLUDE_REGEX}" | while IFS= read -r -d '' f; do
+    if [ -L "${f}" ]; then
+      printf '%s link=%s\n' "${f}" "$(readlink "${f}")"
+    elif [ -f "${f}" ]; then
+      printf '%s sha256=%s\n' "${f}" "$(timeout 30 sha256sum < "${f}" 2> /dev/null | cut -c1-64)"
+    elif [ -e "${f}" ]; then
+      printf '%s special\n' "${f}"      # never read FIFOs, sockets or devices
+    else
+      printf '%s absent\n' "${f}"
+    fi
+  done | sort
+}
+
+snapshot_inventory() {
+  if [ "${DOCKER}" -eq 1 ]; then
+    if [ "${DOCKER_OK}" -eq 1 ]; then
+      container_ids | xargs -r timeout 20 docker inspect --format \
+        'container {{.Name}} image={{.Image}} privileged={{.HostConfig.Privileged}} network={{.HostConfig.NetworkMode}} mounts={{range .Mounts}}{{.Source}}:{{.Destination}},{{end}}' \
+        2> /dev/null | sort
+    else
+      # Daemon down (alerted as docker-down): keep the last known containers.
+      grep '^container ' "${STATE_DIR}/baseline.inventory" 2> /dev/null
+    fi
+  fi
+  # TCP listeners, and UDP sockets bound below the ephemeral port range
+  # (client sockets with random ports would be noise).
+  ss -Hlnt 2> /dev/null | awk '{print "listen tcp", $4}' | sort -u
+  ss -Hlnu 2> /dev/null | awk '{ n = split($4, a, ":"); if (a[n] + 0 < 32768 || a[n] == 41641) print "listen udp", $4 }' | sort -u
+  if command -v tailscale > /dev/null 2>&1; then
+    local peers
+    if peers="$(timeout 20 tailscale status --json 2> /dev/null)" \
+       && peers="$(jq -re '.Peer // {} | .[] | "tailnet-peer \(.HostName)"' <<< "${peers}" 2> /dev/null)"; then
+      sort -u <<< "${peers}"
+    else
+      # tailscaled not answering: keep the last known peers (no false "removed").
+      grep '^tailnet-peer ' "${STATE_DIR}/baseline.inventory" 2> /dev/null
+    fi
+  fi
+  systemctl list-unit-files --state=enabled --no-legend --no-pager 2> /dev/null | awk '{print "enabled", $1}' | sort
+  getent passwd | awk -F: '$7 !~ /(nologin|false|sync|halt|shutdown)$/ {print "login-user", $1, $3, $7}' | sort
+}
+
+# Security-relevant lines first, so a cut message never hides them.
+rank_lines() {
+  awk '{ r = 5 }
+       /login-user|authorized_keys|sudoers|\/pam\.d\/|ld\.so\.preload|sshd_config|\/shadow|\/passwd|tailnet-peer/ { r = 1 }
+       / listen / { if (r > 2) r = 2 }
+       /cron|systemd\/system|\/usr\/local\// { if (r > 3) r = 3 }
+       { print r "\t" $0 }' | sort -s -t "$(printf '\t')" -k1,1n | cut -f2-
+}
+
+# compare <name> <priority> <title> <context window>  (new snapshot on stdin)
+compare() {
+  local base="${STATE_DIR}/baseline.$1" new diffs total body ctx prio="$2"
+  new="$(cat)"
+  if [ "${MODE}" = baseline ]; then
+    printf '%s\n' "${new}" | write_if_changed "${base}"
+    return 0
+  fi
+  if [ ! -f "${base}" ]; then
+    # Missing outside an install: someone (or something) removed it. Alert
+    # first; record the current state only once the alert was delivered.
+    send high warning "integrity baseline $1 was missing" \
+      "It has been recorded again from the current state, which is trusted from now on. Investigate if you did not reinstall host_alerts." \
+      && printf '%s\n' "${new}" | write_if_changed "${base}"
+    return 0
+  fi
+  diffs="$(diff <(cat "${base}") <(printf '%s\n' "${new}") | grep -E '^[<>]' \
+    | sed 's/^< /removed: /; s/^> /now: /' | rank_lines)"
+  [ -n "${diffs}" ] || return 0
+  total="$(wc -l <<< "${diffs}")"
+  printf '%s\n' "${diffs}" | write_if_changed "${STATE_DIR}/last-diff.$1"
+  body="$(head -25 <<< "${diffs}")"
+  if [ "${total}" -gt 25 ]; then
+    body="${body}"$'\n'"(+$(( total - 25 )) more lines in ${STATE_DIR}/last-diff.$1)"
+  fi
+  ctx="$(change_context "$4")"
+  # Context lowers the priority one step, never below default for the
+  # security-critical set.
+  if [ -n "${ctx}" ]; then
+    case "${prio}" in high) prio=default ;; default) [ "$1" = crown ] || prio=low ;; esac
+  fi
+  if send "${prio}" mag "$3${ctx:+ (${ctx})}" "${body}"; then
+    printf '%s\n' "${new}" | write_if_changed "${base}"
+  fi
+}
+
+refresh_security_pending() {
+  local count since_file="${STATE_DIR}/security-pending-since"
+  count="$(timeout 120 apt list --upgradable 2> /dev/null | grep -c -- '-security' || true)"
+  echo "${count:-0}" > "${RUN_DIR}/security-pending"
+  if [ "${count:-0}" -gt 0 ]; then
+    [ -f "${since_file}" ] || echo "${NOW}" > "${since_file}"
+  else
+    rm -f "${since_file}"
+  fi
+}
+
+digest() {
+  local logins problems_now pending reboot
+  logins="$(journalctl --since -24h -q --no-pager -o cat _UID=0 \
+      SYSLOG_IDENTIFIER=sshd + _UID=0 SYSLOG_IDENTIFIER=sshd-session 2> /dev/null \
+    | sed -nE 's/^Accepted [^ ]+ for ([^ ]+) from ([^ ]+) .*/\1 from \2/p' | sort | uniq -c | sort -rn | head -8)"
+  problems_now="$(cut -f3 < "${STATE_DIR}/problems.alerted" 2> /dev/null)"
+  pending="$(cat "${RUN_DIR}/security-pending" 2> /dev/null || echo "?")"
+  reboot="no"; [ -f /var/run/reboot-required ] && reboot="yes"
+  send low calendar "daily digest" "$(printf 'Uptime: %s. Open problems: %s\nSecurity updates pending: %s. Reboot required: %s.\nSSH logins (24 h):\n%s' \
+    "$(uptime -p)" "${problems_now:-none}" "${pending}" "${reboot}" "${logins:-  none}")"
+}
+
+tier2_due() {
+  local stamp="${RUN_DIR}/tier2.stamp"
+  [ ! -f "${stamp}" ] || [ $(( NOW - $(stat -c %Y "${stamp}") )) -ge 3600 ]
+}
+
+case "${MODE}" in
+  digest)
+    digest
+    ;;
+  baseline)
+    snapshot_paths "${CROWN_PATHS}" | compare crown high "" 0
+    snapshot_inventory | compare inventory default "" 0
+    snapshot_paths "${TIER2_PATHS}" | compare tier2 default "" 0
+    ;;
+  check)
+    deadman
+    check_problems
+    check_container_restarts
+    check_storage_errors
+    check_fail2ban
+    snapshot_paths "${CROWN_PATHS}" | compare crown high "security-critical files changed" 1800
+    snapshot_inventory | compare inventory default "host inventory changed" 1800
+    if tier2_due; then
+      # Hourly, so a deploy's changes can surface up to an hour later.
+      snapshot_paths "${TIER2_PATHS}" | compare tier2 default "system files changed" 4500
+      refresh_security_pending
+      touch "${RUN_DIR}/tier2.stamp"
+    fi
+    ;;
+  *)
+    echo "usage: host-alerts-check [check|digest|baseline]" >&2
+    exit 2
+    ;;
+esac
+exit 0
