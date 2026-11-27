@@ -30,5 +30,8 @@ provisioner:
         # tailscale_ip for each host, so no tailscale up / status is needed.
         enable_tailscale: false
         tailscale_ip: "100.64.0.1"
+        # CoreDNS cannot start under this container's nested systemd: the test
+        # covers rendering only; reload and validation run on the real host.
+        internal_dns_manage_service: false
 verifier:
   name: ansible

@@ -14,6 +14,13 @@ edge_ingress_health_check_interval: 10s
 edge_ingress_health_check_timeout: 3s
 edge_ingress_health_check_failure_threshold: 3
 edge_ingress_container_name: traefik
+# Pinned image (multi-arch index digest). Read the upgrade notes before
+# changing: https://doc.traefik.io/traefik/migrate/v3/ and run
+# ./scripts/test-traefik-config.sh, which starts this image on the rendered
+# configuration. A changed image restarts Traefik once (pulled first).
+edge_ingress_image: traefik
+edge_ingress_image_tag: "v3.7.20"   # 2026-11-23
+edge_ingress_image_digest: "sha256:8301d6f60957a422f98918aacf2b01482abde3e74ead3719aabdb7c64045fe28"
 edge_ingress_data_dir: /opt/traefik
 # Traefik's file provider watches this directory (mounted at /dynamic). It
 # holds dynamic.yml only: every .yml/.yaml/.toml in it is loaded. A directory,

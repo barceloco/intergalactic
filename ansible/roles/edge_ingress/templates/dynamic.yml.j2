@@ -3,7 +3,8 @@ http:
     security-headers:
       headers:
 {% if not (edge_ingress_disable_tls | default(false)) %}
-        sslRedirect: true
+        # No sslRedirect: deprecated in Traefik 3 and redundant here; the web
+        # entrypoint redirects HTTP to HTTPS.
         forceSTSHeader: true
         stsIncludeSubdomains: true
         stsPreload: true
@@ -45,7 +46,6 @@ http:
     security-headers-no-nosniff:
       headers:
 {% if not (edge_ingress_disable_tls | default(false)) %}
-        sslRedirect: true
         forceSTSHeader: true
         stsIncludeSubdomains: true
         stsPreload: true

@@ -230,6 +230,9 @@
     owner: root
     group: root
 
+# A changed Corefile or zone file needs no restart: the reload plugin picks it
+# up within internal_dns_reload_interval (the directory is mounted). Only a
+# changed compose file or unit restarts CoreDNS, once (tasks/service.yml).
 - name: Deploy CoreDNS Corefile
   when: internal_dns_enabled | default(false)
   template:
@@ -238,7 +241,7 @@
     mode: '0644'
     owner: root
     group: root
-  notify: Restart coredns
+  register: coredns_corefile
 
 - name: Deploy DNS zone file
   when: internal_dns_enabled | default(false)
@@ -248,7 +251,6 @@
     mode: '0644'
     owner: root
     group: root
-  notify: Restart coredns
 
 - name: Deploy CoreDNS Docker Compose
   when: internal_dns_enabled | default(false)
@@ -258,7 +260,7 @@
     mode: '0644'
     owner: root
     group: root
-  notify: Restart coredns
+  register: coredns_compose
 
 - name: Deploy CoreDNS systemd service
   when: internal_dns_enabled | default(false)
@@ -268,53 +270,10 @@
     mode: '0644'
     owner: root
     group: root
-  notify:
-    - Reload systemd
-    - Restart coredns
+  register: coredns_unit
 
-- name: Enable and start CoreDNS systemd service
-  when: internal_dns_enabled | default(false)
-  systemd:
-    name: coredns
-    enabled: yes
-    state: started
-    daemon_reload: yes
-
-- name: Verify CoreDNS container is running
-  when: internal_dns_enabled | default(false)
-  command: docker ps --filter name={{ internal_dns_container_name }} --format "{{ '{{' }}.Status{{ '}}' }}"
-  register: coredns_status_check
-  changed_when: false
-  failed_when: false
-  check_mode: false  # read-only
-
-- name: Fail if CoreDNS container is not running
-  when: internal_dns_enabled | default(false)
-  assert:
-    that:
-      - coredns_status_check.rc == 0
-      - coredns_status_check.stdout | length > 0
-      - (coredns_status_check.stdout | default('')) is search('Up')
-    fail_msg: |
-      ============================================================================
-      ERROR: CoreDNS container is not running!
-      ============================================================================
-      The CoreDNS container failed to start or is not running.
-
-      Status: {{ coredns_status_check.stdout | default('unknown') }}
-
-      Please check:
-      1. Docker is running: systemctl status docker
-      2. CoreDNS logs: docker logs {{ internal_dns_container_name }}
-      3. Port 53 is not already in use: netstat -tuln | grep :53
-      4. Systemd service status: systemctl status coredns
-      ============================================================================
-    success_msg: "✓ CoreDNS container is running"
-
-# Not in --check: the new records were not written, so the live DNS cannot
-# be validated against them.
-- name: Include validation tasks
+- name: Start or restart CoreDNS and validate it
   when:
     - internal_dns_enabled | default(false)
-    - not ansible_check_mode
-  include_tasks: validate.yml
+    - internal_dns_manage_service | bool
+  import_tasks: service.yml

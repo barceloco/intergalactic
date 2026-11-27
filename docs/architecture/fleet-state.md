@@ -58,8 +58,13 @@ restarts with Docker (`restart: unless-stopped`).
 | immich.exnada.com | mpnas:2283 | immich | not managed here | n/a | route only |
 
 Edge services on rigel are systemd-managed containers: `traefik.service`
-(`/opt/traefik`, ports 80, 443) and `coredns.service`
-(`/opt/coredns`, port 53).
+(`/opt/traefik`, ports 80, 443; Traefik 3.7.20, pinned by digest) and
+`coredns.service` (`/opt/coredns`, port 53; CoreDNS 1.15.0, pinned by digest).
+Neither restarts when a route is added (2026-11-27): Traefik reloads
+`/opt/traefik/dynamic/dynamic.yml` on SIGHUP and the deploy gates every route
+(`scripts/verify-edge-gate.sh`); CoreDNS's reload plugin re-reads the Corefile
+within 10 s. Both restart once only when their image, compose file or unit
+changes, with the image pulled first.
 
 ## Other Services
 
@@ -78,13 +83,6 @@ Edge services on rigel are systemd-managed containers: `traefik.service`
 
 These differ from what the repo intends. Each is a follow-up, not yet fixed:
 
-- **rigel: Traefik runs the end-of-life 3.0 line, unpinned (`traefik:v3.0`).**
-  Pin by digest and upgrade in one planned change with a pre-pull before the
-  restart (a failed pull inside the restart would leave the edge down).
-- **rigel: a new route still restarts CoreDNS** (Corefile handler plus the
-  documented self-heal). Traefik no longer restarts on route changes
-  (2026-11-27: routes in a watched directory, live reload, gate with the
-  `X-Edge-Config` fingerprint, automatic rollback; drill verified).
 - **Both: the dead-man check-in is not active yet.** host_alerts was deployed
   on 2026-11-27 with `-e host_alerts_require_deadman=false` because the
   Healthchecks.io URLs did not exist yet. Add `host_alerts_healthchecks_urls`

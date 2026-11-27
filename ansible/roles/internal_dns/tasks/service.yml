@@ -1,0 +1,56 @@
+---
+# Start CoreDNS, restart it only when its compose file or unit changed, then
+# validate. Imported from main.yml (internal_dns_manage_service).
+
+- name: Decide whether CoreDNS must restart
+  set_fact:
+    coredns_restart_due: "{{ coredns_compose is changed or coredns_unit is changed }}"
+
+# While the old CoreDNS still answers: a failed pull must not happen inside
+# the restart.
+- name: Pull the CoreDNS image before a restart
+  when:
+    - coredns_compose is changed
+    - not ansible_check_mode
+  command: docker compose -f {{ internal_dns_data_dir }}/docker-compose.yml pull
+  changed_when: true
+
+- name: Enable CoreDNS; restart it only when its compose file or unit changed
+  systemd:
+    name: coredns
+    enabled: true
+    daemon_reload: "{{ coredns_unit is changed }}"
+    state: "{{ 'restarted' if (coredns_restart_due | bool) else 'started' }}"
+
+- name: Verify CoreDNS container is running
+  command: docker ps --filter name={{ internal_dns_container_name }} --format "{{ '{{' }}.Status{{ '}}' }}"
+  register: coredns_status_check
+  changed_when: false
+  failed_when: false
+  check_mode: false  # read-only
+
+- name: Fail if CoreDNS container is not running
+  assert:
+    that:
+      - coredns_status_check.rc == 0
+      - coredns_status_check.stdout | length > 0
+      - (coredns_status_check.stdout | default('')) is search('Up')
+    fail_msg: |
+      ============================================================================
+      ERROR: CoreDNS container is not running!
+      ============================================================================
+      Status: {{ coredns_status_check.stdout | default('unknown') }}
+
+      Please check:
+      1. Docker is running: systemctl status docker
+      2. CoreDNS logs: docker logs {{ internal_dns_container_name }}
+      3. Port 53 is not already in use: ss -ulnp | grep :53
+      4. Systemd service status: systemctl status coredns
+      ============================================================================
+    success_msg: "CoreDNS container is running"
+
+# Not in --check: the new records were not written, so the live DNS cannot
+# be validated against them.
+- name: Include validation tasks
+  when: not ansible_check_mode
+  include_tasks: validate.yml

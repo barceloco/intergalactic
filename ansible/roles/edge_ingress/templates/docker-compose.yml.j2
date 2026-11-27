@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3.0
+    image: {{ edge_ingress_image }}:{{ edge_ingress_image_tag }}@{{ edge_ingress_image_digest }}
     container_name: {{ edge_ingress_container_name }}
     network_mode: host
     volumes:

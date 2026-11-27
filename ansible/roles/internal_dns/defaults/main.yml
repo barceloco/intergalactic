@@ -12,6 +12,18 @@ internal_dns_upstream_servers:
   - 8.8.4.4
 internal_dns_container_name: coredns
 internal_dns_data_dir: /opt/coredns
+# Pinned image (multi-arch index digest); release notes:
+# https://github.com/coredns/coredns/releases. A changed image restarts
+# CoreDNS once (pulled first).
+internal_dns_image: coredns/coredns
+internal_dns_image_tag: "1.15.0"   # 2026-10-21
+internal_dns_image_digest: "sha256:0a9d8c8ddf34347eb59aad9a8784f0710de88d6d112726d11d271f9bc6daca26"
+# The reload plugin re-reads the Corefile this often: a new route resolves
+# within about this interval (plus jitter), without a restart.
+internal_dns_reload_interval: 10s
+# Start and validate the service. Off only in molecule (CoreDNS cannot start
+# under the test container's nested systemd).
+internal_dns_manage_service: true
 internal_dns_cache_ttl: 3600
 internal_dns_health_port: 8080
 internal_dns_ready_port: 8181

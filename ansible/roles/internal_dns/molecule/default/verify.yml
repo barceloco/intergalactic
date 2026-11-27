@@ -4,12 +4,6 @@
   become: true
   gather_facts: false
   tasks:
-    - name: Verify CoreDNS data directory exists
-      stat:
-        path: /opt/coredns
-      register: data_dir
-      failed_when: not data_dir.stat.exists
-
     - name: Verify CoreDNS configuration files exist
       stat:
         path: "{{ item }}"
@@ -18,16 +12,32 @@
         - /opt/coredns/Corefile
         - /opt/coredns/db.exnada.com
         - /opt/coredns/docker-compose.yml
-      failed_when: config_files.results | selectattr('stat.exists') | list | length != 3
 
-    - name: Verify CoreDNS container is running
-      command: docker ps --filter name=coredns --format "{{ '{{' }}.Status{{ '}}' }}"
-      register: container_status
-      changed_when: false
-      failed_when: container_status.rc != 0 or 'Up' not in container_status.stdout
+    - name: Verify all three configuration files exist
+      assert:
+        that: config_files.results | selectattr('stat.exists') | list | length == 3
+
+    - name: Read the Corefile and the compose file
+      slurp:
+        src: "{{ item }}"
+      loop:
+        - /opt/coredns/Corefile
+        - /opt/coredns/docker-compose.yml
+      register: coredns_files
+
+    - name: Verify the reload plugin, the directory mount and the pinned image
+      vars:
+        corefile: "{{ coredns_files.results[0].content | b64decode }}"
+        compose: "{{ coredns_files.results[1].content | b64decode }}"
+      assert:
+        that:
+          - corefile is search('\n\s*reload 10s\n')
+          - corefile is search('mpnas\.exnada\.com')
+          - "'/opt/coredns:/etc/coredns:ro' in compose"
+          - "'-conf\", \"/etc/coredns/Corefile' in compose"
+          - "':latest' not in compose"
+          - compose is search('coredns/coredns:[0-9.]+@sha256:[0-9a-f]{64}')
 
     - name: Verify DNS zone file contains private hosts
       command: grep -E "(mpnas|aispector)" /opt/coredns/db.exnada.com
-      register: zone_check
       changed_when: false
-      failed_when: zone_check.rc != 0
