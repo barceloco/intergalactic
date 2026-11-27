@@ -72,11 +72,20 @@ Edge services on rigel are systemd-managed containers: `traefik.service`
 | vega | Unidentified listeners on localhost ports 18789 and 18792 | Not managed here |
 | vega, rigel | Alerts: `fleet-notify` (ntfy), `host-alerts-follow` (logins, sudo), `host-alerts-check` timer (health, integrity, inventory), daily digest; smartd on vega. Deployed 2026-11-27 | `notify`, `host_alerts` roles |
 | vega | Gatus uptime monitor (`/opt/gatus`, port 8148 from rigel only), status page `status.exnada.com`. Deployed 2026-11-27 | `app_gatus` role |
+| vega | Homepage dashboard (`/opt/homepage`, port 3070 from rigel only) at `home.exnada.com`, tiles generated from rigel's routes. Deployed 2026-11-27 | `app_homepage` role |
 
 ## Known Drift
 
 These differ from what the repo intends. Each is a follow-up, not yet fixed:
 
+- **rigel: every route change restarts Traefik** (all routes down for a few
+  seconds, TLS fails until the certificate store loads). `edge_ingress`
+  notifies "Restart traefik" when `dynamic.yml` changes, because that file is
+  bind-mounted as a single file: the template replaces it with a new inode the
+  container never sees, so Traefik's file watch cannot pick it up. Fix: mount
+  the directory and let the file provider watch it, then drop the restart for
+  dynamic changes. CoreDNS also restarts on a new route (documented
+  self-heal).
 - **Both: the dead-man check-in is not active yet.** host_alerts was deployed
   on 2026-11-27 with `-e host_alerts_require_deadman=false` because the
   Healthchecks.io URLs did not exist yet. Add `host_alerts_healthchecks_urls`
@@ -133,13 +142,3 @@ These differ from what the repo intends. Each is a follow-up, not yet fixed:
   `host_alerts_healthchecks_urls` to all_secrets.yml, and run
   `production --tags notify,host_alerts` on both. Until then a full production
   run needs `-e host_alerts_require_deadman=false`.
-
-- **Homepage dashboard (next app after the `common` review).** One instance on
-  vega at `home.exnada.com`, tailnet-only through Traefik on rigel, as an
-  `app_homepage` role like `app_gatus`: pinned image by digest, read-only,
-  non-root, no Docker socket (root-equivalent). `services.yaml` is generated
-  from host_vars (`edge_ingress_routes`, host IPs, ports), so a new route
-  appears without hand edits; each tile shows its Gatus status. Port from the
-  deterministic scheme after the per-host conflict check (deploy-fleet-app
-  skill). Estimate: half a day including tests and deploy. Moves to megrez
-  when arcturus exists.
