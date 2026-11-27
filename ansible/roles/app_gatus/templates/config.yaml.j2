@@ -11,9 +11,11 @@ web:
 ui:
   title: "exnada fleet status"
   header: "exnada fleet"
-  # Gatus sorts by name by default, which interleaves the groups. A sort
-  # chosen in the browser overrides this.
-  default-sort-by: group
+  # One flat list, sorted by name: the name prefixes (DNS internal, DNS public,
+  # Route) keep related checks together. Grouped view starts collapsed in
+  # Gatus with no setting to open it. A sort chosen in the browser overrides
+  # this.
+  default-sort-by: name
 
 alerting:
   ntfy:
@@ -30,7 +32,7 @@ alerting:
 
 endpoints:
 {% for route in hostvars[gatus_edge_host].edge_ingress_routes | default([]) if route.host not in gatus_skip_hosts %}
-  - name: "{{ route.host }}"
+  - name: "Route: {{ route.host }}"
     group: "routes via {{ gatus_edge_host }}"
     url: "https://{{ route.host }}{{ route.health_path | default('/') }}"
     interval: {{ gatus_interval }}
@@ -49,7 +51,7 @@ endpoints:
         description: "{{ route.host }} is unreachable through {{ gatus_edge_host }}, returns an error, or its certificate expires soon"
 {% endfor %}
 {% for name, address in gatus_internal_dns_checks.items() %}
-  - name: "{{ name }}"
+  - name: "DNS internal: {{ name }}"
     group: "internal DNS ({{ gatus_edge_host }})"
     url: "{{ gatus_dns_server }}"
     interval: {{ gatus_interval }}
@@ -64,7 +66,7 @@ endpoints:
         description: "{{ gatus_edge_host }}'s DNS answers {{ name }} wrongly or not at all"
 {% endfor %}
 {% for check in gatus_public_dns_checks %}
-  - name: "{{ check.name }} {{ check.type }}"
+  - name: "DNS public: {{ check.name }} {{ check.type }}"
     group: "public DNS"
     url: "{{ gatus_public_dns_resolver }}"
     interval: 15m
