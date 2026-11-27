@@ -1,0 +1,33 @@
+---
+# Reproduce the hosts as found on 2026-11-27: the old role's seven lines in
+# /etc/sysctl.conf (strict rp_filter) and the redirect defaults live.
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Write the old role's lines to /etc/sysctl.conf
+      copy:
+        dest: /etc/sysctl.conf
+        mode: '0644'
+        content: |
+          # local setting that must survive
+          net.ipv4.ip_local_port_range = 32768 60999
+          net.ipv4.conf.all.rp_filter=1
+          net.ipv4.conf.default.rp_filter=1
+          net.ipv4.tcp_syncookies=1
+          net.ipv4.conf.all.accept_redirects=0
+          net.ipv4.conf.default.accept_redirects=0
+          net.ipv4.conf.all.send_redirects=0
+          net.ipv4.conf.default.send_redirects=0
+
+    - name: Set the live values the hosts had (redirects on per interface)
+      shell: |
+        set -eu
+        for d in /proc/sys/net/ipv4/conf/*; do
+          echo 1 > "$d/send_redirects"
+          echo 1 > "$d/accept_redirects"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true

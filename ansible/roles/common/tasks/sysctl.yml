@@ -1,0 +1,56 @@
+---
+# Network sysctl hardening. Earlier versions wrote these keys to
+# /etc/sysctl.conf with the sysctl module: Debian 13 does not read that file
+# at boot, so the values were lost at every reboot, and rp_filter was strict
+# (1), which drops traffic to the hosts' wlan0 addresses.
+
+- name: Write the network hardening sysctl file
+  template:
+    src: 60-intergalactic-hardening.conf.j2
+    dest: "{{ common_sysctl_file }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: common_sysctl_conf
+
+# procps "sysctl --system" still reads /etc/sysctl.conf, last: the old strict
+# rp_filter there would come back the first time anyone ran it.
+- name: Remove the old hardening lines from /etc/sysctl.conf
+  lineinfile:
+    path: /etc/sysctl.conf
+    regexp: '^\s*net\.ipv4\.(conf\.(all|default)\.(rp_filter|accept_redirects|send_redirects)|tcp_syncookies)\s*='
+    state: absent
+  register: common_sysctl_legacy
+
+# Applies only this file (globs included), not every sysctl.d file.
+- name: Apply the network hardening sysctl file
+  when: common_sysctl_conf is changed or common_sysctl_legacy is changed
+  command: /usr/lib/systemd/systemd-sysctl {{ common_sysctl_file }}
+  changed_when: true
+
+- name: Read the live values
+  shell: |
+    set -eu
+    cd /proc/sys/net/ipv4/conf
+    for d in *; do
+      printf '%s %s %s %s\n' "$d" "$(cat "$d/rp_filter")" "$(cat "$d/accept_redirects")" "$(cat "$d/send_redirects")"
+    done
+    printf 'syncookies %s\n' "$(cat /proc/sys/net/ipv4/tcp_syncookies)"
+  args:
+    executable: /bin/bash
+  register: common_sysctl_live
+  changed_when: false
+  check_mode: false
+
+- name: Gate - live values match the file on every interface
+  when: not ansible_check_mode
+  vars:
+    common_sysctl_wrong: >-
+      {{ common_sysctl_live.stdout_lines
+         | reject('match', '^syncookies 1$')
+         | reject('match', '^\S+ ' ~ (common_rp_filter | int) ~ ' 0 0$')
+         | list }}
+  assert:
+    that: common_sysctl_wrong | length == 0
+    fail_msg: "Live values differ from {{ common_sysctl_file }} (interface rp_filter accept_redirects send_redirects): {{ common_sysctl_wrong }}"
+    quiet: true

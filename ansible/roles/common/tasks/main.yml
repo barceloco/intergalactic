@@ -11,7 +11,7 @@
       - chrony
       - python3
       - python3-apt
-      - dnsutils  # Provides dig, nslookup for DNS testing
+      - bind9-dnsutils  # dig, nslookup (the old name dnsutils is a transitional alias)
       - acl       # setfacl: lets ansible become an unprivileged user (e.g. deploy)
       - hdparm    # disk inspection and power management (external drives)
     state: present
@@ -47,6 +47,7 @@
       register: pi_id
       changed_when: false
       failed_when: false
+      check_mode: false
 
     - name: Lock 'pi' user
       when: pi_id.rc == 0
@@ -55,20 +56,8 @@
         password_lock: true
         shell: /usr/sbin/nologin
 
-- name: Basic sysctl hardening (safe defaults)
-  sysctl:
-    name: "{{ item.name }}"
-    value: "{{ item.value }}"
-    state: present
-    reload: true
-  loop:
-    - {name: "net.ipv4.conf.all.rp_filter", value: "1"}
-    - {name: "net.ipv4.conf.default.rp_filter", value: "1"}
-    - {name: "net.ipv4.tcp_syncookies", value: "1"}
-    - {name: "net.ipv4.conf.all.accept_redirects", value: "0"}
-    - {name: "net.ipv4.conf.default.accept_redirects", value: "0"}
-    - {name: "net.ipv4.conf.all.send_redirects", value: "0"}
-    - {name: "net.ipv4.conf.default.send_redirects", value: "0"}
+- name: Network sysctl hardening
+  import_tasks: sysctl.yml
 
 - name: Ensure hostname (if provided)
   when: hostname is defined

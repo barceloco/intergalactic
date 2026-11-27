@@ -1,0 +1,25 @@
+---
+# Tests the network sysctl hardening (tasks/sysctl.yml) in a privileged
+# Debian 13 container: net.* sysctls are per network namespace, so the test
+# only touches the container's own interfaces (lo, eth0).
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: instance
+    image: geerlingguy/docker-debian13-ansible:latest
+    pre_build_image: true
+    privileged: true
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      instance:
+        ansible_python_interpreter: /usr/bin/python3
+verifier:
+  name: ansible

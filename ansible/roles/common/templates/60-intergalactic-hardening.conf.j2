@@ -1,0 +1,18 @@
+# {{ ansible_managed | default('Managed by Ansible (common)') }}
+# Network hardening. "*" also covers interfaces that exist already or appear
+# later (systemd-sysctl applies it when udev adds an interface); "all" and
+# "default" alone would leave existing interfaces unchanged for the OR-ed keys.
+net.ipv4.tcp_syncookies = 1
+
+# Reverse-path filter (see common_rp_filter in defaults/main.yml).
+net.ipv4.conf.all.rp_filter = {{ common_rp_filter | int }}
+net.ipv4.conf.default.rp_filter = {{ common_rp_filter | int }}
+net.ipv4.conf.*.rp_filter = {{ common_rp_filter | int }}
+
+# Ignore ICMP redirects; these hosts are not routers for anyone.
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.*.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.*.send_redirects = 0

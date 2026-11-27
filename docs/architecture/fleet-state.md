@@ -84,14 +84,13 @@ These differ from what the repo intends. Each is a follow-up, not yet fixed:
 - **rigel: Docker data-root mode.** `docker_host` and `docker_deploy` used to
   set `/home/deploy/docker` to 0750 root:docker, which Docker reset to 0710
   root:root on every start. Both roles now use 0710 root:root (2026-11-27).
-- **Both: `common` has pending changes; do not apply as is** (reviewed
-  2026-11-27). Packages and the `pi` lock are no-ops (no `pi` user exists).
-  The sysctl task writes `/etc/sysctl.conf`, which trixie does not read at
-  boot, so its values were lost at the last reboot. Strict `rp_filter=1` would
-  break the Wi-Fi address of each host (both are dual-homed on the LAN: eth0
-  preferred, wlan0 `.231`/`.252`), including the foundation inventory address
-  of rigel. Fix first: write to `/etc/sysctl.d/`, use `rp_filter=2`, rename
-  `dnsutils` to `bind9-dnsutils`, run the `id pi` probe in check mode.
+- **Both: `common` sysctl hardening fixed and applied (2026-11-27).** The old
+  role wrote `/etc/sysctl.conf` (not read at boot on trixie) with strict
+  `rp_filter=1`, which would drop traffic to each host's wlan0 address (both
+  are dual-homed on the LAN). Now `/etc/sysctl.d/60-intergalactic-hardening.conf`:
+  loose `rp_filter=2` and no ICMP redirects on every interface; old lines
+  removed. Verified on both: all interfaces, both LAN addresses, routes, DNS,
+  Samba, and a boot-time `systemd-sysctl` rerun. No `pi` user exists.
 - **Both: failed units at boot (harmless, unused packages).** `openipmi`
   fails on both hosts (no IPMI hardware); `smartmontools` fails on rigel (no
   SMART-capable disk on the SD card). Both rebooted on 2026-11-27 after the
@@ -128,6 +127,12 @@ These differ from what the repo intends. Each is a follow-up, not yet fixed:
   `unattended-upgrade --dry-run` now allows Debian-Security and Tailscale.
 
 ## Planned Work
+
+- **Dead-man check-in (backlog, deferred 2026-11-27).** Create Healthchecks.io
+  checks for rigel and vega (period 5 min, grace 10 min, email plus ntfy), add
+  `host_alerts_healthchecks_urls` to all_secrets.yml, and run
+  `production --tags notify,host_alerts` on both. Until then a full production
+  run needs `-e host_alerts_require_deadman=false`.
 
 - **Homepage dashboard (next app after the `common` review).** One instance on
   vega at `home.exnada.com`, tailnet-only through Traefik on rigel, as an
