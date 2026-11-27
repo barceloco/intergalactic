@@ -1,0 +1,29 @@
+---
+# Reproduce the state the old version of the updates role left on every host:
+# its lineinfile replaced the first line of Debian's Origins-Pattern block with
+# a one-line block, orphaning the Debian and Debian-Security entries.
+- name: Prepare (reproduce the old breakage)
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Install unattended-upgrades
+      apt:
+        name: unattended-upgrades
+        state: present
+        update_cache: true
+
+    - name: Apply the old role's lineinfile edit
+      lineinfile:
+        path: /etc/apt/apt.conf.d/50unattended-upgrades
+        regexp: '^\s*Unattended-Upgrade::Origins-Pattern\s*\{'
+        line: 'Unattended-Upgrade::Origins-Pattern { "origin=tailscale"; };'
+        state: present
+
+    - name: Confirm the breakage is reproduced (only origin=tailscale allowed)
+      shell: "set -o pipefail; unattended-upgrade --dry-run -d 2>&1 | grep '^Allowed origins are:'"
+      args:
+        executable: /bin/bash
+      register: prepare_allowed
+      changed_when: false
+      failed_when: "prepare_allowed.stdout | trim != 'Allowed origins are: origin=tailscale'"

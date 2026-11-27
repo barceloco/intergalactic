@@ -102,3 +102,8 @@ These differ from what the repo intends. Each is a follow-up, not yet fixed:
   the `samba` role was missing from rigel-production.yml). Added on 2026-11-19.
 - **Both: unattended-upgrades is enabled but not applying security updates.**
   On 2026-11-04, rigel had 61 and vega 141 pending packages from Debian security.
+  Cause (found 2026-11-27): the `updates` role's `lineinfile` replaced the first
+  line of Debian's `Origins-Pattern` block, leaving only `origin=tailscale`
+  allowed, which (case-sensitive; the repo says `Origin: Tailscale`) matched
+  nothing. Fixed in the role (packaged file restored, drop-in, `apt-config`
+  gate, molecule test); takes effect with the next `foundation --tags base` run.

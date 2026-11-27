@@ -1,0 +1,13 @@
+// {{ ansible_managed | default('Managed by Ansible (role updates)') }}
+// Added to Debian's packaged 50unattended-upgrades; apt appends these list
+// entries to the ones defined there. Do not edit 50unattended-upgrades.
+{% set origins = (['origin=Tailscale'] if enable_tailscale | default(false) else []) + updates_extra_origins %}
+{% if origins | length > 0 %}
+Unattended-Upgrade::Origins-Pattern {
+{% for origin in origins %}
+        "{{ origin }}";
+{% endfor %}
+};
+{% endif %}
+Unattended-Upgrade::Automatic-Reboot "{{ 'true' if updates_automatic_reboot | bool else 'false' }}";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ updates_automatic_reboot_time }}";

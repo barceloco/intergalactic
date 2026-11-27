@@ -1,33 +1,103 @@
 ---
-- name: Install unattended-upgrades
-  apt:
-    name:
-      - unattended-upgrades
-      - apt-listchanges
-    state: present
-    update_cache: true
-  when: enable_unattended_upgrades | default(true)
+- name: Skip updates role if not enabled
+  when: not (enable_unattended_upgrades | default(true))
+  debug:
+    msg: "Skipping updates role (enable_unattended_upgrades is false)"
 
-- name: Enable periodic updates
-  copy:
-    dest: /etc/apt/apt.conf.d/20auto-upgrades
-    mode: "0644"
-    content: |
-      APT::Periodic::Update-Package-Lists "1";
-      APT::Periodic::Unattended-Upgrade "1";
+- name: Configure automatic updates (unattended-upgrades)
   when: enable_unattended_upgrades | default(true)
+  block:
+    - name: Install unattended-upgrades
+      apt:
+        name:
+          - unattended-upgrades
+          - apt-listchanges
+        state: present
+        update_cache: true
 
-- name: Configure unattended-upgrades to include Tailscale repository
-  lineinfile:
-    path: /etc/apt/apt.conf.d/50unattended-upgrades
-    regexp: '^\s*Unattended-Upgrade::Origins-Pattern\s*\{'
-    line: 'Unattended-Upgrade::Origins-Pattern { "origin=tailscale"; };'
-    state: present
-    backup: true
-    insertafter: '^//\s*Unattended-Upgrade::Allowed-Origins'
-  when:
-    - enable_unattended_upgrades | default(true)
-    - enable_tailscale | default(false)
-  # Note: This adds Tailscale to the allowed origins pattern
-  # Origins-Pattern works alongside Allowed-Origins and is more flexible
-  # It will match any package from the tailscale origin
+    - name: Enable periodic updates
+      copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: "0644"
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+
+    # Repair hosts configured by the old version of this role. It replaced the
+    # first line of Debian's Origins-Pattern block with a complete one-line
+    # block, so the Debian and Debian-Security entries below it became orphans
+    # and only "origin=tailscale" was allowed (which, lowercase, matched
+    # nothing either). Restore the packaged file from the copy the package
+    # keeps in /usr/share; a backup of the broken file goes to /var/backups.
+    - name: Check for the configuration broken by the old role
+      command: >-
+        grep -qxF 'Unattended-Upgrade::Origins-Pattern { "origin=tailscale"; };'
+        /etc/apt/apt.conf.d/50unattended-upgrades
+      register: updates_broken_config
+      changed_when: false
+      failed_when: updates_broken_config.rc not in [0, 1, 2]
+
+    - name: Restore Debian's packaged 50unattended-upgrades
+      when: updates_broken_config.rc == 0
+      block:
+        - name: Back up the broken configuration
+          copy:
+            src: /etc/apt/apt.conf.d/50unattended-upgrades
+            dest: /var/backups/50unattended-upgrades.broken-by-updates-role
+            remote_src: true
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Copy the packaged configuration back into place
+          copy:
+            src: /usr/share/unattended-upgrades/50unattended-upgrades
+            dest: /etc/apt/apt.conf.d/50unattended-upgrades
+            remote_src: true
+            owner: root
+            group: root
+            mode: "0644"
+
+    - name: Install the intergalactic drop-in (extra origins, reboot policy)
+      template:
+        src: 52intergalactic-unattended-upgrades.j2
+        dest: "{{ updates_dropin_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    # Gate: prove what apt will actually use, so this can never silently break
+    # again. apt-config dump prints the merged configuration.
+    - name: Read the merged apt configuration
+      command: apt-config dump
+      register: updates_apt_config
+      changed_when: false
+
+    - name: Require Debian-Security (and the extra origins) to be allowed
+      vars:
+        updates_patterns: >-
+          {{ updates_apt_config.stdout_lines
+             | select('match', '^Unattended-Upgrade::Origins-Pattern:: ')
+             | map('regex_replace', '^Unattended-Upgrade::Origins-Pattern:: "', '')
+             | map('regex_replace', '";$', '')
+             | list }}
+        updates_expected: >-
+          {{ (['origin=Tailscale'] if enable_tailscale | default(false) else [])
+             + updates_extra_origins }}
+      assert:
+        that:
+          - updates_patterns | select('search', 'label=Debian-Security') | list | length > 0
+          - updates_expected | difference(updates_patterns) | length == 0
+          # Orphaned list entries (the old breakage) show up as lines that
+          # start with a space and a quote.
+          - updates_apt_config.stdout_lines | select('match', '^ "') | list | length == 0
+        fail_msg: |
+          ============================================================================
+          ERROR: unattended-upgrades would not install the expected updates.
+          ============================================================================
+          Allowed origins (apt-config dump): {{ updates_patterns }}
+          Expected at least: a Debian-Security entry and {{ updates_expected }}
+          Check /etc/apt/apt.conf.d/50unattended-upgrades and
+          {{ updates_dropin_path }}, then run: unattended-upgrade --dry-run -d
+          ============================================================================
+        success_msg: "unattended-upgrades allows: {{ updates_patterns | join(', ') }}"
