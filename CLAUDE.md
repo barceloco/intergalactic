@@ -167,6 +167,7 @@ scripts/
 
 **Critical**: Roles must execute in specific order due to dependencies:
 
+0. **notify**, then **host_alerts** (vega and rigel) - Push alerts via ntfy (`fleet-notify`), then login/sudo tripwires (journal follower), health, integrity and dead-man checks. First, so later roles can report through it. Deploy alone with `--tags notify,host_alerts`. Needs `notify_ntfy_topic`, `host_alerts_operator_sources` and `host_alerts_healthchecks_urls` in all_secrets.yml, or the play stops.
 1. **docker_deploy** (if enabled) - Creates deploy user, sets up `/home/deploy/docker`, `/home/deploy/srv`, `/home/deploy/logs`
 2. **internal_dns** (if enabled) - Deploys CoreDNS for split-horizon DNS
 3. **edge_ingress** (if enabled) - Deploys Traefik with built-in ACME for HTTPS

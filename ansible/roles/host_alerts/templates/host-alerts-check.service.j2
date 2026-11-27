@@ -1,0 +1,11 @@
+# {{ ansible_managed | default('Managed by Ansible (host_alerts)') }}
+[Unit]
+Description=Health, integrity and dead-man checks (host_alerts)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/host-alerts-check check
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=idle

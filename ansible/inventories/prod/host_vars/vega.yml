@@ -71,3 +71,11 @@ firewall_rules:
     proto: udp
     from: [tailnet, lan]
     comment: "Samba (NetBIOS name and datagram service)"
+
+# Alerts (roles notify + host_alerts): pushes via ntfy (topic in
+# all_secrets.yml), login/sudo tripwires, health and integrity checks, dead-man
+# ping. Operator addresses and the Healthchecks.io URL are in all_secrets.yml.
+notify_enabled: true
+notify_boot_message: true
+host_alerts_enabled: true
+host_alerts_smart: true    # NVMe and the external 6 TB drives

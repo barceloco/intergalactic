@@ -18,6 +18,14 @@
       import_tasks: shared/production-validation.yml
       tags: always
   roles:
+    # 0. Alerts first: fleet-notify (push via ntfy), then the login, health and
+    # integrity tripwires that report through it. Deployable on their own with
+    # --tags notify,host_alerts.
+    - role: notify
+      tags: [production, notify]
+    - role: host_alerts
+      tags: [production, host_alerts]
+
     # 1. Docker deploy user and directory structure (must be first)
     - role: docker_deploy
       tags: [production, services]

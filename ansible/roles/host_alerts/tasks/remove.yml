@@ -1,0 +1,65 @@
+---
+- name: Check for installed host_alerts units
+  stat:
+    path: "/etc/systemd/system/{{ item }}"
+  loop:
+    - host-alerts-follow.service
+    - host-alerts-check.timer
+    - host-alerts-digest.timer
+  register: host_alerts_present
+
+- name: Stop and disable the host_alerts units
+  when: item.stat.exists
+  systemd:
+    name: "{{ item.item }}"
+    enabled: false
+    state: stopped
+  loop: "{{ host_alerts_present.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Remove the host_alerts files and state
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/host-alerts-follow.service
+    - /etc/systemd/system/host-alerts-check.service
+    - /etc/systemd/system/host-alerts-check.timer
+    - /etc/systemd/system/host-alerts-digest.service
+    - /etc/systemd/system/host-alerts-digest.timer
+    - /usr/local/sbin/host-alerts-follow
+    - /usr/local/sbin/host-alerts-check
+    - "{{ host_alerts_conf_path }}"
+    - "{{ host_alerts_state_dir }}"
+    - /run/host-alerts
+  register: host_alerts_removed
+
+- name: Reload systemd after removing units
+  when: host_alerts_removed is changed
+  systemd:
+    daemon_reload: true
+
+# smartd: only undo what this role wrote (its marker in smartd.conf).
+- name: Check whether smartd.conf was written by host_alerts
+  command: grep -q 'Managed by Ansible (host_alerts)' /etc/smartd.conf
+  register: host_alerts_smartd_ours
+  changed_when: false
+  failed_when: false
+
+- name: Restore Debian's default smartd.conf
+  when: host_alerts_smartd_ours.rc == 0
+  copy:
+    dest: /etc/smartd.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      DEVICESCAN -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner
+  notify: Restart smartd
+
+- name: Remove the smartd alert hook
+  when: host_alerts_smartd_ours.rc == 0
+  file:
+    path: /usr/local/sbin/smartd-fleet-notify
+    state: absent

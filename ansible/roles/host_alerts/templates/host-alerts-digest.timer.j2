@@ -1,0 +1,10 @@
+# {{ ansible_managed | default('Managed by Ansible (host_alerts)') }}
+[Unit]
+Description=Daily host digest
+
+[Timer]
+OnCalendar={{ host_alerts_digest_time }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

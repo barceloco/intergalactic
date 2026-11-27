@@ -1,0 +1,41 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Install sshd, sudo and the notify script's dependencies
+      apt:
+        name: [openssh-server, openssh-client, sudo, curl, iproute2]
+        state: present
+        update_cache: true
+
+    - name: Create the human and automation users
+      user:
+        name: "{{ item }}"
+        shell: /bin/bash
+      loop: [armand, ansible]
+
+    - name: Install fleet-notify (unconfigured, logs pushes to the journal)
+      copy:
+        src: "{{ lookup('env', 'ANSIBLE_ROLES_PATH') }}/notify/files/fleet-notify"
+        dest: /usr/local/sbin/fleet-notify
+        mode: "0755"
+
+    - name: Create a key for a real SSH login
+      command: ssh-keygen -q -t ed25519 -N "" -f /root/test_key
+      args:
+        creates: /root/test_key
+
+    - name: Authorize the key for armand (where the fleet's sshd reads keys)
+      shell: |
+        install -d -m 0755 /etc/ssh/authorized_keys.d
+        install -m 0644 /root/test_key.pub /etc/ssh/authorized_keys.d/armand
+        printf 'AuthorizedKeysFile /etc/ssh/authorized_keys.d/%%u\n' > /etc/ssh/sshd_config.d/10-test.conf
+      changed_when: true
+
+    - name: Start sshd
+      systemd:
+        name: ssh
+        state: restarted
+        enabled: true

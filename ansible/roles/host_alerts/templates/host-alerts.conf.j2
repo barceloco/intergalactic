@@ -1,0 +1,24 @@
+# {{ ansible_managed | default('Managed by Ansible (host_alerts)') }}
+# Read by host-alerts-follow and host-alerts-check. Holds the dead-man URL:
+# root only (0600).
+HUMAN_USERS={{ host_alerts_human_users | join(' ') | quote }}
+AUTOMATION_USER={{ host_alerts_automation_user | quote }}
+PRIVILEGED_USERS={{ host_alerts_privileged_users | join(' ') | quote }}
+OPERATOR_SOURCES={{ host_alerts_operator_sources | join(' ') | quote }}
+LAN_SUBNET={{ host_alerts_lan_subnet | quote }}
+DEDUPE_SECONDS={{ host_alerts_dedupe_seconds | int }}
+AUTOMATION_DEDUPE_SECONDS={{ host_alerts_automation_dedupe_seconds | int }}
+HC_URL={{ host_alerts_healthchecks_urls[inventory_hostname] | default('') | quote }}
+DISK_PERCENT={{ host_alerts_disk_percent | int }}
+SECURITY_UPDATE_DAYS={{ host_alerts_security_update_days | int }}
+STATE_DIR={{ host_alerts_state_dir | quote }}
+{% set homes = ([host_alerts_automation_user] + host_alerts_privileged_users + host_alerts_human_users) | unique %}
+{% set home_paths = [] %}
+{% for u in homes %}
+{%   for f in ['.bashrc', '.profile', '.bash_profile', '.ssh'] %}
+{%     set _ = home_paths.append('/home/' ~ u ~ '/' ~ f) %}
+{%   endfor %}
+{% endfor %}
+CROWN_PATHS={{ host_alerts_crown_paths | join(' ') | quote }}
+TIER2_PATHS={{ (host_alerts_tier2_paths + home_paths + host_alerts_extra_paths) | join(' ') | quote }}
+EXCLUDE_REGEX={{ host_alerts_exclude_regex | quote }}
