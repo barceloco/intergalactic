@@ -46,6 +46,19 @@
         printf 'AuthorizedKeysFile /etc/ssh/authorized_keys.d/%%u\n' > /etc/ssh/sshd_config.d/10-test.conf
       changed_when: true
 
+    - name: Allow real sudo for the test users (armand two commands, ansible all)
+      copy:
+        dest: /etc/sudoers.d/90-test
+        mode: "0440"
+        validate: "visudo -cf %s"
+        content: |
+          armand ALL=(root) NOPASSWD: /usr/bin/id, /usr/bin/echo
+          ansible ALL=(ALL) NOPASSWD: ALL
+
+    - name: Give armand a password (test container only) for a refused sudo
+      shell: echo "armand:test-only-password" | chpasswd
+      changed_when: true
+
     - name: Start sshd
       systemd:
         name: ssh

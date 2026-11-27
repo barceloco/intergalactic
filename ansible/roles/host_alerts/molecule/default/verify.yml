@@ -26,12 +26,30 @@
         logger -t sshd-session "Accepted publickey for armand from 192.168.1.20 port 1 ssh2: ED25519 SHA256:me"
         logger -t sshd-session "Accepted publickey for mallory from 100.64.0.5 port 1 ssh2: ED25519 SHA256:x"
         logger -t sshd-session "Accepted publickey for deploy from 100.64.0.7 port 1 ssh2: ED25519 SHA256:d"
-        logger -t sudo "armand : TTY=pts/0 ; PWD=/home/armand ; USER=root ; COMMAND=/usr/bin/id"
-        logger -t sudo "armand : TTY=pts/0 ; PWD=/ ; USER=root ; COMMAND=/usr/bin/curl -H token=s3cr3tvalue https://x/QWERTYUIOPASDFGHJKLZXCVBNM123"
-        logger -t sudo "ansible : PWD=/home/ansible ; USER=root ; COMMAND=/bin/sh -c echo BECOME-SUCCESS"
         for i in $(seq 1 50); do
           logger -t sshd-session "Accepted publickey for ansible from 100.64.0.5 port $i ssh2: ED25519 SHA256:op"
         done
+      changed_when: false
+
+    # Real sudo (setuid: journald records the caller's uid, so these are
+    # matched by _EXE=/usr/bin/sudo), a refused one, and the automation user.
+    - name: Real sudo calls
+      shell: |
+        # Pause after the 55-line logger burst above: under that load journald
+        # can drop single syslog datagrams, which would test journald, not us.
+        sleep 3
+        runuser -u armand -- sudo -n /usr/bin/id
+        sleep 1
+        runuser -u armand -- sudo -n /usr/bin/echo token=s3cr3tvalue Bearer abc.def QWERTYUIOPASDFGHJKLZXCVBNM1234567890
+        sleep 1
+        printf "wrong\n" | runuser -u armand -- sudo -S -p "" /usr/bin/cat /etc/shadow || true
+        runuser -u ansible -- sudo -n /bin/sh -c "echo BECOME-SUCCESS"
+      changed_when: false
+
+    - name: A non-root user forges a sudo line (must be ignored)
+      command: >-
+        runuser -u armand -- logger -t sudo
+        "armand : TTY=pts/0 ; PWD=/ ; USER=root ; COMMAND=/usr/bin/forged-sudo"
       changed_when: false
 
     - name: A non-root user forges a login line (must be ignored)
@@ -46,18 +64,30 @@
         -o BatchMode=yes armand@127.0.0.1 true
       changed_when: false
 
+    # Pushes are sent in the background, in no guaranteed order: wait until
+    # every expected one has arrived (a lost push fails here after 60 s).
     - name: Wait for the pushes
-      shell: "{{ pushes }} | grep -c 'SSH login from OUTSIDE'"
-      register: outside
+      shell: >-
+        {{ pushes }} | grep -cE 'OUTSIDE the tailnet|sudo: armand: /usr/bin/id|sudo: armand: /usr/bin/echo|sudo refused: armand|automation session|UNEXPECTED source|UNEXPECTED user|SSH login: armand|privileged login'
+      register: arrived
       changed_when: false
-      retries: 15
+      retries: 30
       delay: 2
-      until: outside.stdout | int >= 1
+      until: arrived.stdout | int >= 9
 
     - name: Collect the login pushes
       shell: "sleep 3; {{ pushes }}"
       register: got
       changed_when: false
+
+    - name: What sudo logged (for diagnosis)
+      shell: "journalctl _EXE=/usr/bin/sudo -o cat --no-pager --since @{{ t0.stdout }} | grep -v pam_unix"
+      register: sudolog
+      changed_when: false
+
+    - name: Show the sudo log
+      debug:
+        var: sudolog.stdout_lines
 
     - name: Each class pushed once, bursts collapsed, ansible sudo silent, forgery ignored, secrets masked
       assert:
@@ -70,8 +100,10 @@
           - "got.stdout_lines | select('search', 'sudo: armand: /usr/bin/id') | list | length == 1"
           - "got.stdout_lines | select('search', 'BECOME-SUCCESS') | list | length == 0"
           - "got.stdout_lines | select('search', 'forged') | list | length == 0"
-          - "got.stdout_lines | select('search', 's3cr3tvalue|QWERTYUIOPASDFGHJKLZXCVBNM123') | list | length == 0"
-          - "got.stdout_lines | select('search', 'sudo: armand: /usr/bin/curl -H token=\\*\\*\\*') | list | length == 1"
+          - "got.stdout_lines | select('search', 's3cr3tvalue|abc.def|QWERTYUIOPASDFGHJKLZXCVBNM1234567890') | list | length == 0"
+          - "got.stdout_lines | select('search', 'sudo: armand: /usr/bin/echo token=\\*\\*\\* Bearer') | list | length == 1"
+          - "got.stdout_lines | select('search', 'sudo refused: armand: .*(incorrect password|command not allowed)') | list | length == 1"
+          - "got.stdout_lines | select('search', 'forged-sudo') | list | length == 0"
           - "got.stdout_lines | select('search', 'OUTSIDE the tailnet and LAN: armand from 127.0.0.1') | list | length == 1"
         fail_msg: "{{ got.stdout_lines }}"
 

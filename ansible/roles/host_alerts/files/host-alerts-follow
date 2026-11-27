@@ -110,8 +110,10 @@ on_login() {  # on_login <user> <source> <method> <key>
 # Pushes leave the host (ntfy.sh): mask values that look like secrets.
 redact() {
   printf "%s" "$1" | sed -E \
-    -e "s/((pass|pwd|token|secret|key|auth)[A-Za-z0-9_-]*[=: ]+)[^ ]+/\\1***/Ig" \
-    -e "s/[A-Za-z0-9+_=-]{24,}/***/g"   # long tokens; not paths (no slash)
+    -e 's/(^|[ ;"'"'"'])((--?)?[A-Za-z0-9_.-]*(passw(or)?d|pass|token|secret|api[_-]?key|auth[_-]?key|private[_-]?key|credential)[A-Za-z0-9_.-]*)([=:])[^ ;]*/\1\2\6***/Ig' \
+    -e 's/(^|[ ;])(--?[A-Za-z0-9_-]*(passw(or)?d|pass|token|secret|api-?key|auth-?key|credential)[A-Za-z0-9_-]*) +[^ -][^ ;]*/\1\2 ***/Ig' \
+    -e 's/(Bearer|Basic|Token) +[^ ;]+/\1 ***/Ig' \
+    -e 's/[A-Za-z0-9+_=-]{32,}/***/g'   # long tokens; not paths (no slash)
 }
 
 on_sudo() {  # on_sudo <message after the user>  (sudo's own log line)
@@ -168,14 +170,16 @@ if [ -f "${CURSOR}" ] && [ $(( $(date +%s) - $(stat -c %Y "${CURSOR}") )) -gt 30
   rm -f "${CURSOR}"
 fi
 
-# Only entries whose trusted sender (_UID, set by journald, not forgeable by
-# the client) is root: any local user can log with an arbitrary identifier
-# ("logger -t sshd-session ..."), but sshd, sudo, login, su and display
-# managers log these lines as root.
+# Only entries authenticated by journald's trusted fields (set from the
+# sender's socket credentials, not forgeable by the client): any local user
+# can log with an arbitrary identifier ("logger -t sshd-session ..."). sshd,
+# login and display managers log as root (_UID=0). sudo and su are setuid, so
+# their real uid is the caller's: they are matched by _EXE instead.
 journalctl --follow --lines=0 --output=json --cursor-file="${CURSOR}" \
-  _UID=0 SYSLOG_IDENTIFIER=sshd SYSLOG_IDENTIFIER=sshd-session SYSLOG_IDENTIFIER=sudo \
-  SYSLOG_IDENTIFIER=login SYSLOG_IDENTIFIER=lightdm SYSLOG_IDENTIFIER=su \
-  SYSLOG_IDENTIFIER=su-l SYSLOG_IDENTIFIER=gdm-password SYSLOG_IDENTIFIER=sddm \
+  _UID=0 SYSLOG_IDENTIFIER=sshd SYSLOG_IDENTIFIER=sshd-session SYSLOG_IDENTIFIER=login \
+  SYSLOG_IDENTIFIER=lightdm SYSLOG_IDENTIFIER=gdm-password SYSLOG_IDENTIFIER=sddm \
+  + _EXE=/usr/bin/sudo SYSLOG_IDENTIFIER=sudo \
+  + _EXE=/usr/bin/su SYSLOG_IDENTIFIER=su SYSLOG_IDENTIFIER=su-l \
   | jq --unbuffered -r '
       (.SYSLOG_IDENTIFIER // "") + "\t" +
       ((.MESSAGE | if type == "array" then implode else (. // "") end) | gsub("[\t\r\n]"; " "))' \

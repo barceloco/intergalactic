@@ -4,6 +4,11 @@ services:
     image: {{ gatus_image }}:{{ gatus_image_tag }}@{{ gatus_image_digest }}
     container_name: gatus
     restart: unless-stopped
+    labels:
+      # Changes whenever the configuration or the environment changes, so
+      # `docker compose up -d` recreates the container (also after an
+      # interrupted run). The environment holds the topic; only its hash is here.
+      intergalactic.config-sha256: "{{ (lookup('template', 'config.yaml.j2') ~ lookup('template', 'gatus.env.j2')) | hash('sha256') }}"
     # 0.0.0.0, but the host firewall admits only the edge host's Traefik.
     ports:
       - "{{ gatus_port }}:{{ gatus_internal_port }}"

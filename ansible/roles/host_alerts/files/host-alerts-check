@@ -218,7 +218,7 @@ check_storage_errors() {
   if [ -n "${since}" ]; then range=(--since "@${since}"); else range=(-b); fi   # first run: the whole boot
   lines="$(journalctl -k -q --no-pager -o cat "${range[@]}" --until "@${NOW}" 2> /dev/null \
     | grep -iE 'I/O error|EXT4-fs error|EXT4-fs warning|Buffer I/O error|mmc[0-9]+:.*(error|timeout)|nvme.*(timeout|reset|error)|critical medium error|blk_update_request' \
-    | head -5)"
+    | grep -viE 'Shutdown timeout set to' | head -5)"
   if [ -n "${lines}" ]; then
     send high floppy_disk "storage errors in the kernel log" "${lines}" || return 0
   fi
@@ -276,10 +276,16 @@ snapshot_inventory() {
   # TCP listeners, and UDP sockets bound below the ephemeral port range
   # (client sockets with random ports would be noise).
   ss -Hlnt 2> /dev/null | awk '{print "listen tcp", $4}' | sort -u
-  ss -Hlnu 2> /dev/null | awk '{ n = split($4, a, ":"); if (a[n] + 0 < 32768) print "listen udp", $4 }' | sort -u
+  ss -Hlnu 2> /dev/null | awk '{ n = split($4, a, ":"); if (a[n] + 0 < 32768 || a[n] == 41641) print "listen udp", $4 }' | sort -u
   if command -v tailscale > /dev/null 2>&1; then
-    timeout 20 tailscale status --json 2> /dev/null \
-      | jq -r '.Peer // {} | .[] | "tailnet-peer \(.HostName)"' 2> /dev/null | sort -u
+    local peers
+    if peers="$(timeout 20 tailscale status --json 2> /dev/null)" \
+       && peers="$(jq -re '.Peer // {} | .[] | "tailnet-peer \(.HostName)"' <<< "${peers}" 2> /dev/null)"; then
+      sort -u <<< "${peers}"
+    else
+      # tailscaled not answering: keep the last known peers (no false "removed").
+      grep '^tailnet-peer ' "${STATE_DIR}/baseline.inventory" 2> /dev/null
+    fi
   fi
   systemctl list-unit-files --state=enabled --no-legend --no-pager 2> /dev/null | awk '{print "enabled", $1}' | sort
   getent passwd | awk -F: '$7 !~ /(nologin|false|sync|halt|shutdown)$/ {print "login-user", $1, $3, $7}' | sort
@@ -303,10 +309,11 @@ compare() {
     return 0
   fi
   if [ ! -f "${base}" ]; then
-    # Missing outside an install: someone (or something) removed it.
-    printf '%s\n' "${new}" | write_if_changed "${base}"
+    # Missing outside an install: someone (or something) removed it. Alert
+    # first; record the current state only once the alert was delivered.
     send high warning "integrity baseline $1 was missing" \
-      "It has been recorded again from the current state, which is trusted from now on. Investigate if you did not reinstall host_alerts." || true
+      "It has been recorded again from the current state, which is trusted from now on. Investigate if you did not reinstall host_alerts." \
+      && printf '%s\n' "${new}" | write_if_changed "${base}"
     return 0
   fi
   diffs="$(diff <(cat "${base}") <(printf '%s\n' "${new}") | grep -E '^[<>]' \

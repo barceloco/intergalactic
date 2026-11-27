@@ -61,19 +61,20 @@
         mode: "0644"
       register: gatus_compose
 
+    # In --check nothing above was written, so there is nothing to start.
     - name: Pull the pinned Gatus image
-      when: gatus_compose is changed
+      when: gatus_compose is changed and not ansible_check_mode
       command: docker compose pull
       args:
         chdir: "{{ gatus_dir }}"
       changed_when: true
 
-    # Gatus reads its configuration at start (and watches the file), but the
-    # environment needs a recreate: force it when either changed.
+    # The compose file carries a hash of the configuration and environment as
+    # a label, so `up -d` recreates the container exactly when either changed,
+    # also on a rerun after an interrupted one.
     - name: Start Gatus (recreated when its configuration changed)
-      command: >-
-        docker compose up -d
-        {{ '--force-recreate' if (gatus_config is changed or gatus_env is changed) else '' }}
+      when: not ansible_check_mode
+      command: docker compose up -d
       args:
         chdir: "{{ gatus_dir }}"
       register: gatus_up
@@ -83,6 +84,7 @@
         or 'Start' in (gatus_up.stdout + gatus_up.stderr)
 
     - name: Wait for Gatus to answer on /health
+      when: not ansible_check_mode
       uri:
         url: "http://127.0.0.1:{{ gatus_port }}/health"
         status_code: [200]
@@ -90,6 +92,27 @@
       retries: 20
       delay: 3
       until: gatus_health.status is defined and gatus_health.status == 200
+
+    # Gatus drops an invalid alerting provider with a log line and keeps
+    # running: without this gate a broken ntfy setup would never alert.
+    - name: Read Gatus' start-up log
+      when: not ansible_check_mode
+      command: docker logs gatus
+      register: gatus_log
+      changed_when: false
+
+    - name: Gate - the ntfy alerting provider was accepted
+      when: not ansible_check_mode
+      assert:
+        that:
+          # Gatus logs "configuredProviders=[ntfy]" when it accepts the provider
+          # and "configuredProviders=[]" (plus "Ignoring provider=ntfy") when not.
+          - gatus_providers | length > 0
+          - "'ntfy' in (gatus_providers | last)"
+        fail_msg: "Gatus did not accept its ntfy provider: {{ (gatus_log.stdout ~ gatus_log.stderr) | regex_findall('Ignoring provider=[^\\n]*') }}"
+        quiet: true
+      vars:
+        gatus_providers: "{{ (gatus_log.stdout ~ gatus_log.stderr) | regex_findall('configuredProviders=\\[[^\\]]*\\]') }}"
 
 - name: Remove Gatus
   when: not (gatus_enabled | default(false))

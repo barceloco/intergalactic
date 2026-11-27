@@ -10,7 +10,8 @@ Generated, so nothing has to be kept in sync by hand:
 
 - **Every route** in the edge host's (`rigel`) `edge_ingress_routes`:
   HTTPS through rigel's CoreDNS and Traefik, status below 500, certificate
-  valid for more than 10 days. A new route is monitored on the next deploy.
+  valid for more than 10 days. A new route is monitored after the next
+  `vega production --tags gatus` run (the configuration is rendered there).
 - **Internal DNS** (`gatus_internal_dns_checks`): rigel's CoreDNS answers the
   expected addresses.
 - **Public DNS** (`gatus_public_dns_checks`): NS, MX and A records of
@@ -18,8 +19,9 @@ Generated, so nothing has to be kept in sync by hand:
   hijack is noticed.
 
 Alerts after 3 consecutive failures (2 for public DNS), "resolved" after 2
-successes. On vega it keeps working when rigel dies: then every route fails
-and the alerts say so.
+successes. On vega it keeps working when rigel dies: then every route and
+internal DNS check fails at once, so expect a burst of alerts (and of
+"resolved" messages) for one outage of rigel.
 
 ## Security
 
