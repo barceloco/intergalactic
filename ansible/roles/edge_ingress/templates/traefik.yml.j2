@@ -27,7 +27,8 @@ certificatesResolvers:
       storage: "{{ edge_ingress_data_dir }}/acme.json"
       dnsChallenge:
         provider: godaddy
-        delayBeforeCheck: {{ edge_ingress_acme_delay_before_check | default(180) }}
+        propagation:
+          delayBeforeChecks: "{{ edge_ingress_acme_delay_before_check | default(180) }}s"
         resolvers:
           - "8.8.8.8:53"
           - "8.8.4.4:53"

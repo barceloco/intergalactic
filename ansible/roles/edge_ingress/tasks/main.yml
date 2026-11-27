@@ -95,6 +95,7 @@
   register: tailscale_status_check
   changed_when: false
   failed_when: false
+  check_mode: false  # read-only
 
 - name: Get Tailscale tailnet name
   when:
@@ -108,6 +109,7 @@
       register: tailnet_name_json
       changed_when: false
       failed_when: false
+      check_mode: false  # read-only; --check must render the real backends
 
     - name: Set tailnet name fact
       set_fact:
@@ -165,6 +167,7 @@
   loop: "{{ resolved_routes | default(edge_ingress_routes) }}"
   changed_when: false
   failed_when: false
+  check_mode: false  # read-only; --check must render the real backend IPs
   loop_control:
     label: "{{ item.host }}"
 
