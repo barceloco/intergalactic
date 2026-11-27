@@ -141,6 +141,6 @@ else
     echo "2. Check CoreDNS logs: docker logs coredns"
     echo "3. Check backend: curl http://vega:8000/health"
     echo "4. Check DNS: dig @127.0.0.1 aispector.exnada.com"
-    echo "5. Check Traefik config: cat /opt/traefik/dynamic.yml"
+    echo "5. Check Traefik config: cat /opt/traefik/dynamic/dynamic.yml"
     exit 1
 fi

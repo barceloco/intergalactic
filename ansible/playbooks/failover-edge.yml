@@ -260,6 +260,10 @@
             edge_ingress_enabled: true
             edge_ingress_domain: "{{ failover_domain }}"
             edge_ingress_routes: "{{ failover_routes }}"
+            # Without a copied certificate Traefik serves its self-signed one
+            # until ACME finishes (minutes): gate the routes without verifying it.
+            edge_ingress_gate_verify_tls: >-
+              {{ failover_cert_from_remote is not skipped or failover_cert_from_mac is not skipped }}
 
         # curl, not uri: --resolve sets the TLS server name (SNI) per domain.
         - name: Check that Traefik answers for every route  # noqa: command-instead-of-module

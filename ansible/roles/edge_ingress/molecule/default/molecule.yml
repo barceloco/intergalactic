@@ -31,5 +31,9 @@ provisioner:
         enable_tailscale: false
         godaddy_api_key: "test-godaddy-key"
         godaddy_api_secret: "test-godaddy-secret"
+        # Traefik cannot start under this container's nested systemd: the test
+        # covers rendering only. Start, reload and the route gate are proven on
+        # the real host (scripts/verify-edge-gate.sh).
+        edge_ingress_manage_service: false
 verifier:
   name: ansible

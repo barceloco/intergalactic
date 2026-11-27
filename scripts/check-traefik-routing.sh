@@ -28,7 +28,7 @@ echo ""
 
 echo "2. Traefik Configuration Files"
 echo "----------------------------------------"
-for file in "/opt/traefik/traefik.yml" "/opt/traefik/dynamic.yml"; do
+for file in "/opt/traefik/traefik.yml" "/opt/traefik/dynamic/dynamic.yml"; do
     if [[ -f "$file" ]]; then
         echo -e "${GREEN}✓${NC} $file exists"
         echo "  Size: $(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null) bytes"
@@ -40,9 +40,9 @@ echo ""
 
 echo "3. Traefik Dynamic Configuration (Routes)"
 echo "----------------------------------------"
-if [[ -f "/opt/traefik/dynamic.yml" ]]; then
+if [[ -f "/opt/traefik/dynamic/dynamic.yml" ]]; then
     echo "Routes configured:"
-    grep -A 5 "router-" /opt/traefik/dynamic.yml | grep -E "(router-|rule:|service:)" | head -20 || echo "No routes found"
+    grep -A 5 "router-" /opt/traefik/dynamic/dynamic.yml | grep -E "(router-|rule:|service:)" | head -20 || echo "No routes found"
 else
     echo -e "${RED}✗${NC} dynamic.yml not found"
 fi

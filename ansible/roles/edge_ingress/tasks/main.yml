@@ -257,6 +257,9 @@
     owner: root
     group: root
     mode: '0600'
+    # Create if missing; never bump the timestamps of the live certificate store.
+    access_time: preserve
+    modification_time: preserve
 
 - name: Fix ACME file permissions (force correct permissions)
   when: edge_ingress_enabled | default(false)
@@ -270,13 +273,36 @@
   register: acme_perms_fix
   failed_when: false
 
-- name: Force ACME file permissions using chmod (ensures permissions are set)
+# Routes live in their own directory, which Traefik watches. A change to them
+# is reloaded in place (SIGHUP, no restart). Only a change to the static
+# configuration, the compose file or the unit restarts Traefik, once, below.
+- name: Ensure the dynamic configuration directory exists
   when: edge_ingress_enabled | default(false)
-  command: chmod 0600 {{ edge_ingress_data_dir }}/acme.json
-  args:
-    creates: "{{ edge_ingress_data_dir }}/acme.json"
-  changed_when: true
-  failed_when: false
+  file:
+    path: "{{ edge_ingress_dynamic_dir }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+# The fingerprint is a hash of the file rendered without its own id, so it is
+# stable across runs and changes exactly when the routes change.
+- name: Fingerprint the dynamic configuration
+  when: edge_ingress_enabled | default(false)
+  set_fact:
+    edge_ingress_config_id: >-
+      {{ (lookup('template', 'dynamic.yml.j2', template_vars={'edge_ingress_config_id': ''})
+          | hash('sha256'))[:12] }}
+
+- name: Deploy Traefik dynamic configuration
+  when: edge_ingress_enabled | default(false)
+  template:
+    src: dynamic.yml.j2
+    dest: "{{ edge_ingress_dynamic_dir }}/dynamic.yml"
+    mode: '0644'
+    owner: root
+    group: root
+  register: edge_dynamic
 
 - name: Deploy Traefik static configuration
   when: edge_ingress_enabled | default(false)
@@ -286,17 +312,7 @@
     mode: '0644'
     owner: root
     group: root
-  notify: Restart traefik
-
-- name: Deploy Traefik dynamic configuration
-  when: edge_ingress_enabled | default(false)
-  template:
-    src: dynamic.yml.j2
-    dest: "{{ edge_ingress_data_dir }}/dynamic.yml"
-    mode: '0644'
-    owner: root
-    group: root
-  notify: Restart traefik
+  register: edge_static
 
 - name: Deploy Traefik Docker Compose
   when: edge_ingress_enabled | default(false)
@@ -308,7 +324,7 @@
     mode: '0600'
     owner: root
     group: root
-  notify: Restart traefik
+  register: edge_compose
 
 - name: Deploy Traefik systemd service
   when: edge_ingress_enabled | default(false)
@@ -318,63 +334,33 @@
     mode: '0644'
     owner: root
     group: root
-  notify:
-    - Reload systemd
-    - Restart traefik
+  register: edge_unit
 
-- name: Enable and start Traefik systemd service
+# Traefik loads every .yml/.yaml/.toml in the directory: anything else there
+# would be served as routes.
+- name: List configuration files in the dynamic directory
   when: edge_ingress_enabled | default(false)
-  systemd:
-    name: traefik
-    enabled: yes
-    state: started
-    daemon_reload: yes
+  find:
+    paths: "{{ edge_ingress_dynamic_dir }}"
+    patterns: ['*.yml', '*.yaml', '*.toml']
+    hidden: true
+    recurse: true
+  register: edge_dynamic_files
 
-- name: Converge Traefik to its compose (recreate if the running container drifted)
+- name: Gate - the dynamic directory holds dynamic.yml only
   when: edge_ingress_enabled | default(false)
-  command: docker compose -f {{ edge_ingress_data_dir }}/docker-compose.yml up -d
-  register: edge_traefik_converge
-  changed_when: >-
-    'Recreat' in (edge_traefik_converge.stdout + edge_traefik_converge.stderr)
-    or 'Creat' in (edge_traefik_converge.stdout + edge_traefik_converge.stderr)
-    or 'Start' in (edge_traefik_converge.stdout + edge_traefik_converge.stderr)
-  # docker compose up -d recreates the container when its config differs from the
-  # compose file, so a compose change always converges the running Traefik even
-  # if the restart handler did not fire (e.g. the file was rendered on an earlier
-  # run). Idempotent: a no-op when the container already matches.
-
-- name: Verify Traefik container is running
-  when: edge_ingress_enabled | default(false)
-  command: docker ps --filter name={{ edge_ingress_container_name }} --format "{{ '{{' }}.Status{{ '}}' }}"
-  register: traefik_status_check
-  changed_when: false
-  failed_when: false
-
-- name: Fail if Traefik container is not running
-  when: edge_ingress_enabled | default(false)
+  vars:
+    edge_dynamic_extra: >-
+      {{ edge_dynamic_files.files | map(attribute='path')
+         | reject('equalto', edge_ingress_dynamic_dir ~ '/dynamic.yml') | list }}
   assert:
     that:
-      - traefik_status_check.rc == 0
-      - traefik_status_check.stdout | length > 0
-      - (traefik_status_check.stdout | default('')) is search('Up')
-    fail_msg: |
-      ============================================================================
-      ERROR: Traefik container is not running!
-      ============================================================================
-      The Traefik container failed to start or is not running.
+      - edge_dynamic_extra | length == 0
+    fail_msg: "Unexpected files in {{ edge_ingress_dynamic_dir }} (Traefik would load them as routes): {{ edge_dynamic_extra }}"
+    quiet: true
 
-      Status: {{ traefik_status_check.stdout | default('unknown') }}
-
-      Please check:
-      1. Docker is running: systemctl status docker
-      2. Traefik logs: docker logs {{ edge_ingress_container_name }}
-      3. Ports 80/443 are not already in use: netstat -tuln | grep -E ':(80|443) '
-      4. Configuration files are valid: check {{ edge_ingress_data_dir }}/traefik.yml and dynamic.yml
-      5. Systemd service status: systemctl status traefik
-      ============================================================================
-    success_msg: "✓ Traefik container is running"
-
-- name: Include validation tasks
-  when: edge_ingress_enabled | default(false)
-  tags: [validation, health-check]
-  include_tasks: validate.yml
+- name: Start, restart or reload Traefik and gate the routes
+  when:
+    - edge_ingress_enabled | default(false)
+    - edge_ingress_manage_service | bool
+  import_tasks: service.yml

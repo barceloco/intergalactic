@@ -16,16 +16,19 @@
       register: config_files
       loop:
         - /opt/traefik/traefik.yml
-        - /opt/traefik/dynamic.yml
+        - /opt/traefik/dynamic/dynamic.yml
         - /opt/traefik/docker-compose.yml
         - /opt/traefik/acme.json
-      failed_when: config_files.results | selectattr('stat.exists') | list | length != 4
+
+    - name: Verify all four configuration files exist
+      assert:
+        that: config_files.results | selectattr('stat.exists') | list | length == 4
 
     - name: Verify ACME JSON file permissions
       stat:
         path: /opt/traefik/acme.json
       register: acme_file
-      failed_when: acme_file.stat.mode != "0100600"
+      failed_when: acme_file.stat.mode != "0600"
 
     - name: Verify the compose file (holds the DNS API credentials) is root-only
       stat:
@@ -33,14 +36,45 @@
       register: compose_file
       failed_when: compose_file.stat.mode != "0600" or compose_file.stat.pw_name != "root"
 
-    - name: Verify Traefik container is running
-      command: docker ps --filter name=traefik --format "{{ '{{' }}.Status{{ '}}' }}"
-      register: container_status
-      changed_when: false
-      failed_when: container_status.rc != 0 or 'Up' not in container_status.stdout
-
     - name: Verify dynamic config contains routes
-      command: grep -E "mpnas.exnada.com" /opt/traefik/dynamic.yml
+      command: grep -E "mpnas.exnada.com" /opt/traefik/dynamic/dynamic.yml
       register: route_check
       changed_when: false
       failed_when: route_check.rc != 0
+
+    - name: Read the dynamic config
+      slurp:
+        src: /opt/traefik/dynamic/dynamic.yml
+      register: edge_dynamic_file
+
+    - name: Verify the dynamic config carries a 12-hex fingerprint
+      assert:
+        that:
+          - (edge_dynamic_file.content | b64decode) is search('X-Edge-Config. "[0-9a-f]{12}"')
+
+    - name: Read the static config and the compose file
+      slurp:
+        src: "{{ item }}"
+      loop:
+        - /opt/traefik/traefik.yml
+        - /opt/traefik/docker-compose.yml
+      register: edge_files
+
+    - name: Verify the directory provider, the directory mount and the single flag
+      vars:
+        static: "{{ edge_files.results[0].content | b64decode }}"
+        compose: "{{ edge_files.results[1].content | b64decode }}"
+      assert:
+        that:
+          - "'directory: /dynamic' in static"
+          - "'filename:' not in static"
+          - "'/opt/traefik/dynamic:/dynamic:ro' in compose"
+          - "'/dynamic.yml:' not in compose"
+          - "'--configFile=/traefik.yml' in compose"
+          - "'--log.level' not in compose"
+
+    - name: Verify the old single-file config is gone
+      stat:
+        path: /opt/traefik/dynamic.yml
+      register: legacy
+      failed_when: legacy.stat.exists

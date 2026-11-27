@@ -38,7 +38,7 @@ echo ""
 echo "2. Traefik Configuration"
 echo "----------------------------------------"
 # Check where Traefik config might be
-CONFIG_DIRS=("/opt/traefik" "/etc/traefik" "/var/lib/traefik")
+CONFIG_DIRS=("/opt/traefik/dynamic" "/opt/traefik" "/etc/traefik" "/var/lib/traefik")
 DYNAMIC_FILE=""
 
 for dir in "${CONFIG_DIRS[@]}"; do
@@ -52,13 +52,13 @@ done
 if [[ -z "${DYNAMIC_FILE}" ]]; then
     echo -e "${RED}✗${NC} dynamic.yml not found in standard locations"
     echo "Checking Traefik container mounts for config location..."
-    docker inspect traefik --format '{{range .Mounts}}{{if or (eq .Destination "/dynamic.yml") (contains .Destination "traefik")}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}{{end}}' 2>/dev/null || echo "Could not inspect container"
+    docker inspect traefik --format '{{range .Mounts}}{{if or (eq .Destination "/dynamic") (contains .Destination "traefik")}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}{{end}}' 2>/dev/null || echo "Could not inspect container"
     echo ""
     echo "Checking if /opt/traefik exists:"
     ls -la /opt/traefik 2>/dev/null || echo "  /opt/traefik does not exist"
     echo ""
     echo -e "${YELLOW}⚠${NC} Traefik configuration file is missing!"
-    echo "  You need to create /opt/traefik/dynamic.yml with the route configuration"
+    echo "  You need to create /opt/traefik/dynamic/dynamic.yml with the route configuration"
     echo "  Or run the Ansible edge_ingress role to deploy it properly"
     echo ""
 else
@@ -153,11 +153,11 @@ echo "==========================================================================
 echo "Summary"
 echo "============================================================================"
 echo "If backend is reachable but Traefik returns 502/503:"
-echo "  - Check the backend URL in /opt/traefik/dynamic.yml"
+echo "  - Check the backend URL in /opt/traefik/dynamic/dynamic.yml"
 echo "  - Ensure it matches how Traefik can reach the service"
 echo "  - Traefik uses host networking, so 'localhost:8000' should work"
 echo ""
 echo "If you see 404:"
 echo "  - Route may not be configured in Traefik"
-echo "  - Check /opt/traefik/dynamic.yml for router-dev and service-dev"
+echo "  - Check /opt/traefik/dynamic/dynamic.yml for router-dev and service-dev"
 echo "============================================================================"

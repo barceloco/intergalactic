@@ -85,9 +85,9 @@ if [ -f "/opt/traefik/traefik.yml" ]; then
     validate_traefik_config "/opt/traefik/traefik.yml"
 fi
 
-if [ -f "/opt/traefik/dynamic.yml" ]; then
+if [ -f "/opt/traefik/dynamic/dynamic.yml" ]; then
     echo "Validating Traefik dynamic config..."
-    validate_traefik_config "/opt/traefik/dynamic.yml"
+    validate_traefik_config "/opt/traefik/dynamic/dynamic.yml"
 fi
 
 # Validate docker-compose files

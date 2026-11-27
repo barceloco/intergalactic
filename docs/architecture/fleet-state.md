@@ -78,14 +78,13 @@ Edge services on rigel are systemd-managed containers: `traefik.service`
 
 These differ from what the repo intends. Each is a follow-up, not yet fixed:
 
-- **rigel: every route change restarts Traefik** (all routes down for a few
-  seconds, TLS fails until the certificate store loads). `edge_ingress`
-  notifies "Restart traefik" when `dynamic.yml` changes, because that file is
-  bind-mounted as a single file: the template replaces it with a new inode the
-  container never sees, so Traefik's file watch cannot pick it up. Fix: mount
-  the directory and let the file provider watch it, then drop the restart for
-  dynamic changes. CoreDNS also restarts on a new route (documented
-  self-heal).
+- **rigel: Traefik runs the end-of-life 3.0 line, unpinned (`traefik:v3.0`).**
+  Pin by digest and upgrade in one planned change with a pre-pull before the
+  restart (a failed pull inside the restart would leave the edge down).
+- **rigel: a new route still restarts CoreDNS** (Corefile handler plus the
+  documented self-heal). Traefik no longer restarts on route changes
+  (2026-11-27: routes in a watched directory, live reload, gate with the
+  `X-Edge-Config` fingerprint, automatic rollback; drill verified).
 - **Both: the dead-man check-in is not active yet.** host_alerts was deployed
   on 2026-11-27 with `-e host_alerts_require_deadman=false` because the
   Healthchecks.io URLs did not exist yet. Add `host_alerts_healthchecks_urls`

@@ -19,6 +19,8 @@ http:
           X-XSS-Protection: "1; mode=block"
           Referrer-Policy: "strict-origin-when-cross-origin"
           Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+          # Fingerprint of this file; the deploy gate checks it on every route.
+          X-Edge-Config: "{{ edge_ingress_config_id | default('') }}"
 
     retry:
       retry:
@@ -58,6 +60,7 @@ http:
           X-XSS-Protection: "1; mode=block"
           Referrer-Policy: "strict-origin-when-cross-origin"
           Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+          X-Edge-Config: "{{ edge_ingress_config_id | default('') }}"
 
     # HTTP to HTTPS redirect middleware
 {% if not (edge_ingress_disable_tls | default(false)) %}
@@ -122,4 +125,8 @@ tls:
           main: "*.{{ edge_ingress_domain }}"
           sans:
             - "{{ edge_ingress_domain }}"
+{% endif %}
+{% if edge_ingress_drill_invalid_dynamic | default(false) | bool %}
+# Drill: deliberately unparsable (edge_ingress_drill_invalid_dynamic).
+drill: [unclosed
 {% endif %}

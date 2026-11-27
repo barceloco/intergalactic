@@ -26,7 +26,7 @@ if [ -d "/opt/traefik" ]; then
     mkdir -p "${BACKUP_PATH}/traefik"
     # Backup config files (not acme.json for security)
     cp /opt/traefik/traefik.yml "${BACKUP_PATH}/traefik/" 2>/dev/null || true
-    cp /opt/traefik/dynamic.yml "${BACKUP_PATH}/traefik/" 2>/dev/null || true
+    cp /opt/traefik/dynamic/dynamic.yml "${BACKUP_PATH}/traefik/" 2>/dev/null || true
     # Note: acme.json contains sensitive data, handle separately if needed
 fi
 

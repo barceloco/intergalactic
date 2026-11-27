@@ -34,14 +34,14 @@ echo ""
 
 echo "2. Checking Traefik Dynamic Configuration"
 echo "----------------------------------------"
-if [[ -f "/opt/traefik/dynamic.yml" ]]; then
+if [[ -f "/opt/traefik/dynamic/dynamic.yml" ]]; then
     echo "dev.exnada.com route configuration:"
-    grep -A 10 "router-dev" /opt/traefik/dynamic.yml | head -15 || echo "Route not found"
+    grep -A 10 "router-dev" /opt/traefik/dynamic/dynamic.yml | head -15 || echo "Route not found"
     echo ""
     echo "dev.exnada.com service configuration:"
-    grep -A 5 "service-dev" /opt/traefik/dynamic.yml | head -10 || echo "Service not found"
+    grep -A 5 "service-dev" /opt/traefik/dynamic/dynamic.yml | head -10 || echo "Service not found"
 else
-    echo -e "${RED}✗${NC} /opt/traefik/dynamic.yml not found"
+    echo -e "${RED}✗${NC} /opt/traefik/dynamic/dynamic.yml not found"
 fi
 echo ""
 
@@ -122,8 +122,8 @@ echo ""
 
 echo "5. Checking What Traefik is Actually Using"
 echo "----------------------------------------"
-if [[ -f "/opt/traefik/dynamic.yml" ]]; then
-    BACKEND_URL=$(grep -A 5 "service-dev" /opt/traefik/dynamic.yml | grep "url:" | sed 's/.*url: *"\(.*\)".*/\1/' || echo "NOT FOUND")
+if [[ -f "/opt/traefik/dynamic/dynamic.yml" ]]; then
+    BACKEND_URL=$(grep -A 5 "service-dev" /opt/traefik/dynamic/dynamic.yml | grep "url:" | sed 's/.*url: *"\(.*\)".*/\1/' || echo "NOT FOUND")
     echo "Backend URL in Traefik config: ${BACKEND_URL}"
     if [[ "${BACKEND_URL}" != "NOT FOUND" ]]; then
         echo "Testing ${BACKEND_URL}..."

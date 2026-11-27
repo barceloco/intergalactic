@@ -211,7 +211,7 @@ When `edge_ingress_enabled: true`, the `firewall_nftables` role automatically op
 4. **Check configuration files**:
    ```bash
    sudo cat /opt/traefik/traefik.yml
-   sudo cat /opt/traefik/dynamic.yml
+   sudo cat /opt/traefik/dynamic/dynamic.yml
    ```
 
 ### SSL Certificate Not Issued
@@ -296,12 +296,29 @@ Contains:
 
 ### Dynamic Configuration
 
-Location: `{{ edge_ingress_data_dir }}/dynamic.yml`
+Location: `{{ edge_ingress_dynamic_dir }}/dynamic.yml` (`/opt/traefik/dynamic/`,
+mounted at `/dynamic` and watched by Traefik's file provider)
 
 Contains:
 - Routers (host-based routing with `certResolver: letsencrypt`)
 - Services (backend URLs)
 - Middlewares (security headers, retry)
+- `X-Edge-Config`: a 12-hex fingerprint of the file, sent on every route
+
+### Reload, restart and the gate
+
+- **A route change reloads live.** The role sends Traefik SIGHUP; no restart,
+  no dropped connections. By hand: `systemctl reload traefik`.
+- **Traefik restarts only** when `traefik.yml`, the compose file or the unit
+  changed, once, after a preflight (Docker and the internet answer).
+- **The gate** (`tasks/gate.yml`) runs on every play: each route must answer on
+  this host through Traefik, with a valid certificate and the fingerprint of
+  the routes on disk. Run it alone: `./scripts/verify-edge-gate.sh rigel`.
+- **Automatic rollback on a failed reload:** the last routes that passed the
+  gate (`/opt/traefik/dynamic.yml.good`) are restored and reloaded, and the
+  play fails. After a restart there is no automatic rollback.
+- The dynamic directory must hold `dynamic.yml` only (Traefik loads every
+  `.yml/.yaml/.toml` in it); the role refuses anything else.
 
 ### Docker Compose
 

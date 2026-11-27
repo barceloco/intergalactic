@@ -117,10 +117,10 @@ else
     ((ERRORS++))
 fi
 
-if [[ -f /opt/traefik/dynamic.yml ]]; then
+if [[ -f /opt/traefik/dynamic/dynamic.yml ]]; then
     echo -e "${GREEN}✓${NC} dynamic.yml exists"
     echo "  Routes configured:"
-    grep -E "router-|rule:" /opt/traefik/dynamic.yml | head -5 || echo "  No routes found"
+    grep -E "router-|rule:" /opt/traefik/dynamic/dynamic.yml | head -5 || echo "  No routes found"
 else
     echo -e "${RED}✗${NC} dynamic.yml missing"
     ((ERRORS++))
@@ -238,7 +238,7 @@ else
     echo "1. Check Traefik logs: docker logs traefik"
     echo "2. Check CoreDNS logs: docker logs coredns"
     echo "3. Verify backend is running: curl http://vega:8000/health"
-    echo "4. Check configuration: cat /opt/traefik/dynamic.yml"
+    echo "4. Check configuration: cat /opt/traefik/dynamic/dynamic.yml"
 fi
 echo "============================================================================"
 
