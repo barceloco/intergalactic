@@ -2,11 +2,16 @@
 [Unit]
 Description=Send a "booted" push notification
 Wants=network-online.target
-After=network-online.target tailscaled.service
+After=network-online.target tailscaled.service time-sync.target
 
 [Service]
 Type=oneshot
+# A Pi has no battery clock: it boots at the last saved time, and TLS to ntfy
+# fails ("certificate is not yet valid") until NTP has set the clock. Wait for
+# sync (any NTP daemon; at most 5 minutes), then send either way.
+ExecStartPre=/bin/sh -c 'i=0; until [ "$$(timedatectl show -p NTPSynchronized --value)" = yes ] || [ "$$i" -ge 150 ]; do i=$$((i + 1)); sleep 2; done'
 ExecStart={{ notify_script_path }} -p high -t arrow_up "booted" "{{ inventory_hostname }} booted"
+TimeoutStartSec=8min
 
 [Install]
 WantedBy=multi-user.target

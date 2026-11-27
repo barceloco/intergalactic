@@ -42,16 +42,15 @@
       file:
         path: "{{ docker_data_root | default('/var/lib/docker') }}"
         state: directory
-        mode: '0750'
+        mode: '0710'
         owner: root
-        group: docker
+        group: root
       when:
         - enable_docker | default(false)
         - docker_data_root is defined
         - docker_data_root != '/var/lib/docker'
-      # Docker requires at least 711 permissions for data-root directory
-      # Group is set to docker so users in docker group can read/list
-      # Permissions 750: owner (root) rwx, group (docker) r-x, others none
+      # 0710 root:root is what dockerd itself sets on start. Anything else makes
+      # every run and every Docker restart overwrite each other.
 
     # Note: Docker is intentionally NOT stopped here. daemon.json is only read
     # at daemon startup, so writing it while Docker runs is safe, and the

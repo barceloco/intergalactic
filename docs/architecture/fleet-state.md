@@ -81,17 +81,21 @@ These differ from what the repo intends. Each is a follow-up, not yet fixed:
   on 2026-11-27 with `-e host_alerts_require_deadman=false` because the
   Healthchecks.io URLs did not exist yet. Add `host_alerts_healthchecks_urls`
   to all_secrets.yml and rerun `production --tags notify,host_alerts` on both.
-- **rigel: every production run sets Docker's data-root to 0750.** The
-  `docker_host` dependency of internal_dns/edge_ingress sets
-  `/home/deploy/docker` to 0750; Docker itself uses 0710. Pre-existing, not
-  changed yet.
-- **rigel: `common` has pending changes** (seen in a `foundation --tags base`
-  dry run on 2026-11-27): base packages, locking the `pi` user, and sysctl
-  hardening (`rp_filter`, redirects). Review before applying; `rp_filter` can
-  affect Tailscale routing.
-- **Both: services still use pre-upgrade libraries until a reboot** (sshd,
-  Samba, systemd, ...) after the 2026-11-27 package upgrade; no reboot was
-  required by the kernel.
+- **rigel: Docker data-root mode.** `docker_host` and `docker_deploy` used to
+  set `/home/deploy/docker` to 0750 root:docker, which Docker reset to 0710
+  root:root on every start. Both roles now use 0710 root:root (2026-11-27).
+- **Both: `common` has pending changes; do not apply as is** (reviewed
+  2026-11-27). Packages and the `pi` lock are no-ops (no `pi` user exists).
+  The sysctl task writes `/etc/sysctl.conf`, which trixie does not read at
+  boot, so its values were lost at the last reboot. Strict `rp_filter=1` would
+  break the Wi-Fi address of each host (both are dual-homed on the LAN: eth0
+  preferred, wlan0 `.231`/`.252`), including the foundation inventory address
+  of rigel. Fix first: write to `/etc/sysctl.d/`, use `rp_filter=2`, rename
+  `dnsutils` to `bind9-dnsutils`, run the `id pi` probe in check mode.
+- **Both: failed units at boot (harmless, unused packages).** `openipmi`
+  fails on both hosts (no IPMI hardware); `smartmontools` fails on rigel (no
+  SMART-capable disk on the SD card). Both rebooted on 2026-11-27 after the
+  package upgrade; every container and route came back.
 
 - **vega: aispector data ports are published on all interfaces.** Postgres
   (5432), Redis (6379), and MinIO (9000, 9001) bind `0.0.0.0`. Since the
@@ -122,3 +126,15 @@ These differ from what the repo intends. Each is a follow-up, not yet fixed:
   gate, molecule test). Deployed to both on 2026-11-27 (`foundation --tags
   updates`) after applying the backlog with `upgrade -e os_upgrade_apply=true`;
   `unattended-upgrade --dry-run` now allows Debian-Security and Tailscale.
+
+## Planned Work
+
+- **Homepage dashboard (next app after the `common` review).** One instance on
+  vega at `home.exnada.com`, tailnet-only through Traefik on rigel, as an
+  `app_homepage` role like `app_gatus`: pinned image by digest, read-only,
+  non-root, no Docker socket (root-equivalent). `services.yaml` is generated
+  from host_vars (`edge_ingress_routes`, host IPs, ports), so a new route
+  appears without hand edits; each tile shows its Gatus status. Port from the
+  deterministic scheme after the per-host conflict check (deploy-fleet-app
+  skill). Estimate: half a day including tests and deploy. Moves to megrez
+  when arcturus exists.

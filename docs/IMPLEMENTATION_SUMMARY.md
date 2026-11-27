@@ -72,10 +72,7 @@ All five phases have been fully implemented with production-ready components.
 ## Phase 3: Monitoring and Observability ✅
 
 ### Health Monitoring
-- **Monitoring Role**: `ansible/roles/monitoring_health/`
-  - Systemd timer for automated health checks
-  - Configurable check interval
-  - Logging to systemd journal
+- The `monitoring_health` role was never wired into a playbook and was removed on 2026-11-27. Host monitoring is now `host_alerts` (push alerts) and `app_gatus` (status.exnada.com).
 
 ### Logging
 - **Structured Logging**: JSON format for Traefik
@@ -167,7 +164,6 @@ All five phases have been fully implemented with production-ready components.
 ## Files Created
 
 ### Ansible Roles
-- `ansible/roles/monitoring_health/` - Health monitoring
 - `ansible/roles/backup/` - Backup and restore
 
 ### Scripts
@@ -189,18 +185,9 @@ All five phases have been fully implemented with production-ready components.
 ### Systemd Services
 - `coredns.service` - CoreDNS management
 - `traefik.service` - Traefik management
-- `health-monitor.service` - Health monitoring
 - `backup.service` - Automated backups
 
 ## Usage
-
-### Enable Monitoring
-
-```yaml
-# In host_vars/rigel.yml
-monitoring_health_enabled: true
-monitoring_health_interval: 60
-```
 
 ### Enable Backups
 
