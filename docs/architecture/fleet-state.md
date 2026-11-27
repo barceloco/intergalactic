@@ -94,9 +94,10 @@ These differ from what the repo intends. Each is a follow-up, not yet fixed:
   required by the kernel.
 
 - **vega: aispector data ports are published on all interfaces.** Postgres
-  (5432), Redis (6379), and MinIO (9000, 9001) bind `0.0.0.0`. Docker-published
-  ports bypass the nftables input chain, so they are reachable beyond
-  localhost. Bind them to `127.0.0.1` in the aispector compose files.
+  (5432), Redis (6379), and MinIO (9000, 9001) bind `0.0.0.0`. Since the
+  allow-list firewall (2026-11-19) they are dropped in the forward chain for
+  every off-host source; only other containers on vega can still reach them.
+  Bind them to `127.0.0.1` in the aispector compose files anyway.
 - **vega: aispector API, worker, and beat report `unhealthy`.** They were up
   for 4 months with a failing health check and stay unhealthy after a reboot,
   although aispector.exnada.com/health returns 200 through Traefik.

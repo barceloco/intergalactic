@@ -95,24 +95,32 @@
 
     # Gatus drops an invalid alerting provider with a log line and keeps
     # running: without this gate a broken ntfy setup would never alert.
-    - name: Read Gatus' start-up log
+    - name: Read Gatus' provider lines from its log
       when: not ansible_check_mode
-      command: docker logs gatus
+      shell: >-
+        set -o pipefail;
+        docker logs gatus 2>&1 | grep -E 'configuredProviders=|Ignoring provider=' | tail -n 5 || true
+      args:
+        executable: /bin/bash
       register: gatus_log
       changed_when: false
 
+    # The start-up line can rotate out of Docker's log after weeks of uptime;
+    # the container is recreated whenever its configuration changes, so the
+    # line is present after every change that matters. No line: nothing to
+    # judge. A line without ntfy, or "Ignoring provider=ntfy": fail.
     - name: Gate - the ntfy alerting provider was accepted
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - gatus_log.stdout | length > 0
       assert:
         that:
-          # Gatus logs "configuredProviders=[ntfy]" when it accepts the provider
-          # and "configuredProviders=[]" (plus "Ignoring provider=ntfy") when not.
-          - gatus_providers | length > 0
-          - "'ntfy' in (gatus_providers | last)"
-        fail_msg: "Gatus did not accept its ntfy provider: {{ (gatus_log.stdout ~ gatus_log.stderr) | regex_findall('Ignoring provider=[^\\n]*') }}"
+          - gatus_log.stdout is not search('Ignoring provider=ntfy')
+          - gatus_providers | length == 0 or 'ntfy' in (gatus_providers | last)
+        fail_msg: "Gatus did not accept its ntfy provider: {{ gatus_log.stdout_lines }}"
         quiet: true
       vars:
-        gatus_providers: "{{ (gatus_log.stdout ~ gatus_log.stderr) | regex_findall('configuredProviders=\\[[^\\]]*\\]') }}"
+        gatus_providers: "{{ gatus_log.stdout | regex_findall('configuredProviders=\\[[^\\]]*\\]') }}"
 
 - name: Remove Gatus
   when: not (gatus_enabled | default(false))

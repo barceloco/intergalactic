@@ -33,8 +33,12 @@ slow SSH or sudo, and removing it is removing one unit.
 | local console, desktop or `su` session | high |
 
 Each push names the user, the source address and the key fingerprint.
-Only journal entries whose trusted sender (`_UID`, set by journald) is root are
-used, so an unprivileged process cannot forge a login with `logger`.
+Entries are accepted only by journald's trusted fields: `_UID=0` for sshd,
+login and the display managers, and the executable (`_EXE`) for the setuid
+programs sudo and su, so an unprivileged process cannot forge them with
+`logger`. A sudo or su line whose `_EXE` journald could not record (the
+process exited first, typical for a refused sudo) is still pushed, marked
+"sender unverified"; a line with a different `_EXE` is ignored as a forgery.
 **An "automation session" push while you are not deploying is the
 indicator to act on.**
 

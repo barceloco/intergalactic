@@ -110,14 +110,15 @@ on_login() {  # on_login <user> <source> <method> <key>
 # Pushes leave the host (ntfy.sh): mask values that look like secrets.
 redact() {
   printf "%s" "$1" | sed -E \
-    -e 's/(^|[ ;"'"'"'])((--?)?[A-Za-z0-9_.-]*(passw(or)?d|pass|token|secret|api[_-]?key|auth[_-]?key|private[_-]?key|credential)[A-Za-z0-9_.-]*)([=:])[^ ;]*/\1\2\6***/Ig' \
-    -e 's/(^|[ ;])(--?[A-Za-z0-9_-]*(passw(or)?d|pass|token|secret|api-?key|auth-?key|credential)[A-Za-z0-9_-]*) +[^ -][^ ;]*/\1\2 ***/Ig' \
-    -e 's/(Bearer|Basic|Token) +[^ ;]+/\1 ***/Ig' \
+    -e 's/(^|[ ;"'"'"'?&])((--?)?[A-Za-z0-9_.-]*(passw(or)?d|pass|pwd|token|secret|api[_-]?key|auth[_-]?key|private[_-]?key|credential)[A-Za-z0-9_.-]*"?)(=|: *)("?)[^ ;&"]*/\1\2\6\7***/Ig' \
+    -e 's/(^|[ ;])(--?[A-Za-z0-9_-]*(passw(or)?d|pass|pwd|token|secret|api-?key|auth-?key|credential)[A-Za-z0-9_-]*) +[^ -][^ ;]*/\1\2 ***/Ig' \
+    -e 's/(Bearer|Basic|Token) +[^ ;"]+/\1 ***/Ig' \
+    -e 's#(://[^/ :@]+:)[^@/ ]+@#\1***@#g' \
     -e 's/[A-Za-z0-9+_=-]{32,}/***/g'   # long tokens; not paths (no slash)
 }
 
-on_sudo() {  # on_sudo <message after the user>  (sudo's own log line)
-  local user="$1" rest="$2" cmd
+on_sudo() {  # on_sudo <user> <rest of sudo's log line> <sender note>
+  local user="$1" rest="$2" note="$3" cmd reason
   # The automation user is covered by its login; root gains nothing by sudo.
   [ "${user}" = "${AUTOMATION_USER}" ] && return 0
   [ "${user}" = root ] && return 0
@@ -127,14 +128,31 @@ on_sudo() {  # on_sudo <message after the user>  (sudo's own log line)
   cmd="${cmd:0:160}"
   case "${rest}" in
     *"incorrect password"*|*"command not allowed"*|*"a password is required"*|*"NOT in sudoers"*)
-      push high warning "sudo refused" "${user}: $(redact "${rest}" | cut -c1-200)" "sudo-x:${user}" "${DEDUPE_SECONDS}" ;;
+      # sudo's reason is the first field ("3 incorrect password attempts").
+      reason="${rest%% ; *}"
+      push high warning "sudo refused${note}" "${user}: ${reason:0:80}; COMMAND=${cmd:-?}" "sudo-x:${user}" "${DEDUPE_SECONDS}" ;;
     *)
-      push high zap "sudo" "${user}: ${cmd:-(no command)}" "sudo:${user}:${cmd}" 10 ;;
+      push high zap "sudo${note}" "${user}: ${cmd:-(no command)}" "sudo:${user}:${cmd}" 10 ;;
   esac
 }
 
-handle() {  # handle <syslog identifier> <message>
-  local ident="$1" msg="$2" re
+# sudo and su are setuid, so journald's _UID is the caller's; _EXE (read by
+# journald from /proc) authenticates them. A program that logs and exits at
+# once (a refused sudo) can be gone before journald reads /proc: then _EXE is
+# empty. Such a line cannot be authenticated but must not be dropped, so it
+# is pushed marked as unverified. A different _EXE is a forgery: ignored.
+sender_note() {  # sender_note <expected exe> <actual exe>; prints a note or fails
+  if [ "$2" = "$1" ]; then return 0; fi
+  if [ -z "$2" ]; then printf ' (sender unverified)'; return 0; fi
+  return 1
+}
+
+handle() {  # handle <syslog identifier> <_EXE> <message>
+  local ident="$1" exe="$2" msg="$3" re note
+  case "${ident}" in
+    sudo) note="$(sender_note /usr/bin/sudo "${exe}")" || return 0 ;;
+    su|su-l) note="$(sender_note /usr/bin/su "${exe}")" || return 0 ;;
+  esac
   case "${ident}" in
     sshd|sshd-session)
       re='^Accepted ([^ ]+) for ([^ ]+) from ([^ ]+) port [0-9]+( ssh2)?(: ([^ ]+) ([^ ]+))?'
@@ -145,7 +163,7 @@ handle() {  # handle <syslog identifier> <message>
     sudo)
       re='^ *([^ ]+) : (.*)$'
       if [[ "${msg}" =~ ${re} ]]; then
-        on_sudo "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+        on_sudo "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${note:-}"
       fi
       ;;
     login|lightdm|su|su-l|gdm-password|sddm)
@@ -153,7 +171,7 @@ handle() {  # handle <syslog identifier> <message>
       if [[ "${msg}" =~ ${re} ]]; then
         local user="${BASH_REMATCH[1]}"
         case "${user}" in lightdm|gdm|sddm) return 0 ;; esac
-        push high bust_in_silhouette "local session (${ident})" "${user}: ${msg:0:200}" "local:${ident}:${user}" "${DEDUPE_SECONDS}"
+        push high bust_in_silhouette "local session (${ident})${note:-}" "${user}: ${msg:0:200}" "local:${ident}:${user}" "${DEDUPE_SECONDS}"
       fi
       ;;
   esac
@@ -173,18 +191,20 @@ fi
 # Only entries authenticated by journald's trusted fields (set from the
 # sender's socket credentials, not forgeable by the client): any local user
 # can log with an arbitrary identifier ("logger -t sshd-session ..."). sshd,
-# login and display managers log as root (_UID=0). sudo and su are setuid, so
-# their real uid is the caller's: they are matched by _EXE instead.
+# login and display managers log as root: matched with _UID=0. sudo and su
+# are setuid (their _UID is the caller's): all their lines are read and
+# authenticated by _EXE in handle() (see sender_note).
 journalctl --follow --lines=0 --output=json --cursor-file="${CURSOR}" \
   _UID=0 SYSLOG_IDENTIFIER=sshd SYSLOG_IDENTIFIER=sshd-session SYSLOG_IDENTIFIER=login \
   SYSLOG_IDENTIFIER=lightdm SYSLOG_IDENTIFIER=gdm-password SYSLOG_IDENTIFIER=sddm \
-  + _EXE=/usr/bin/sudo SYSLOG_IDENTIFIER=sudo \
-  + _EXE=/usr/bin/su SYSLOG_IDENTIFIER=su SYSLOG_IDENTIFIER=su-l \
+  + SYSLOG_IDENTIFIER=sudo SYSLOG_IDENTIFIER=su SYSLOG_IDENTIFIER=su-l \
   | jq --unbuffered -r '
-      (.SYSLOG_IDENTIFIER // "") + "\t" +
+      # "-" for a missing _EXE: read would collapse an empty tab field.
+      (.SYSLOG_IDENTIFIER // "-") + "\t" + (._EXE // "-") + "\t" +
       ((.MESSAGE | if type == "array" then implode else (. // "") end) | gsub("[\t\r\n]"; " "))' \
-  | while IFS=$'\t' read -r ident msg; do
-      handle "${ident}" "${msg}"
+  | while IFS=$'\t' read -r ident exe msg; do
+      [ "${exe}" = "-" ] && exe=""
+      handle "${ident}" "${exe}" "${msg}"
       [ "$(jobs -rp | wc -l)" -gt 20 ] && reap
     done
 # journalctl or jq ended: exit non-zero so systemd restarts the follower.

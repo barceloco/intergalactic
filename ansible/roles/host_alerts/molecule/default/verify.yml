@@ -42,6 +42,8 @@
         sleep 1
         runuser -u armand -- sudo -n /usr/bin/echo token=s3cr3tvalue Bearer abc.def QWERTYUIOPASDFGHJKLZXCVBNM1234567890
         sleep 1
+        runuser -u armand -- sudo -n /usr/bin/echo hdr X-API-Key: abcd1234 https://u:pw123@host/p
+        sleep 1
         printf "wrong\n" | runuser -u armand -- sudo -S -p "" /usr/bin/cat /etc/shadow || true
         runuser -u ansible -- sudo -n /bin/sh -c "echo BECOME-SUCCESS"
       changed_when: false
@@ -68,12 +70,12 @@
     # every expected one has arrived (a lost push fails here after 60 s).
     - name: Wait for the pushes
       shell: >-
-        {{ pushes }} | grep -cE 'OUTSIDE the tailnet|sudo: armand: /usr/bin/id|sudo: armand: /usr/bin/echo|sudo refused: armand|automation session|UNEXPECTED source|UNEXPECTED user|SSH login: armand|privileged login'
+        {{ pushes }} | grep -cE 'OUTSIDE the tailnet|sudo: armand: /usr/bin/id|sudo: armand: /usr/bin/echo token|sudo: armand: /usr/bin/echo hdr|sudo refused: armand|automation session|UNEXPECTED source|UNEXPECTED user|SSH login: armand|privileged login'
       register: arrived
       changed_when: false
       retries: 30
       delay: 2
-      until: arrived.stdout | int >= 9
+      until: arrived.stdout | int >= 10
 
     - name: Collect the login pushes
       shell: "sleep 3; {{ pushes }}"
@@ -99,11 +101,15 @@
           - "got.stdout_lines | select('search', 'privileged login from an UNEXPECTED source: deploy from 100.64.0.7') | list | length == 1"
           - "got.stdout_lines | select('search', 'sudo: armand: /usr/bin/id') | list | length == 1"
           - "got.stdout_lines | select('search', 'BECOME-SUCCESS') | list | length == 0"
-          - "got.stdout_lines | select('search', 'forged') | list | length == 0"
+          - "got.stdout_lines | select('search', 'for forged from|forged from 100') | list | length == 0"
           - "got.stdout_lines | select('search', 's3cr3tvalue|abc.def|QWERTYUIOPASDFGHJKLZXCVBNM1234567890') | list | length == 0"
           - "got.stdout_lines | select('search', 'sudo: armand: /usr/bin/echo token=\\*\\*\\* Bearer') | list | length == 1"
           - "got.stdout_lines | select('search', 'sudo refused: armand: .*(incorrect password|command not allowed)') | list | length == 1"
-          - "got.stdout_lines | select('search', 'forged-sudo') | list | length == 0"
+          # A forged line is ignored, or at worst pushed marked unverified
+          # (logger can exit before journald reads its _EXE).
+          - "got.stdout_lines | select('search', 'forged-sudo') | reject('search', 'sender unverified') | list | length == 0"
+          - "got.stdout_lines | select('search', 'abcd1234|pw123') | list | length == 0"
+          - "got.stdout_lines | select('search', 'echo hdr X-API-Key: \\*\\*\\* https://u:\\*\\*\\*@host') | list | length == 1"
           - "got.stdout_lines | select('search', 'OUTSIDE the tailnet and LAN: armand from 127.0.0.1') | list | length == 1"
         fail_msg: "{{ got.stdout_lines }}"
 
