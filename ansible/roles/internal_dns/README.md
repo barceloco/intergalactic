@@ -241,6 +241,21 @@ If systemd-resolved or another DNS server is using port 53:
 
 ## Development Workflow
 
+### Reload instead of restart
+
+`/opt/coredns` is mounted as a directory at `/etc/coredns`, and the Corefile
+enables the `reload` plugin (`internal_dns_reload_interval`, 10s): a changed
+Corefile, e.g. a new route's name, is loaded in process within about 10
+seconds, no restart, with a fresh cache. An invalid Corefile is rejected and
+the running one keeps serving. The role then waits until every internal name
+resolves and fails the play if one does not. CoreDNS restarts only when its
+image (`internal_dns_image_tag`, pinned by digest), compose file or unit
+changes, once, with the image pulled first.
+
+Before changing the image or the Corefile template:
+`./scripts/test-coredns-image.sh` runs the pinned image locally on the
+rendered Corefile and proves a name added to it resolves without a restart.
+
 ### Fast Iteration (Development)
 
 For rapid development and testing, use the direct script instead of running the full Ansible pipeline:
@@ -256,8 +271,7 @@ For rapid development and testing, use the direct script instead of running the 
    # Run the development test script
    sudo ./scripts/test-coredns-config.sh
    
-   # Or manually:
-   docker compose -f /opt/coredns/docker-compose.yml restart
+   # Or manually: the reload plugin picks the change up within ~10 seconds
    dig @127.0.0.1 www.exnada.com
    ```
 

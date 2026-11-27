@@ -18,8 +18,11 @@
     forward . {{ internal_dns_upstream_servers | join(' ') }}
     log
     errors
+    # Re-read this file when it changes (checksum every interval), in
+    # process: queries keep being answered and the cache starts fresh. An
+    # invalid new file is rejected and the running one keeps serving.
+    reload {{ internal_dns_reload_interval }}
 }
 
-# Health, ready, prometheus, and reload endpoints are disabled
-# They require separate server blocks which cause zone parsing errors
-# Use docker healthchecks or external monitoring instead
+# Health, ready and prometheus endpoints are disabled: they need separate
+# server blocks. Gatus and the role's validation check DNS from outside.

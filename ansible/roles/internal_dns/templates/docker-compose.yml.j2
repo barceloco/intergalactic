@@ -1,12 +1,14 @@
 services:
   coredns:
-    image: coredns/coredns:latest
+    image: {{ internal_dns_image }}:{{ internal_dns_image_tag }}@{{ internal_dns_image_digest }}
     container_name: {{ internal_dns_container_name }}
     network_mode: host
     volumes:
-      - {{ internal_dns_data_dir }}/Corefile:/Corefile:ro
-      - {{ internal_dns_data_dir }}/db.{{ internal_dns_domain }}:/db.{{ internal_dns_domain }}:ro
-    command: ["-conf", "/Corefile"]
+      # The directory, not single files: Ansible replaces a file by rename
+      # (new inode), which a single-file mount never shows the container, so
+      # the reload plugin could not see a changed Corefile. Holds no secrets.
+      - {{ internal_dns_data_dir }}:/etc/coredns:ro
+    command: ["-conf", "/etc/coredns/Corefile"]
     restart: always
     cap_add:
       - NET_BIND_SERVICE
