@@ -70,16 +70,28 @@ Edge services on rigel are systemd-managed containers: `traefik.service`
 | vega | `samba-ad-dc` and `winbind` units enabled (AD DC is not serving) | Package defaults, not intended |
 | vega | OpenClaw workspace in `/home/armand/.openclaw` with a grant-watch checkout | Not managed here |
 | vega | Unidentified listeners on localhost ports 18789 and 18792 | Not managed here |
+| vega, rigel | Alerts: `fleet-notify` (ntfy), `host-alerts-follow` (logins, sudo), `host-alerts-check` timer (health, integrity, inventory), daily digest; smartd on vega. Deployed 2026-11-27 | `notify`, `host_alerts` roles |
+| vega | Gatus uptime monitor (`/opt/gatus`, port 8148 from rigel only), status page `status.exnada.com`. Deployed 2026-11-27 | `app_gatus` role |
 
 ## Known Drift
 
 These differ from what the repo intends. Each is a follow-up, not yet fixed:
 
-- **rigel: the next production run restarts Traefik once.** The edge_ingress
-  compose file (it holds the GoDaddy credentials) is now written 0600 instead
-  of 0644 (2026-11-24); the mode change triggers the role's Traefik restart, a
-  brief outage of every *.exnada.com route. Schedule that run. On-host helpers
-  that read the file (validate-configs.sh) now need sudo.
+- **Both: the dead-man check-in is not active yet.** host_alerts was deployed
+  on 2026-11-27 with `-e host_alerts_require_deadman=false` because the
+  Healthchecks.io URLs did not exist yet. Add `host_alerts_healthchecks_urls`
+  to all_secrets.yml and rerun `production --tags notify,host_alerts` on both.
+- **rigel: every production run sets Docker's data-root to 0750.** The
+  `docker_host` dependency of internal_dns/edge_ingress sets
+  `/home/deploy/docker` to 0750; Docker itself uses 0710. Pre-existing, not
+  changed yet.
+- **rigel: `common` has pending changes** (seen in a `foundation --tags base`
+  dry run on 2026-11-27): base packages, locking the `pi` user, and sysctl
+  hardening (`rp_filter`, redirects). Review before applying; `rp_filter` can
+  affect Tailscale routing.
+- **Both: services still use pre-upgrade libraries until a reboot** (sshd,
+  Samba, systemd, ...) after the 2026-11-27 package upgrade; no reboot was
+  required by the kernel.
 
 - **vega: aispector data ports are published on all interfaces.** Postgres
   (5432), Redis (6379), and MinIO (9000, 9001) bind `0.0.0.0`. Docker-published
@@ -100,10 +112,12 @@ These differ from what the repo intends. Each is a follow-up, not yet fixed:
   firewall retires that variable.)
 - **rigel: Samba was configured but never deployed** (`enable_samba: true`, but
   the `samba` role was missing from rigel-production.yml). Added on 2026-11-19.
-- **Both: unattended-upgrades is enabled but not applying security updates.**
+- **Both: unattended-upgrades was not applying security updates (fixed and deployed 2026-11-27).**
   On 2026-11-04, rigel had 61 and vega 141 pending packages from Debian security.
   Cause (found 2026-11-27): the `updates` role's `lineinfile` replaced the first
   line of Debian's `Origins-Pattern` block, leaving only `origin=tailscale`
   allowed, which (case-sensitive; the repo says `Origin: Tailscale`) matched
   nothing. Fixed in the role (packaged file restored, drop-in, `apt-config`
-  gate, molecule test); takes effect with the next `foundation --tags base` run.
+  gate, molecule test). Deployed to both on 2026-11-27 (`foundation --tags
+  updates`) after applying the backlog with `upgrade -e os_upgrade_apply=true`;
+  `unattended-upgrade --dry-run` now allows Debian-Security and Tailscale.
