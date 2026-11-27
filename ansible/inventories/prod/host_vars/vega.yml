@@ -67,6 +67,9 @@ firewall_rules:
   - port: 8148
     from: [rigel]
     comment: "Gatus status page for Traefik on rigel -> status.exnada.com"
+  - port: 3070
+    from: [rigel]
+    comment: "Homepage dashboard for Traefik on rigel -> home.exnada.com"
   - port: [139, 445]
     from: [tailnet, lan]
     comment: "Samba (SMB)"
@@ -98,3 +101,13 @@ gatus_public_dns_checks:
   - {name: exnada.com, type: NS, pattern: "*.domaincontrol.com."}   # GoDaddy
   - {name: exnada.com, type: MX, pattern: "*.mail.protection.outlook.com."}
   - {name: exnada.com, type: A, pattern: "217.21.77.108"}
+
+# Homepage (role app_homepage): fleet dashboard at home.exnada.com (route on
+# rigel, firewall rule above). App tiles come from rigel's edge_ingress_routes.
+homepage_enabled: true
+homepage_image_tag: "v2.8.0"   # 2026-11-11; https://github.com/gethomepage/homepage/releases
+homepage_image_digest: "sha256:019d8f063a7299e7c1c51ee4a70b692291809af3244894fbec2c2ac7d1f71b18"
+homepage_hosts:
+  - {name: rigel, address: "{{ fleet_tailscale_ipv4.rigel }}", description: "edge (CoreDNS, Traefik), dev apps"}
+  - {name: vega, address: "{{ fleet_tailscale_ipv4.vega }}", description: "production apps, Gatus, Homepage, Samba"}
+  - {name: mpnas, address: 100.120.170.43, description: "Synology NAS (SMB, Immich)"}

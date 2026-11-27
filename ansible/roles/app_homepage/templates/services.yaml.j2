@@ -1,0 +1,24 @@
+# {{ ansible_managed | default('Managed by Ansible (app_homepage)') }}
+# Generated from {{ homepage_edge_host }}'s edge_ingress_routes and
+# homepage_hosts: a route added there appears here on the next deploy.
+- Apps:
+{% for route in hostvars[homepage_edge_host].edge_ingress_routes | default([]) if route.host not in homepage_skip_hosts %}
+    - {{ route.host.split('.')[0] | to_json }}:
+        href: {{ ('https://' ~ route.host) | to_json }}
+        description: {{ (route.host ~ ' → ' ~ (route.backend | regex_replace('^https?://', ''))) | to_json }}
+        siteMonitor: {{ ('https://' ~ route.host ~ (route.health_path | default('/'))) | to_json }}
+{% endfor %}
+- Monitoring:
+    - "Gatus":
+        href: {{ homepage_gatus_url | to_json }}
+        description: "Uptime checks and ntfy alerts"
+        widget:
+          type: gatus
+          url: {{ homepage_gatus_url | to_json }}
+{% if homepage_hosts | length > 0 %}
+- Hosts:
+{% for h in homepage_hosts %}
+    - {{ h.name | to_json }}:
+        description: {{ (h.address ~ ': ' ~ h.description) | to_json }}
+{% endfor %}
+{% endif %}

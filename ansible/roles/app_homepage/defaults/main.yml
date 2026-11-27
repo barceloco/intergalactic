@@ -1,0 +1,45 @@
+---
+# app_homepage: Homepage (gethomepage.dev), one dashboard of the fleet: every
+# route with its backend host:port and a live status dot, the Gatus summary,
+# and the hosts with their Tailscale addresses. Served at home.exnada.com
+# through Traefik on the edge host (tailnet only, like every route).
+#
+# All tiles are generated from the inventory (the edge host's
+# edge_ingress_routes, fleet_tailscale_ipv4), so a new route appears without
+# hand edits. No Docker socket (root-equivalent), no secrets, read-only
+# config. Disabling the role (homepage_enabled: false, role still in the play)
+# stops the container and removes /opt/homepage.
+homepage_enabled: false
+
+# Image, REQUIRED pinned version and digest (multi-arch index digest).
+# Read https://github.com/gethomepage/homepage/releases before changing them.
+homepage_image: ghcr.io/gethomepage/homepage
+homepage_image_tag: ""
+homepage_image_digest: ""
+
+homepage_dir: /opt/homepage
+# Deterministic port: Homepage's internal port 3000 + letter sum of
+# "homepage" (70).
+homepage_port: 3070
+homepage_internal_port: 3000
+# The image's files belong to 1000:1000; the app runs as that user.
+homepage_uid: 1000
+
+# The name it is served at (Homepage refuses other Host headers).
+homepage_hostname: home.exnada.com
+
+# The edge host whose routes become tiles, and its DNS server (used by the
+# container, so status checks resolve names the way tailnet clients do).
+homepage_edge_host: rigel
+homepage_dns_server: "{{ fleet_tailscale_ipv4[homepage_edge_host] }}"
+# Routes without a tile (the dashboard itself).
+homepage_skip_hosts: ["home.exnada.com"]
+
+# The Gatus status page (summary widget and link).
+homepage_gatus_url: https://status.exnada.com
+
+homepage_title: exnada fleet
+
+# Host tiles: name, Tailscale address, and what runs there.
+homepage_hosts: []
+#  - {name: rigel, address: 100.115.218.7, description: "edge: CoreDNS, Traefik"}

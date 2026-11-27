@@ -1,0 +1,37 @@
+# {{ ansible_managed | default('Managed by Ansible (app_homepage)') }}
+services:
+  homepage:
+    image: {{ homepage_image }}:{{ homepage_image_tag }}@{{ homepage_image_digest }}
+    container_name: homepage
+    restart: unless-stopped
+    labels:
+      # Changes whenever a configuration file changes, so `docker compose up -d`
+      # recreates the container (Homepage reads some settings only at start).
+      intergalactic.config-sha256: "{{ homepage_config_sha256 }}"
+    # 0.0.0.0, but the host firewall admits only the edge host's Traefik.
+    ports:
+      - "{{ homepage_port }}:{{ homepage_internal_port }}"
+    environment:
+      # Its public name, the local health check, and the names Traefik's backend
+      # health check sends (the port is open to the edge host only).
+      HOMEPAGE_ALLOWED_HOSTS: "{{ [homepage_hostname, '127.0.0.1:' ~ homepage_port, inventory_hostname ~ ':' ~ homepage_port, fleet_tailscale_ipv4[inventory_hostname] ~ ':' ~ homepage_port] | join(',') }}"
+      LOG_TARGETS: stdout
+      NEXT_TELEMETRY_DISABLED: "1"
+    # Resolve names through the edge host's CoreDNS, like tailnet clients.
+    dns:
+      - {{ homepage_dns_server }}
+    volumes:
+      - {{ homepage_dir }}/config:/app/config:ro
+    user: "{{ homepage_uid }}:{{ homepage_uid }}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /app/.next/cache:size=64m,uid={{ homepage_uid }},gid={{ homepage_uid }},mode=0700
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

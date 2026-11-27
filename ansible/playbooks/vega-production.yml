@@ -28,6 +28,8 @@
     # Uptime monitor for the whole fleet (status.exnada.com). --tags gatus
     - role: app_gatus
       tags: [production, gatus]
+    - role: app_homepage
+      tags: [production, homepage]
     - role: monitoring_docker
       tags: [production, monitoring]
     - role: luks

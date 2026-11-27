@@ -1,0 +1,19 @@
+# {{ ansible_managed | default('Managed by Ansible (app_homepage)') }}
+title: {{ homepage_title | to_json }}
+theme: dark
+color: slate
+headerStyle: clean
+statusStyle: dot
+hideVersion: true
+disableUpdateCheck: true
+disableIndexing: true
+layout:
+  Apps:
+    style: row
+    columns: 4
+  Monitoring:
+    style: row
+    columns: 4
+  Hosts:
+    style: row
+    columns: 4
