@@ -11,6 +11,9 @@ web:
 ui:
   title: "exnada fleet status"
   header: "exnada fleet"
+  # Gatus sorts by name by default, which interleaves the groups. A sort
+  # chosen in the browser overrides this.
+  default-sort-by: group
 
 alerting:
   ntfy:
