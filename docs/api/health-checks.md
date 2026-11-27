@@ -59,7 +59,7 @@ dig @127.0.0.1 exnada.com
 
 ## Health Check Script
 
-**Location**: `/usr/local/bin/health-check.sh`
+**Location**: `scripts/health-check.sh` in the repo. No role installs it on the hosts (the old `monitoring_health` role that was meant to was removed); copy it to `/usr/local/bin/` by hand to use it there.
 
 **Usage**:
 ```bash
