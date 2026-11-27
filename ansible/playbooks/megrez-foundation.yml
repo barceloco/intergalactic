@@ -21,7 +21,7 @@
     - role: fail2ban
       tags: [foundation, security]
     - role: updates
-      tags: [foundation, base]
+      tags: [foundation, base, updates]
     - role: tailscale
       tags: [foundation, network]
     - role: docker_host

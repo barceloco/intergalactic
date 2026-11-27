@@ -35,6 +35,7 @@
         /etc/apt/apt.conf.d/50unattended-upgrades
       register: updates_broken_config
       changed_when: false
+      check_mode: false   # read-only, also in --check
       failed_when: updates_broken_config.rc not in [0, 1, 2]
 
     - name: Restore Debian's packaged 50unattended-upgrades
@@ -72,8 +73,12 @@
       command: apt-config dump
       register: updates_apt_config
       changed_when: false
+      check_mode: false   # read-only, also in --check
 
     - name: Require Debian-Security (and the extra origins) to be allowed
+      # In --check the files are not really changed, so the gate would test
+      # the old state.
+      when: not ansible_check_mode
       vars:
         updates_patterns: >-
           {{ updates_apt_config.stdout_lines
