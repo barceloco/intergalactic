@@ -45,7 +45,10 @@ fi
 # Restore Traefik
 if [ -d "${BACKUP_CONTENT}/traefik" ]; then
     echo "Restoring Traefik configuration..."
-    cp "${BACKUP_CONTENT}/traefik"/* /opt/traefik/ 2>/dev/null || true
+    cp "${BACKUP_CONTENT}/traefik/traefik.yml" /opt/traefik/ 2>/dev/null || true
+    # Routes live in the watched directory; never copy them into /opt/traefik.
+    mkdir -p /opt/traefik/dynamic
+    cp "${BACKUP_CONTENT}/traefik/dynamic.yml" /opt/traefik/dynamic/ 2>/dev/null || true
     systemctl restart traefik
 fi
 

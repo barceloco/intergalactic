@@ -18,7 +18,7 @@ NC='\033[0m'
 # 1. Show the actual backend URL in config
 echo "1. Backend URL in Traefik configuration:"
 echo "----------------------------------------"
-grep -A 5 "service-aispector" /opt/traefik/dynamic.yml | grep "url:" || echo "URL not found"
+grep -A 5 "service-aispector" /opt/traefik/dynamic/dynamic.yml | grep "url:" || echo "URL not found"
 echo ""
 
 # 2. Test DNS resolution from host
@@ -138,7 +138,7 @@ if [[ -n "${VEGA_IP}" ]] && docker exec traefik wget -qO- --timeout=5 http://${V
     echo -e "${GREEN}✓${NC} Backend is reachable via IP from Traefik container"
     echo ""
     echo "ALTERNATIVE SOLUTION: Use IP address in backend URL"
-    echo "  Edit /opt/traefik/dynamic.yml and change:"
+    echo "  Edit /opt/traefik/dynamic/dynamic.yml and change:"
     echo "    url: \"http://vega.tailb821ac.ts.net:8000\""
     echo "  To:"
     echo "    url: \"http://${VEGA_IP}:8000\""

@@ -53,11 +53,17 @@ Traefik provides HTTPS termination, TLS certificate management, and request rout
 - Certificate resolvers (ACME/Let's Encrypt)
 - Providers (file-based configuration)
 
-### Dynamic Configuration (dynamic.yml)
+### Dynamic Configuration (dynamic/dynamic.yml)
 
 - Routers (host-based routing rules)
 - Services (backend URLs and health checks)
 - Middlewares (security headers, retry)
+
+Lives in `/opt/traefik/dynamic/`, a directory Traefik watches. A route change
+is reloaded live (SIGHUP, no restart); only a change to `traefik.yml`, the
+compose file or the unit restarts Traefik. After every run a gate checks each
+route on the edge host (certificate and the `X-Edge-Config` fingerprint of the
+routes on disk); `./scripts/verify-edge-gate.sh <host>` runs it alone.
 
 ## Request Flow
 

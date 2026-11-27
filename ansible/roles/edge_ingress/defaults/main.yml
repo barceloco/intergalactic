@@ -15,6 +15,28 @@ edge_ingress_health_check_timeout: 3s
 edge_ingress_health_check_failure_threshold: 3
 edge_ingress_container_name: traefik
 edge_ingress_data_dir: /opt/traefik
+# Traefik's file provider watches this directory (mounted at /dynamic). It
+# holds dynamic.yml only: every .yml/.yaml/.toml in it is loaded. A directory,
+# not a single-file mount, so a changed route reloads live without a restart.
+edge_ingress_dynamic_dir: "{{ edge_ingress_data_dir }}/dynamic"
+
+# Gate after every run: each route must answer on this host through Traefik
+# (SNI, certificate verified) and carry the X-Edge-Config fingerprint of the
+# dynamic.yml just written, which proves Traefik serves the new config.
+edge_ingress_gate_enabled: true
+edge_ingress_gate_verify_tls: "{{ not (edge_ingress_acme_staging | bool) and not (edge_ingress_disable_tls | bool) }}"
+# false: a backend answering 502/503/504 is a warning (the route itself works);
+# true: it fails the play.
+edge_ingress_gate_strict_backends: false
+# Start and gate the service. Off only in molecule: Traefik cannot start under
+# the test container's nested systemd, so the test stops after rendering.
+edge_ingress_manage_service: true
+# Before a restart, check Docker and the internet (the unit waits for both
+# indefinitely).
+edge_ingress_preflight_enabled: true
+# Drill only: renders an unparsable dynamic.yml to prove that Traefik keeps the
+# old routes, the gate catches it, and the previous file is restored.
+edge_ingress_drill_invalid_dynamic: false
 edge_ingress_disable_tls: false  # Set to true to disable TLS (for testing only - not recommended for production)
 edge_ingress_routes: []
   # Example:

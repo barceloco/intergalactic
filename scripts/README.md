@@ -387,6 +387,17 @@ See `docs/runbooks/failover-to-pi.md` (untested until the first drill).
 - For SSL/TLS certificate issues
 - For backend connectivity problems
 
+### `verify-edge-gate.sh`
+
+**Purpose**: Runs only the edge_ingress gate against a host (read-only): every
+route must answer through Traefik on that host with a valid certificate and
+the `X-Edge-Config` fingerprint of the routes on disk.
+
+**Usage**:
+```bash
+./scripts/verify-edge-gate.sh rigel
+```
+
 ### `verify-reverse-proxy.sh`
 
 **Purpose**: Verifies CoreDNS and Traefik deployment status

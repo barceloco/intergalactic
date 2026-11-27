@@ -98,6 +98,7 @@
   command: tailscale ip -4
   register: tailscale_ip_result
   changed_when: false
+  check_mode: false  # read-only; needed for --check to render the records
 
 - name: Validate Tailscale IP was retrieved
   when:
@@ -137,6 +138,7 @@
   command: tailscale status
   register: tailscale_status_all
   changed_when: false
+  check_mode: false  # read-only
 
 - name: Initialize host IPs dictionary
   when:
@@ -155,6 +157,7 @@
   loop: "{{ internal_dns_private_hosts }}"
   changed_when: false
   failed_when: false
+  check_mode: false  # read-only; without it --check renders every host at this host's IP
 
 - name: Build host IPs dictionary from extracted IPs
   when:
@@ -283,6 +286,7 @@
   register: coredns_status_check
   changed_when: false
   failed_when: false
+  check_mode: false  # read-only
 
 - name: Fail if CoreDNS container is not running
   when: internal_dns_enabled | default(false)
@@ -307,6 +311,10 @@
       ============================================================================
     success_msg: "✓ CoreDNS container is running"
 
+# Not in --check: the new records were not written, so the live DNS cannot
+# be validated against them.
 - name: Include validation tasks
-  when: internal_dns_enabled | default(false)
+  when:
+    - internal_dns_enabled | default(false)
+    - not ansible_check_mode
   include_tasks: validate.yml

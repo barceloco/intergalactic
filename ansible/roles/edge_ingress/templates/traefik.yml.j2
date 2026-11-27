@@ -38,7 +38,10 @@ certificatesResolvers:
 {% endif %}
 
 
+# A watched directory, not a single file: the host replaces dynamic.yml by
+# rename (new inode), which a single-file bind mount never shows the container.
+# The role also sends SIGHUP after a change, so reload does not rest on inotify.
 providers:
   file:
-    filename: /dynamic.yml
+    directory: /dynamic
     watch: true

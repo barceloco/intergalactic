@@ -104,8 +104,8 @@ check_routing() {
     
     # Check if dynamic config exists
     local config_dir="/opt/traefik"
-    if [[ ! -f "$config_dir/dynamic.yml" ]]; then
-        log_error "Traefik dynamic configuration not found at $config_dir/dynamic.yml"
+    if [[ ! -f "$config_dir/dynamic/dynamic.yml" ]]; then
+        log_error "Traefik dynamic configuration not found at $config_dir/dynamic/dynamic.yml"
         return 1
     fi
     
@@ -114,9 +114,9 @@ check_routing() {
     # Show configured routes
     log_info "Configured routes:"
     if command -v yq &>/dev/null; then
-        yq '.http.routers' "$config_dir/dynamic.yml"
+        yq '.http.routers' "$config_dir/dynamic/dynamic.yml"
     else
-        grep -A 5 "routers:" "$config_dir/dynamic.yml" || log_warning "Could not parse routes (install yq for better output)"
+        grep -A 5 "routers:" "$config_dir/dynamic/dynamic.yml" || log_warning "Could not parse routes (install yq for better output)"
     fi
 }
 
@@ -133,13 +133,13 @@ test_backend() {
     
     # Extract backend from dynamic config
     local config_dir="/opt/traefik"
-    if [[ ! -f "$config_dir/dynamic.yml" ]]; then
+    if [[ ! -f "$config_dir/dynamic/dynamic.yml" ]]; then
         log_error "Dynamic configuration not found"
         return 1
     fi
     
     log_info "Checking if route exists for $host..."
-    if ! grep -q "$host" "$config_dir/dynamic.yml"; then
+    if ! grep -q "$host" "$config_dir/dynamic/dynamic.yml"; then
         log_warning "No route found for $host in dynamic configuration"
         return 1
     fi
@@ -164,7 +164,7 @@ diagnose() {
     # Check configuration files
     log_info "Checking configuration files..."
     local config_dir="/opt/traefik"
-    for file in traefik.yml dynamic.yml acme.json; do
+    for file in traefik.yml dynamic/dynamic.yml acme.json; do
         if [[ -f "$config_dir/$file" ]]; then
             log_success "$file exists"
             ls -lh "$config_dir/$file"

@@ -48,8 +48,8 @@ docker logs traefik | grep -i cert
 **Solutions**:
 1. **Certificate expired**: Renew certificate
    ```bash
-   # Traefik should auto-renew, but can trigger manually
-   docker exec traefik touch /opt/traefik/dynamic.yml
+   # Traefik should auto-renew; a reload re-reads the routes and TLS store
+   systemctl reload traefik
    ```
 
 2. **ACME file permissions**: Fix permissions
@@ -68,22 +68,19 @@ docker logs traefik | grep -i cert
 **Diagnosis**:
 ```bash
 # Check dynamic configuration
-cat /opt/traefik/dynamic.yml
+cat /opt/traefik/dynamic/dynamic.yml
 
-# Check Traefik API for routes
-curl http://localhost:8080/api/http/routers
-
-# Test routing
-curl -k -H "Host: aispector.exnada.com" https://localhost/health
+# Every route, with certificate and config fingerprint (from the Mac)
+./scripts/verify-edge-gate.sh rigel
 ```
 
 **Solutions**:
-1. **Route not configured**: Add route to dynamic.yml
+1. **Route not configured**: Add it to `edge_ingress_routes` in host_vars and run the role
 2. **Host header mismatch**: Verify Host header matches route
-3. **Configuration error**: Validate YAML syntax
-4. **Reload Traefik**: Restart to pick up changes
+3. **Configuration error**: Traefik keeps the old routes when the file does not parse; `docker logs traefik` shows the error
+4. **Reload Traefik**: picks up route changes without a restart
    ```bash
-   systemctl restart traefik
+   systemctl reload traefik
    ```
 
 ### Issue: HTTP Not Redirecting to HTTPS
@@ -122,7 +119,7 @@ journalctl -u traefik
 
 # Verify configuration
 cat /opt/traefik/traefik.yml
-cat /opt/traefik/dynamic.yml
+cat /opt/traefik/dynamic/dynamic.yml
 
 # Check backend connectivity
 docker exec traefik wget -qO- http://vega.tailb821ac.ts.net:8000/health
@@ -132,5 +129,5 @@ docker exec traefik wget -qO- http://vega.tailb821ac.ts.net:8000/health
 
 - **Container logs**: `docker logs traefik`
 - **Systemd logs**: `journalctl -u traefik`
-- **Configuration**: `/opt/traefik/traefik.yml`, `/opt/traefik/dynamic.yml`
+- **Configuration**: `/opt/traefik/traefik.yml`, `/opt/traefik/dynamic/dynamic.yml`
 - **Certificates**: `/opt/traefik/acme.json`

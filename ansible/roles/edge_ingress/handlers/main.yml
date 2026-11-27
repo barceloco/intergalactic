@@ -1,9 +1,4 @@
 ---
-- name: Reload systemd
-  systemd:
-    daemon_reload: yes
-
-- name: Restart traefik
-  systemd:
-    name: traefik
-    state: restarted
+# No handlers. Restarts and reloads are explicit tasks in tasks/main.yml: a
+# handler fired at play end, after validation, and on top of the compose
+# converge, which restarted Traefik twice for one change.

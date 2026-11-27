@@ -1,0 +1,152 @@
+---
+# Start, restart or reload Traefik, then gate every route. Imported from
+# main.yml after all files are rendered (edge_ingress_manage_service).
+
+- name: Decide whether Traefik must restart
+  set_fact:
+    edge_restart_due: "{{ edge_static is changed or edge_compose is changed or edge_unit is changed }}"
+
+# The unit waits indefinitely for Docker and the network before starting:
+# check them first, so a restart never begins on a host that cannot finish it.
+- name: Preflight - Docker answers before a restart
+  when:
+    - edge_ingress_preflight_enabled | bool
+    - edge_restart_due | bool
+  command: docker info --format '{{ "{{" }}.ServerVersion{{ "}}" }}'
+  changed_when: false
+
+- name: Preflight - the internet is reachable before a restart (ACME, unit check)
+  when:
+    - edge_ingress_preflight_enabled | bool
+    - edge_restart_due | bool
+  command: ping -c 1 -W 5 8.8.8.8
+  changed_when: false
+
+- name: Enable Traefik; restart it only when its static config, compose file or unit changed
+  systemd:
+    name: traefik
+    enabled: true
+    daemon_reload: "{{ edge_unit is changed }}"
+    state: "{{ 'restarted' if (edge_restart_due | bool) else 'started' }}"
+
+# A no-op right after a restart; repairs a container that drifted from its
+# compose file (e.g. recreated by hand).
+- name: Converge Traefik to its compose (recreate if the running container drifted)
+  command: docker compose -f {{ edge_ingress_data_dir }}/docker-compose.yml up -d
+  register: edge_traefik_converge
+  changed_when: >-
+    'Recreat' in (edge_traefik_converge.stdout + edge_traefik_converge.stderr)
+    or 'Creat' in (edge_traefik_converge.stdout + edge_traefik_converge.stderr)
+    or 'Start' in (edge_traefik_converge.stdout + edge_traefik_converge.stderr)
+
+- name: Verify Traefik container is running
+  command: docker ps --filter name={{ edge_ingress_container_name }} --format "{{ '{{' }}.Status{{ '}}' }}"
+  register: traefik_status_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Fail if Traefik container is not running
+  assert:
+    that:
+      - traefik_status_check.rc == 0
+      - traefik_status_check.stdout | length > 0
+      - (traefik_status_check.stdout | default('')) is search('Up')
+    fail_msg: |
+      ============================================================================
+      ERROR: Traefik container is not running!
+      ============================================================================
+      Status: {{ traefik_status_check.stdout | default('unknown') }}
+
+      Please check:
+      1. Docker is running: systemctl status docker
+      2. Traefik logs: docker logs {{ edge_ingress_container_name }}
+      3. Ports 80/443 are not already in use: ss -tlnp | grep -E ':(80|443) '
+      4. Configuration: {{ edge_ingress_data_dir }}/traefik.yml and {{ edge_ingress_dynamic_dir }}/dynamic.yml
+      5. Systemd service status: systemctl status traefik
+      ============================================================================
+    success_msg: "Traefik container is running"
+
+- name: Reload the routes and gate them
+  block:
+    - name: Reload Traefik's routes in place (no restart)
+      when:
+        - edge_dynamic is changed
+        - not (edge_restart_due | bool)
+      command: docker kill --signal=HUP {{ edge_ingress_container_name }}
+      changed_when: true
+
+    # Not in --check: nothing new was written, so there is nothing to gate.
+    - name: Gate the routes
+      when: not ansible_check_mode
+      import_tasks: gate.yml
+      tags: [edge_gate]
+
+  # Reload path only: put the last routes that passed the gate back. After a
+  # restart there is no automatic rollback; the play fails and says so.
+  rescue:
+    - name: Check for the last routes that passed the gate
+      stat:
+        path: "{{ edge_ingress_data_dir }}/dynamic.yml.good"
+      register: edge_dynamic_good
+
+    - name: Restore the last routes that passed the gate
+      when:
+        - edge_dynamic is defined
+        - edge_dynamic is changed
+        - not (edge_restart_due | bool)
+        - edge_dynamic_good.stat.exists
+      copy:
+        src: "{{ edge_ingress_data_dir }}/dynamic.yml.good"
+        dest: "{{ edge_ingress_dynamic_dir }}/dynamic.yml"
+        remote_src: true
+        mode: '0644'
+        owner: root
+        group: root
+      register: edge_dynamic_restored
+
+    - name: Reload the restored routes
+      when: edge_dynamic_restored is changed
+      command: docker kill --signal=HUP {{ edge_ingress_container_name }}
+      changed_when: true
+
+    - name: Gate the restored routes
+      when: edge_dynamic_restored is changed
+      import_tasks: gate.yml
+
+    # always: on a gate-only run (--tags edge_gate) the other rescue tasks are
+    # skipped, and a rescue with nothing failing would report success.
+    - name: Fail after the gate
+      tags: [always]
+      fail:
+        msg: >-
+          The routes failed the gate.
+          {{ 'The previous routes were restored and pass the gate again.'
+             if (edge_dynamic_restored is defined and edge_dynamic_restored is changed)
+             else 'No automatic rollback on this path (Traefik was restarted, or nothing to restore). Check: docker logs ' ~ edge_ingress_container_name }}
+          Fix the routes and run the role again.
+
+# Outside the watched directory, so Traefik never loads it. Written only after
+# the gate passed, so a failed reload always has a known-good file to restore.
+- name: Record the routes that passed the gate
+  when:
+    - edge_ingress_gate_enabled | bool
+    - not ansible_check_mode
+  copy:
+    src: "{{ edge_ingress_dynamic_dir }}/dynamic.yml"
+    dest: "{{ edge_ingress_data_dir }}/dynamic.yml.good"
+    remote_src: true
+    mode: '0644'
+    owner: root
+    group: root
+
+# Pre-directory layout: a single file mounted at /dynamic.yml. Removed only
+# after the gate passed with the directory mount.
+- name: Remove the old single-file dynamic configuration
+  file:
+    path: "{{ edge_ingress_data_dir }}/dynamic.yml"
+    state: absent
+
+- name: Include validation tasks
+  tags: [validation, health-check]
+  include_tasks: validate.yml

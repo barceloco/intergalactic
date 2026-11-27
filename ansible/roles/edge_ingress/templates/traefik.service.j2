@@ -14,7 +14,8 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/bin/docker compose -f {{ edge_ingress_data_dir }}/docker-compose.yml up -d
 ExecStop=/usr/bin/docker compose -f {{ edge_ingress_data_dir }}/docker-compose.yml down
-ExecReload=/usr/bin/docker compose -f {{ edge_ingress_data_dir }}/docker-compose.yml restart
+# Re-reads the routes in place (file provider), no restart, no dropped connections.
+ExecReload=/usr/bin/docker kill --signal=HUP {{ edge_ingress_container_name }}
 Restart=on-failure
 RestartSec=10
 StartLimitInterval=300

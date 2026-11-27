@@ -190,7 +190,7 @@ No service running on the configured backend port.
 3. Verify health check endpoint exists (`/health`)
 4. Check Traefik dynamic configuration:
    ```bash
-   ssh rigel "cat /opt/traefik/dynamic.yml"
+   ssh rigel "cat /opt/traefik/dynamic/dynamic.yml"
    ```
 
 **Prevention**:

@@ -12,18 +12,6 @@
     timeout: 30
     msg: "Traefik is not listening on port 443"
 
-- name: Test Traefik API endpoint (if accessible)
-  when: edge_ingress_enabled | default(false)
-  tags: [validation, health-check]
-  uri:
-    url: http://localhost:8080/ping
-    method: GET
-    status_code: [200, 404]
-    timeout: 5
-  register: traefik_api_test
-  changed_when: false
-  failed_when: false
-
 - name: Validate Traefik configuration syntax
   when: edge_ingress_enabled | default(false)
   tags: [validation]
@@ -113,40 +101,4 @@
     success_msg: "✓ ACME file has correct permissions"
   failed_when: false
 
-- name: Test HTTPS endpoint (if routes are configured)
-  when:
-    - edge_ingress_enabled | default(false)
-    - final_routes is defined
-    - final_routes | length > 0
-    - not (edge_ingress_disable_tls | default(false))
-  tags: [validation, health-check]
-  uri:
-    url: "https://{{ final_routes[0].host }}/health"
-    method: GET
-    status_code: [200, 404, 503]
-    validate_certs: false
-    timeout: 10
-    headers:
-      Host: "{{ final_routes[0].host }}"
-  register: https_test
-  changed_when: false
-  failed_when: false
-
-- name: Report HTTPS test result
-  when:
-    - edge_ingress_enabled | default(false)
-    - https_test is defined
-    - https_test.status is defined
-  tags: [validation, health-check]
-  debug:
-    msg: |
-      HTTPS test for {{ final_routes[0].host }}: {{ https_test.status | default('unknown') }}
-      {% if https_test.status == 200 %}
-      ✓ HTTPS endpoint is working correctly
-      {% elif https_test.status == 503 %}
-      ⚠ HTTPS endpoint returned 503 - backend may not be ready
-      {% elif https_test.status == 404 %}
-      ⚠ HTTPS endpoint returned 404 - route may not be configured correctly
-      {% else %}
-      ⚠ HTTPS endpoint test inconclusive
-      {% endif %}
+# Every route's HTTPS answer is checked by the gate (tasks/gate.yml).

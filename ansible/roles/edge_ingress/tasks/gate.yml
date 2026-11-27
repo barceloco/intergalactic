@@ -1,0 +1,105 @@
+---
+# Gate: every route answers on this host through Traefik and carries the
+# X-Edge-Config fingerprint of the dynamic.yml on disk. A match proves Traefik
+# serves the current routes (after a reload or a restart), the certificate is
+# valid for each name, and the request went through the route's middleware.
+# Traefik's own 404 for an unknown host carries no fingerprint, so it fails.
+#
+# Self-contained (reads the expected id from disk): run it alone with
+#   ./scripts/verify-edge-gate.sh <host>
+
+- name: Gate - read the dynamic configuration on disk
+  when: edge_ingress_gate_enabled | bool
+  slurp:
+    src: "{{ edge_ingress_dynamic_dir }}/dynamic.yml"
+  register: edge_gate_file
+
+- name: Gate - expected fingerprint
+  when: edge_ingress_gate_enabled | bool
+  set_fact:
+    edge_gate_expected: >-
+      {{ (edge_gate_file.content | b64decode
+          | regex_search('X-Edge-Config: "([0-9a-f]{12})"', '\1')) | default([''], true) | first }}
+
+- name: Gate - the configuration carries a fingerprint
+  when: edge_ingress_gate_enabled | bool
+  assert:
+    that: edge_gate_expected | length == 12
+    fail_msg: "No X-Edge-Config fingerprint in {{ edge_ingress_dynamic_dir }}/dynamic.yml"
+    quiet: true
+
+- name: Gate - Traefik listens
+  when: edge_ingress_gate_enabled | bool
+  wait_for:
+    host: 127.0.0.1
+    port: "{{ 80 if (edge_ingress_disable_tls | bool) else 443 }}"
+    timeout: 60
+
+# curl, not uri: --resolve sends the route's name as the TLS server name (SNI)
+# to this host. First wait (up to a minute) until Traefik serves the new
+# fingerprint at all: that covers the reload delay and certificate loading
+# after a restart. Then every route gets a few seconds only, so a failure is
+# reported in about a minute, not one minute per route.
+- name: Gate - Traefik serves the current fingerprint  # noqa: command-instead-of-module
+  when: edge_ingress_gate_enabled | bool
+  vars:
+    edge_gate_scheme: "{{ 'http' if (edge_ingress_disable_tls | bool) else 'https' }}"
+    edge_gate_port: "{{ 80 if (edge_ingress_disable_tls | bool) else 443 }}"
+    edge_gate_first: "{{ edge_ingress_routes | first }}"
+  command: >-
+    curl -sS -o /dev/null --max-time 10
+    {{ '' if (edge_ingress_gate_verify_tls | bool) else '-k' }}
+    --resolve {{ edge_gate_first.host }}:{{ edge_gate_port }}:127.0.0.1
+    -w '%{http_code} %header{x-edge-config}'
+    {{ edge_gate_scheme }}://{{ edge_gate_first.host }}{{ edge_gate_first.health_path | default('/') }}
+  register: edge_gate_first_result
+  until: >-
+    edge_gate_first_result.rc == 0
+    and (edge_gate_first_result.stdout.split(' ') | last) == edge_gate_expected
+  retries: 30
+  delay: 2
+  changed_when: false
+
+- name: Gate - every route serves the current fingerprint  # noqa: command-instead-of-module
+  when: edge_ingress_gate_enabled | bool
+  vars:
+    edge_gate_scheme: "{{ 'http' if (edge_ingress_disable_tls | bool) else 'https' }}"
+    edge_gate_port: "{{ 80 if (edge_ingress_disable_tls | bool) else 443 }}"
+  command: >-
+    curl -sS -o /dev/null --max-time 10
+    {{ '' if (edge_ingress_gate_verify_tls | bool) else '-k' }}
+    --resolve {{ item.host }}:{{ edge_gate_port }}:127.0.0.1
+    -w '%{http_code} %header{x-edge-config}'
+    {{ edge_gate_scheme }}://{{ item.host }}{{ item.health_path | default('/') }}
+  loop: "{{ edge_ingress_routes }}"
+  loop_control:
+    label: "{{ item.host }}"
+  register: edge_gate_routes
+  until: >-
+    edge_gate_routes.rc == 0
+    and (edge_gate_routes.stdout.split(' ') | last) == edge_gate_expected
+  retries: 3
+  delay: 2
+  changed_when: false
+
+- name: Gate - backends that answered with an error
+  when: edge_ingress_gate_enabled | bool
+  set_fact:
+    edge_gate_backend_errors: >-
+      {{ edge_gate_routes.results
+         | selectattr('stdout', 'match', '^50[234] ')
+         | map(attribute='item.host') | list }}
+
+- name: Gate - backend errors
+  when:
+    - edge_ingress_gate_enabled | bool
+    - edge_gate_backend_errors | length > 0
+  assert:
+    that: not (edge_ingress_gate_strict_backends | bool)
+    fail_msg: "Routes work, but these backends answered 502/503/504: {{ edge_gate_backend_errors }}"
+    success_msg: "WARNING: routes work, but these backends answered 502/503/504: {{ edge_gate_backend_errors }}"
+
+- name: Gate - result
+  when: edge_ingress_gate_enabled | bool
+  debug:
+    msg: "All {{ edge_ingress_routes | length }} routes serve fingerprint {{ edge_gate_expected }}"

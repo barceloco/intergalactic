@@ -5,17 +5,14 @@ services:
     network_mode: host
     volumes:
       - {{ edge_ingress_data_dir }}/traefik.yml:/traefik.yml:ro
-      - {{ edge_ingress_data_dir }}/dynamic.yml:/dynamic.yml:ro
+      # The directory, never /opt/traefik itself (it holds this file's
+      # credentials and traefik.yml, which would be loaded as routes).
+      - {{ edge_ingress_dynamic_dir }}:/dynamic:ro
       - {{ edge_ingress_data_dir }}/acme.json:{{ edge_ingress_data_dir }}/acme.json:rw
+    # Static configuration comes from traefik.yml only. Traefik uses exactly one
+    # static source; the CLI flags this list used to hold were ignored.
     command:
-      - "--api.insecure=false"
-      - "--providers.file.filename=/traefik.yml"
-      - "--providers.file.watch=true"
-      - "--providers.docker=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--log.level=DEBUG"
-      - "--log.format=json"
+      - "--configFile=/traefik.yml"
     environment:
       - GODADDY_API_KEY={{ godaddy_api_key }}
       - GODADDY_API_SECRET={{ godaddy_api_secret }}

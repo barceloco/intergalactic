@@ -91,7 +91,7 @@ ls -lh /opt/backups/
 ## What Gets Backed Up
 
 - CoreDNS configuration (`/opt/coredns/`)
-- Traefik configuration (`/opt/traefik/traefik.yml`, `dynamic.yml`)
+- Traefik configuration (`/opt/traefik/traefik.yml`, `/opt/traefik/dynamic/dynamic.yml`)
 - Systemd service files (`/etc/systemd/system/coredns.service`, `traefik.service`)
 
 **Note**: `acme.json` (certificate storage) is NOT backed up by default for security reasons. Handle separately if needed.
