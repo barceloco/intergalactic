@@ -186,12 +186,9 @@
         path: /home/deploy/docker
         state: directory
         owner: root
-        group: docker
-        mode: '0750'
-      # Docker requires at least 711 permissions for data-root directory
-      # Ownership must be root because Docker daemon runs as root
-      # Group is set to docker so deploy user (member of docker group) can read/list
-      # Permissions 750: owner (root) rwx, group (docker) r-x, others none
+        group: root
+        mode: '0710'
+      # 0710 root:root is what dockerd itself sets on start (see docker_host).
 
     - name: Create /home/deploy/srv directory (service data)
       file:
@@ -310,10 +307,9 @@
     path: /home/deploy/docker
     state: directory
     owner: root
-    group: docker
-    mode: '0750'
-  # Docker may change permissions when it starts, so we ensure they're correct
-  # This allows deploy user (member of docker group) to read/list the directory
+    group: root
+    mode: '0710'
+  # Matches what dockerd sets on start, so runs and restarts agree.
 
 - name: Read deploy user SSH public key
   when: enable_docker_deploy | default(false)
