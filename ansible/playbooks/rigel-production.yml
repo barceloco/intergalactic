@@ -44,12 +44,12 @@
 
     # 2. Internal DNS (CoreDNS) - must be available for certificate validation
     - role: internal_dns
-      tags: [production, services]
+      tags: [production, services, dns]
 
     # 3. Edge ingress (Traefik) - includes built-in ACME certificate management
     # Note: cert_issuer role is disabled - using Traefik's built-in ACME instead
     - role: edge_ingress
-      tags: [production, services]
+      tags: [production, services, edge]
 
     # 4. Certificate issuer (lego) - DISABLED by default, using Traefik ACME
     # Uncomment and enable cert_issuer_enabled in host_vars if you prefer lego
