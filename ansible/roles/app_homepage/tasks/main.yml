@@ -1,0 +1,162 @@
+---
+- name: Deploy Homepage
+  when: homepage_enabled | default(false)
+  block:
+    - name: Validate the Homepage settings
+      assert:
+        that:
+          - homepage_image_tag | length > 0
+          - homepage_image_tag not in ['latest', 'stable']
+          - homepage_image_digest is match('^sha256:[0-9a-f]{64}$')
+          - hostvars[homepage_edge_host] is defined
+          - homepage_dns_server | length > 0
+          - homepage_hostname | length > 0
+        fail_msg: |
+          ============================================================================
+          ERROR: Homepage is enabled but not configured.
+          ============================================================================
+          Needs in host_vars: homepage_image_tag and homepage_image_digest (pinned;
+          read https://github.com/gethomepage/homepage/releases).
+          ============================================================================
+        quiet: true
+
+    # Homepage copies an example file into its configuration directory for
+    # every file that is missing; the directory is read-only in the container,
+    # so all of them are provided.
+    - name: Define the Homepage configuration files
+      set_fact:
+        homepage_config_files:
+          - {dest: settings.yaml, src: settings.yaml.j2}
+          - {dest: services.yaml, src: services.yaml.j2}
+          - {dest: widgets.yaml, src: empty-list.yaml.j2}
+          - {dest: bookmarks.yaml, src: empty-list.yaml.j2}
+          - {dest: docker.yaml, src: empty.yaml.j2}
+          - {dest: kubernetes.yaml, src: empty.yaml.j2}
+          - {dest: proxmox.yaml, src: empty.yaml.j2}
+
+    # The other files are fixed placeholders; these two carry the content.
+    - name: Hash the Homepage configuration
+      set_fact:
+        homepage_config_sha256: >-
+          {{ (lookup('template', 'settings.yaml.j2') ~ lookup('template', 'services.yaml.j2')) | hash('sha256') }}
+
+    # Holds no secret: readable by the container's unprivileged user.
+    - name: Create the Homepage directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - "{{ homepage_dir }}"
+        - "{{ homepage_dir }}/config"
+
+    - name: Render the Homepage configuration
+      template:
+        src: "{{ item.src }}"
+        dest: "{{ homepage_dir }}/config/{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ homepage_config_files }}"
+      loop_control:
+        label: "{{ item.dest }}"
+
+    - name: Write the empty custom CSS and JS
+      copy:
+        content: ""
+        dest: "{{ homepage_dir }}/config/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: [custom.css, custom.js]
+
+    - name: Render the Homepage compose file
+      template:
+        src: docker-compose.yml.j2
+        dest: "{{ homepage_dir }}/docker-compose.yml"
+        owner: root
+        group: root
+        mode: "0644"
+      register: homepage_compose
+
+    # In --check nothing above was written, so there is nothing to start.
+    - name: Pull the pinned Homepage image
+      when: homepage_compose is changed and not ansible_check_mode
+      command: docker compose pull
+      args:
+        chdir: "{{ homepage_dir }}"
+      changed_when: true
+
+    # The compose file carries a hash of the configuration as a label, so
+    # `up -d` recreates the container exactly when it changed, also on a rerun
+    # after an interrupted one.
+    - name: Start Homepage (recreated when its configuration changed)
+      when: not ansible_check_mode
+      command: docker compose up -d
+      args:
+        chdir: "{{ homepage_dir }}"
+      register: homepage_up
+      changed_when: >-
+        'Recreat' in (homepage_up.stdout + homepage_up.stderr)
+        or 'Creat' in (homepage_up.stdout + homepage_up.stderr)
+        or 'Start' in (homepage_up.stdout + homepage_up.stderr)
+
+    # With the Host header Traefik's backend health check sends: Homepage
+    # rejects unknown host names (400), and Traefik then serves 503.
+    - name: Wait for Homepage to answer on /api/healthcheck
+      when: not ansible_check_mode
+      uri:
+        url: "http://127.0.0.1:{{ homepage_port }}/api/healthcheck"
+        headers:
+          Host: "{{ inventory_hostname }}:{{ homepage_port }}"
+        status_code: [200]
+      register: homepage_health
+      retries: 30
+      delay: 3
+      until: homepage_health.status is defined and homepage_health.status == 200
+
+    # The page must render the generated services; a YAML or host-check error
+    # shows up here, not in the health check.
+    - name: Read the services Homepage serves
+      when: not ansible_check_mode
+      uri:
+        url: "http://127.0.0.1:{{ homepage_port }}/api/services"
+        return_content: true
+      register: homepage_services
+      retries: 5
+      delay: 3
+      until: homepage_services.status is defined and homepage_services.status == 200
+
+    - name: Gate - Homepage serves every generated group
+      when: not ansible_check_mode
+      vars:
+        homepage_groups: "{{ homepage_services.json | map(attribute='name') | list }}"
+      assert:
+        that:
+          - "'Apps' in homepage_groups"
+          - "'Monitoring' in homepage_groups"
+          - homepage_hosts | length == 0 or 'Hosts' in homepage_groups
+        fail_msg: "Homepage serves groups {{ homepage_groups }}; expected Apps, Monitoring and Hosts"
+        quiet: true
+
+- name: Remove Homepage
+  when: not (homepage_enabled | default(false))
+  block:
+    - name: Check for a Homepage installation
+      stat:
+        path: "{{ homepage_dir }}/docker-compose.yml"
+      register: homepage_installed
+
+    - name: Stop and remove the Homepage container
+      when: homepage_installed.stat.exists
+      command: docker compose down
+      args:
+        chdir: "{{ homepage_dir }}"
+      changed_when: true
+
+    - name: Remove the Homepage directory
+      file:
+        path: "{{ homepage_dir }}"
+        state: absent
