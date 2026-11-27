@@ -1,0 +1,112 @@
+---
+- name: Deploy Gatus
+  when: gatus_enabled | default(false)
+  block:
+    - name: Validate the Gatus settings
+      assert:
+        that:
+          - gatus_image_tag | length > 0
+          - gatus_image_tag not in ['latest', 'stable']
+          - gatus_image_digest is match('^sha256:[0-9a-f]{64}$')
+          - gatus_ntfy_topic | length >= 16
+          - gatus_ntfy_topic is not search('CHANGE_ME')
+          - gatus_ntfy_url is match('^https://[^/]+')
+          - hostvars[gatus_edge_host] is defined
+          - gatus_dns_server | length > 0
+        fail_msg: |
+          ============================================================================
+          ERROR: Gatus is enabled but not configured.
+          ============================================================================
+          Needs in host_vars: gatus_image_tag and gatus_image_digest (pinned; read
+          https://github.com/TwiN/gatus/releases), and notify_ntfy_topic in
+          all_secrets.yml (the same topic fleet-notify uses).
+          ============================================================================
+        quiet: true
+
+    - name: Create the Gatus directory (root only)
+      file:
+        path: "{{ gatus_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Render the Gatus configuration
+      template:
+        src: config.yaml.j2
+        dest: "{{ gatus_dir }}/config.yaml"
+        owner: root
+        group: root
+        # Read by the container's unprivileged user through a bind mount; it
+        # holds no secret (the ntfy topic comes from gatus.env).
+        mode: "0644"
+      register: gatus_config
+
+    - name: Write the Gatus environment (ntfy topic; root only)
+      template:
+        src: gatus.env.j2
+        dest: "{{ gatus_dir }}/gatus.env"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      register: gatus_env
+
+    - name: Render the Gatus compose file
+      template:
+        src: docker-compose.yml.j2
+        dest: "{{ gatus_dir }}/docker-compose.yml"
+        owner: root
+        group: root
+        mode: "0644"
+      register: gatus_compose
+
+    - name: Pull the pinned Gatus image
+      when: gatus_compose is changed
+      command: docker compose pull
+      args:
+        chdir: "{{ gatus_dir }}"
+      changed_when: true
+
+    # Gatus reads its configuration at start (and watches the file), but the
+    # environment needs a recreate: force it when either changed.
+    - name: Start Gatus (recreated when its configuration changed)
+      command: >-
+        docker compose up -d
+        {{ '--force-recreate' if (gatus_config is changed or gatus_env is changed) else '' }}
+      args:
+        chdir: "{{ gatus_dir }}"
+      register: gatus_up
+      changed_when: >-
+        'Recreat' in (gatus_up.stdout + gatus_up.stderr)
+        or 'Creat' in (gatus_up.stdout + gatus_up.stderr)
+        or 'Start' in (gatus_up.stdout + gatus_up.stderr)
+
+    - name: Wait for Gatus to answer on /health
+      uri:
+        url: "http://127.0.0.1:{{ gatus_port }}/health"
+        status_code: [200]
+      register: gatus_health
+      retries: 20
+      delay: 3
+      until: gatus_health.status is defined and gatus_health.status == 200
+
+- name: Remove Gatus
+  when: not (gatus_enabled | default(false))
+  block:
+    - name: Check for a Gatus installation
+      stat:
+        path: "{{ gatus_dir }}/docker-compose.yml"
+      register: gatus_installed
+
+    - name: Stop and remove the Gatus container
+      when: gatus_installed.stat.exists
+      command: docker compose down
+      args:
+        chdir: "{{ gatus_dir }}"
+      changed_when: true
+
+    - name: Remove the Gatus directory
+      file:
+        path: "{{ gatus_dir }}"
+        state: absent

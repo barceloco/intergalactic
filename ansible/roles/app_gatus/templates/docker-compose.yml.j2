@@ -1,0 +1,23 @@
+# {{ ansible_managed | default('Managed by Ansible (app_gatus)') }}
+services:
+  gatus:
+    image: {{ gatus_image }}:{{ gatus_image_tag }}@{{ gatus_image_digest }}
+    container_name: gatus
+    restart: unless-stopped
+    # 0.0.0.0, but the host firewall admits only the edge host's Traefik.
+    ports:
+      - "{{ gatus_port }}:{{ gatus_internal_port }}"
+    env_file:
+      - {{ gatus_dir }}/gatus.env
+    volumes:
+      - {{ gatus_dir }}/config.yaml:/config/config.yaml:ro
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -64,6 +64,9 @@ firewall_rules:
   - port: 8048
     from: [rigel]
     comment: "Docgen backend for Traefik on rigel -> docgen.exnada.com"
+  - port: 8148
+    from: [rigel]
+    comment: "Gatus status page for Traefik on rigel -> status.exnada.com"
   - port: [139, 445]
     from: [tailnet, lan]
     comment: "Samba (SMB)"
@@ -79,3 +82,19 @@ notify_enabled: true
 notify_boot_message: true
 host_alerts_enabled: true
 host_alerts_smart: true    # NVMe and the external 6 TB drives
+
+# Gatus (role app_gatus): the fleet's one uptime monitor, here so it survives
+# rigel dying. Checks every route in rigel's edge_ingress_routes through
+# rigel's DNS and Traefik, plus the DNS answers below; alerts via ntfy; status
+# page at status.exnada.com (route on rigel, firewall rule above).
+gatus_enabled: true
+gatus_image_tag: "v5.38.0"   # 2026-10-28; https://github.com/TwiN/gatus/releases
+gatus_image_digest: "sha256:085ed63da963728965d00a3c78aa6167e3bf135218485b893201758e079e8415"
+gatus_internal_dns_checks:
+  docgen.exnada.com: "{{ fleet_tailscale_ipv4.rigel }}"   # routed names point at rigel
+  vega.exnada.com: "{{ fleet_tailscale_ipv4.vega }}"
+  mpnas.exnada.com: 100.120.170.43
+gatus_public_dns_checks:
+  - {name: exnada.com, type: NS, pattern: "*.domaincontrol.com."}   # GoDaddy
+  - {name: exnada.com, type: MX, pattern: "*.mail.protection.outlook.com."}
+  - {name: exnada.com, type: A, pattern: "217.21.77.108"}

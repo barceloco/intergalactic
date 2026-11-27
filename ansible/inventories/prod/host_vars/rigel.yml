@@ -111,6 +111,9 @@ edge_ingress_routes:
     backend: http://vega:8048
   - host: immich.exnada.com
     backend: http://100.120.170.43:2283
+  - host: status.exnada.com
+    backend: http://vega:8148   # Gatus (app_gatus on vega)
+    health_path: /health
 
 # Alerts (roles notify + host_alerts): pushes via ntfy (topic in
 # all_secrets.yml), login/sudo tripwires, health and integrity checks, dead-man

@@ -25,6 +25,9 @@
       tags: [production, notify]
     - role: host_alerts
       tags: [production, host_alerts]
+    # Uptime monitor for the whole fleet (status.exnada.com). --tags gatus
+    - role: app_gatus
+      tags: [production, gatus]
     - role: monitoring_docker
       tags: [production, monitoring]
     - role: luks

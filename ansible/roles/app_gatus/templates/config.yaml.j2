@@ -1,0 +1,74 @@
+# {{ ansible_managed | default('Managed by Ansible (app_gatus)') }}
+# Generated from {{ gatus_edge_host }}'s edge_ingress_routes and the
+# gatus_*_checks variables: every route added there is monitored here.
+# ${NTFY_*} come from gatus.env (root only), not from this file.
+storage:
+  type: memory
+
+web:
+  port: {{ gatus_internal_port }}
+
+ui:
+  title: "exnada fleet status"
+  header: "exnada fleet"
+
+alerting:
+  ntfy:
+    url: "${NTFY_URL}"
+    topic: "${NTFY_TOPIC}"
+{% if gatus_ntfy_token | length > 0 %}
+    token: "${NTFY_TOKEN}"
+{% endif %}
+    priority: {{ gatus_ntfy_priority | int }}
+    default-alert:
+      failure-threshold: {{ gatus_failure_threshold | int }}
+      success-threshold: {{ gatus_success_threshold | int }}
+      send-on-resolved: true
+
+endpoints:
+{% for route in hostvars[gatus_edge_host].edge_ingress_routes | default([]) if route.host not in gatus_skip_hosts %}
+  - name: "{{ route.host }}"
+    group: "routes via {{ gatus_edge_host }}"
+    url: "https://{{ route.host }}{{ route.health_path | default('/') }}"
+    interval: {{ gatus_interval }}
+    client:
+      timeout: {{ gatus_timeout }}
+      dns-resolver: "udp://{{ gatus_dns_server }}:53"
+    conditions:
+      - "[STATUS] < 500"
+      - "[CERTIFICATE_EXPIRATION] > {{ gatus_certificate_min }}"
+    alerts:
+      - type: ntfy
+        description: "{{ route.host }} is down or its certificate expires soon"
+{% endfor %}
+{% for name, address in gatus_internal_dns_checks.items() %}
+  - name: "{{ name }}"
+    group: "internal DNS ({{ gatus_edge_host }})"
+    url: "{{ gatus_dns_server }}"
+    interval: {{ gatus_interval }}
+    dns:
+      query-name: "{{ name }}"
+      query-type: "A"
+    conditions:
+      - "[DNS_RCODE] == NOERROR"
+      - "[BODY] == {{ address }}"
+    alerts:
+      - type: ntfy
+        description: "{{ gatus_edge_host }}'s DNS answers {{ name }} wrongly or not at all"
+{% endfor %}
+{% for check in gatus_public_dns_checks %}
+  - name: "{{ check.name }} {{ check.type }}"
+    group: "public DNS"
+    url: "{{ gatus_public_dns_resolver }}"
+    interval: 15m
+    dns:
+      query-name: "{{ check.name }}"
+      query-type: "{{ check.type }}"
+    conditions:
+      - "[DNS_RCODE] == NOERROR"
+      - "[BODY] == pat({{ check.pattern }})"
+    alerts:
+      - type: ntfy
+        failure-threshold: 2
+        description: "Public {{ check.type }} record of {{ check.name }} changed: possible DNS hijack"
+{% endfor %}
