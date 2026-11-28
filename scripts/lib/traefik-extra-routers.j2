@@ -1,0 +1,9 @@
+{# Used by scripts/test-traefik-config.sh: one line per extra router,
+   "<name> <host> <port> <gate_path>". #}
+{% set ports = {} %}
+{% for ep in edge_ingress_extra_entrypoints | default([]) %}
+{%   set _ = ports.update({ep.name: ep.address | regex_replace('^.*:', '')}) %}
+{% endfor %}
+{% for r in edge_ingress_extra_routers | default([]) %}
+{{ r.name }} {{ r.host }} {{ ports[r.entrypoint | default('websecure')] | default('443') }} {{ r.gate_path | default('/') }}
+{% endfor %}

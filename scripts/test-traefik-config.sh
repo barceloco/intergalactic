@@ -39,7 +39,8 @@ docker run --rm -v "${ROOT_DIR}:/repo:ro" -v "${OUT}:/out" -w /repo/ansible \
     | sed -n 's/.*\"msg\": \"\(.*\)\".*/\1/p' > /out/image
   $(ansible_cmd debug 'msg={{ edge_ingress_data_dir }}') | sed -n 's/.*\"msg\": \"\(.*\)\".*/\1/p' > /out/datadir
   $(ansible_cmd debug 'msg={{ edge_ingress_routes | map(attribute=\"host\") | join(\" \") }}') \
-    | sed -n 's/.*\"msg\": \"\(.*\)\".*/\1/p' > /out/hosts"
+    | sed -n 's/.*\"msg\": \"\(.*\)\".*/\1/p' > /out/hosts
+  $(ansible_cmd template 'src=/repo/scripts/lib/traefik-extra-routers.j2 dest=/out/extra mode=0644') > /dev/null"
 IMAGE="$(cat "${OUT}/image")"; DATADIR="$(cat "${OUT}/datadir")"; HOSTS="$(cat "${OUT}/hosts")"
 if [ -z "${IMAGE}" ] || [ -z "${DATADIR}" ] || [ -z "${HOSTS}" ]; then
   echo "FAIL  could not render the configuration"; exit 1
@@ -78,6 +79,17 @@ for host in ${HOSTS}; do
     *) echo "FAIL  route ${host}: HTTP '${status}' (404 = route not loaded)"; fail=1 ;;
   esac
 done
+
+# Extra routers (edge_ingress_extra_routers), each on its entry point's port.
+while read -r name host port path; do
+  [ -n "${name}" ] || continue
+  status="$(docker exec "${NAME}" wget -S -O /dev/null --no-check-certificate \
+    --header "Host: ${host}" "https://127.0.0.1:${port}${path}" 2>&1 | sed -n 's/^ *HTTP\/[0-9.]* \([0-9]*\).*/\1/p' | head -1 || true)"
+  case "${status}" in
+    502|503|504) echo "PASS  extra router ${name} on :${port} (HTTP ${status} from its service)" ;;
+    *) echo "FAIL  extra router ${name} on :${port}: HTTP '${status}' (404 = router not loaded)"; fail=1 ;;
+  esac
+done < "${OUT}/extra"
 if [ "${fail}" -ne 0 ]; then
   first="${HOSTS%% *}"
   echo "--- response for ${first}:"

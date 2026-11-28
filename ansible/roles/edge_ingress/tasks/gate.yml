@@ -82,6 +82,35 @@
   delay: 2
   changed_when: false
 
+# Extra routers: same check, on their entry point's port and gate_path.
+- name: Gate - every extra router serves the current fingerprint  # noqa: command-instead-of-module
+  when:
+    - edge_ingress_gate_enabled | bool
+    - edge_ingress_extra_routers | default([]) | length > 0
+  vars:
+    edge_gate_ep_ports: >-
+      {{ dict(edge_ingress_extra_entrypoints | default([])
+              | map(attribute='name')
+              | zip(edge_ingress_extra_entrypoints | default([])
+                    | map(attribute='address') | map('regex_replace', '^.*:', ''))) }}
+    edge_gate_xport: "{{ edge_gate_ep_ports[item.entrypoint | default('websecure')] | default('443') }}"
+  command: >-
+    curl -sS -o /dev/null --max-time 10
+    {{ '' if (edge_ingress_gate_verify_tls | bool) else '-k' }}
+    --resolve {{ item.host }}:{{ edge_gate_xport }}:127.0.0.1
+    -w '%{http_code} %header{x-edge-config}'
+    https://{{ item.host }}:{{ edge_gate_xport }}{{ item.gate_path | default('/') }}
+  loop: "{{ edge_ingress_extra_routers | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: edge_gate_extra
+  until: >-
+    edge_gate_extra.rc == 0
+    and (edge_gate_extra.stdout.split(' ') | last) == edge_gate_expected
+  retries: 3
+  delay: 2
+  changed_when: false
+
 - name: Gate - backends that answered with an error
   when: edge_ingress_gate_enabled | bool
   set_fact:
@@ -102,4 +131,7 @@
 - name: Gate - result
   when: edge_ingress_gate_enabled | bool
   debug:
-    msg: "All {{ edge_ingress_routes | length }} routes serve fingerprint {{ edge_gate_expected }}"
+    msg: >-
+      All {{ edge_ingress_routes | length }} routes and
+      {{ edge_ingress_extra_routers | default([]) | length }} extra routers serve
+      fingerprint {{ edge_gate_expected }}
