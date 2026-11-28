@@ -1,0 +1,7 @@
+# Managed by Ansible (app_mpd role). Deployment override for mpd's own
+# docker/compose.yaml, kept outside the checkout so the repo is untouched.
+# Adds the restart policy the fleet needs to come back after a reboot or power
+# loss; mpd's compose declares none.
+services:
+  app:
+    restart: {{ mpd_restart_policy }}

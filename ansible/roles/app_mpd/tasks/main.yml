@@ -1,0 +1,91 @@
+---
+# Deploy/run mpd via its own compose file (docker/compose.yaml), as the deploy
+# user, who owns /srv/mpd and is in the docker group. The repo is only pulled.
+- name: Check the deploy user exists (created by docker_deploy)
+  when: mpd_enabled | default(false)
+  become: true
+  command: id deploy
+  register: mpd_deploy_user
+  changed_when: false
+  failed_when: false
+
+- name: Validate the mpd settings
+  when: mpd_enabled | default(false)
+  assert:
+    that:
+      - mpd_deploy_user.rc == 0
+      - mpd_admin_token | length >= 32
+    fail_msg: |
+      ============================================================================
+      ERROR: mpd is enabled but not ready.
+      ============================================================================
+      Needs the 'deploy' user (docker_deploy runs first in the production
+      playbook) and mpd_admin_token in all_secrets.yml (32+ random characters;
+      it unlocks mpd's inventory upload).
+      ============================================================================
+    quiet: true
+
+- name: Deploy mpd
+  when: mpd_enabled | default(false)
+  become: true
+  become_user: deploy
+  block:
+    - name: Ensure the mpd repo is present at the configured ref (pull only)
+      git:
+        repo: "{{ mpd_repo_url }}"
+        dest: "{{ mpd_dir }}"
+        version: "{{ mpd_repo_ref }}"
+        update: true
+      register: mpd_repo
+
+    # Gitignored, so never created or changed by git. Contents are mpd's own.
+    - name: Ensure the data directories exist (contents untouched)
+      file:
+        path: "{{ mpd_dir }}/data/{{ item }}"
+        state: directory
+        mode: "0750"
+      loop: [raw, processed, uploads]
+
+    - name: Render the mpd .env (gitignored; holds the admin token)
+      template:
+        src: mpd.env.j2
+        dest: "{{ mpd_dir }}/.env"
+        mode: "0600"
+      no_log: true
+
+    - name: Render the compose override (restart policy; outside the checkout)
+      template:
+        src: mpd.override.yml.j2
+        dest: "{{ mpd_override_file }}"
+        mode: "0640"
+
+    - name: Build the mpd image (only when the checked-out code changed)
+      when: mpd_repo.changed and not ansible_check_mode
+      command: >-
+        docker compose --env-file .env -f docker/compose.yaml -f {{ mpd_override_file }} build app
+      args:
+        chdir: "{{ mpd_dir }}"
+      changed_when: true
+
+    - name: Start mpd (recreated only on change)
+      when: not ansible_check_mode
+      command: >-
+        docker compose --env-file .env -f docker/compose.yaml -f {{ mpd_override_file }} up -d app
+      args:
+        chdir: "{{ mpd_dir }}"
+      register: mpd_up
+      changed_when: >-
+        'Recreat' in (mpd_up.stdout + mpd_up.stderr)
+        or 'Creat' in (mpd_up.stdout + mpd_up.stderr)
+        or 'Start' in (mpd_up.stdout + mpd_up.stderr)
+
+    # Generous: a fresh build plus startup on a Pi is slow.
+    - name: Wait for mpd to answer on /api/health
+      when: not ansible_check_mode
+      uri:
+        url: "http://127.0.0.1:{{ mpd_port }}/api/health"
+        status_code: [200]
+      register: mpd_health
+      retries: 30
+      delay: 5
+      until: mpd_health.status is defined and mpd_health.status == 200

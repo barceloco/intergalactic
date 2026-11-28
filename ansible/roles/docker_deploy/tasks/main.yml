@@ -140,6 +140,8 @@
 - name: Configure per-repo Git SSH for deploy user (deploy keys + ~/.ssh/config)
   when: enable_docker_deploy | default(false)
   import_tasks: git_ssh.yml
+  # Alone: --tags git_ssh (creates a new repo's deploy key and prints it).
+  tags: [git_ssh]
   # No-op unless docker_deploy_git_repos is set in host_vars; existing keys
   # on the host are adopted, never regenerated. See tasks/git_ssh.yml.
 

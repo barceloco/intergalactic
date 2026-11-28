@@ -42,6 +42,7 @@ docker_deploy_git_repos:
   - aispector   # /srv/aispector -> git@github-aispector:exnada/aispector.git
   - callosal    # /srv/callosal  -> git@github-callosal:barceloco/callosal.git
   - csa         # /srv/csa       -> git@github-csa:exnada/csa.git
+  - mpd         # /srv/mpd       -> git@github-mpd:exnada/mpd.git
 
 # csa service (app_csa role). Ansible pulls the repo, renders the gitignored
 # .env with CSA_PORT (compose maps ${CSA_PORT:-8000}:8000), and runs docker
@@ -53,6 +54,12 @@ csa_repo_ref: main   # branch to serve (see the Vega=prod / Rigel=dev convention
 # deployed here; change this line and redeploy (--tags callosal) to switch.
 callosal_enabled: true
 callosal_repo_ref: dev
+
+# mpd (app_mpd role, exnada/mpd) in /srv/mpd, port 8033 on 127.0.0.1. Off
+# until the repo has its first push and the github-mpd deploy key is
+# registered; then true, plus the mpd.exnada.com route below.
+mpd_enabled: false
+mpd_repo_ref: main   # branch to serve (Vega=prod / Rigel=dev convention)
 
 # aispector: no rigel/dev instance right now -- only vega (prod) runs aispector.
 # Removed 2026-07-05. To bring a dev instance back: re-add aispector_enabled and
