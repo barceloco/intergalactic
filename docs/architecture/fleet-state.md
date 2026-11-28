@@ -135,6 +135,18 @@ These differ from what the repo intends. Each is a follow-up, not yet fixed:
 
 ## Planned Work
 
+- **Maybe: self-hosted NetBird coordinator.** Client access uses NetBird's
+  hosted cloud (free tier) for now. A self-hosted coordinator was built and
+  run on rigel on 2026-11-27, then removed completely the same day (code not
+  kept). Notes for a rebuild: combined `netbirdio/netbird-server` plus
+  dashboard, only the `-ubi` images (the default dashboard image is Alpine);
+  `NB_DISABLE_GEOLOCATION=true` (otherwise it downloads MaxMind's database
+  on first start and crashes on a small /tmp), `disableAnonymousMetrics`,
+  `trustedPeers` limited to the proxy; a Traefik entry point without
+  timeouts for its gRPC streams (`edge_ingress_extra_entrypoints` and
+  `edge_ingress_extra_routers` remain in the role for this). Run it on a
+  dedicated machine, never on a Pi 1 (no ARMv6 images).
+
 - **Dead-man check-in (backlog, deferred 2026-11-27).** Create Healthchecks.io
   checks for rigel and vega (period 5 min, grace 10 min, email plus ntfy), add
   `host_alerts_healthchecks_urls` to all_secrets.yml, and run
