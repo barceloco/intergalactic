@@ -1,0 +1,28 @@
+---
+# Installs the role in a Debian 13 container and runs the real check against
+# the live GitHub API with a test image list whose answers are known (see
+# verify.yml). Pushes go to a fake fleet-notify that writes a file.
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: instance
+    image: geerlingguy/docker-debian13-ansible:latest
+    pre_build_image: true
+    privileged: true
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      instance:
+        ansible_python_interpreter: /usr/bin/python3
+        image_watch_enabled: true
+        gatus_image_tag: "v5.38.0"
+        homepage_image_tag: "v2.8.0"
+verifier:
+  name: ansible

@@ -1,0 +1,11 @@
+# {{ ansible_managed | default('Managed by Ansible (image_watch)') }}
+[Unit]
+Description=Daily check of pinned container images
+
+[Timer]
+OnCalendar={{ image_watch_on_calendar }}
+RandomizedDelaySec={{ image_watch_randomized_delay }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

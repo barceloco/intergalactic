@@ -30,6 +30,8 @@
       tags: [production, gatus]
     - role: app_homepage
       tags: [production, homepage]
+    - role: image_watch
+      tags: [production, image_watch]
     - role: monitoring_docker
       tags: [production, monitoring]
     - role: luks

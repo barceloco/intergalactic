@@ -1,0 +1,22 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    # Same interface as fleet-notify: records "priority|title|message" in a
+    # file and reports delivery, unless /tmp/fail-sends exists (then -s exits
+    # 1, like an unreachable ntfy).
+    - name: Install a fake fleet-notify that records pushes
+      copy:
+        dest: /usr/local/sbin/fleet-notify
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          strict=0; prio=default
+          while getopts ":sp:t:" o; do
+            case "$o" in s) strict=1 ;; p) prio="$OPTARG" ;; *) ;; esac
+          done
+          shift $((OPTIND - 1))
+          [ -e /tmp/fail-sends ] && exit "$strict"
+          echo "${prio}|$1|${2:-}" >> /tmp/pushes.log

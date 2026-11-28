@@ -102,6 +102,10 @@ gatus_public_dns_checks:
   - {name: exnada.com, type: MX, pattern: "*.mail.protection.outlook.com."}
   - {name: exnada.com, type: A, pattern: "217.21.77.108"}
 
+# Daily check of the fleet's pinned images (role image_watch): urgent push for
+# a published advisory affecting a pinned version, low push for a new release.
+image_watch_enabled: true
+
 # Homepage (role app_homepage): fleet dashboard at home.exnada.com (route on
 # rigel, firewall rule above). App tiles come from rigel's edge_ingress_routes.
 homepage_enabled: true

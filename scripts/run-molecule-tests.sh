@@ -39,18 +39,16 @@ CONTAINER_TESTABLE_ROLES=(
     "updates"
     "host_alerts"
     "common"
-)
-# Roles whose scenario converges the full role logic (config generation and
-# validation) but then deploys a systemd-managed Docker container (CoreDNS,
-# Traefik). Starting that unit inside a nested-systemd test container hits a
-# D-Bus limitation, so these are validated on a real host and are NOT in the
-# default `all` run. Pass the role name explicitly to exercise its config
-# generation up to the service start.
-REAL_HOST_ROLES=(
+    # Render and verify the configuration only (manage_service: false in their
+    # scenario): CoreDNS and Traefik cannot start under nested systemd. Their
+    # service paths are proven on the host (scripts/verify-edge-gate.sh) and
+    # with scripts/test-traefik-config.sh / test-coredns-image.sh.
     "internal_dns"
     "edge_ingress"
+    # Queries the live GitHub API.
+    "image_watch"
 )
-ALL_ROLES=("${CONTAINER_TESTABLE_ROLES[@]}" "${REAL_HOST_ROLES[@]}")
+ALL_ROLES=("${CONTAINER_TESTABLE_ROLES[@]}")
 
 if [ "$ROLE" != "all" ]; then
     if [[ ! " ${ALL_ROLES[*]} " =~ " ${ROLE} " ]]; then

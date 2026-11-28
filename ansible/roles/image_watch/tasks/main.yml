@@ -1,0 +1,105 @@
+---
+- name: Install the image check
+  when: image_watch_enabled | default(false)
+  block:
+    # One source of truth: the pins live in the roles that deploy the images.
+    # Only the tag is read: loading the whole defaults file would template
+    # values that refer to variables of those roles.
+    - name: Read the edge and DNS image pins from their roles
+      set_fact:
+        image_watch_edge_tag: >-
+          {{ (lookup('file', role_path ~ '/../edge_ingress/defaults/main.yml') | from_yaml).edge_ingress_image_tag }}
+        image_watch_dns_tag: >-
+          {{ (lookup('file', role_path ~ '/../internal_dns/defaults/main.yml') | from_yaml).internal_dns_image_tag }}
+
+    - name: Validate the watched images
+      assert:
+        that:
+          - item.name | length > 0
+          - item.tag | length > 0
+          - item.repo is match('^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')
+          - item.module == '-' or item.module is match('^[A-Za-z0-9_./-]+$')
+        fail_msg: "Invalid image_watch entry: {{ item }}"
+        quiet: true
+      loop: "{{ image_watch_images }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Assert fleet-notify is installed (role notify)
+      stat:
+        path: "{{ notify_script_path | default('/usr/local/sbin/fleet-notify') }}"
+      register: image_watch_notify
+      failed_when: not image_watch_notify.stat.exists
+
+    - name: Install curl and jq
+      apt:
+        name: [curl, jq]
+        state: present
+        cache_valid_time: 3600
+
+    - name: Install the check script
+      copy:
+        src: image-watch
+        dest: "{{ image_watch_script_path }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Write the list of watched images
+      template:
+        src: image-watch.conf.j2
+        dest: "{{ image_watch_conf }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install the systemd units
+      template:
+        src: "{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: [image-watch.service, image-watch.timer]
+      register: image_watch_units
+
+    # In --check a new unit was not written, so systemd cannot know it yet.
+    - name: Enable and start the daily timer
+      when: not (ansible_check_mode and image_watch_units is changed)
+      systemd:
+        name: image-watch.timer
+        enabled: true
+        state: started
+        daemon_reload: "{{ image_watch_units is changed }}"
+
+- name: Remove the image check
+  when: not (image_watch_enabled | default(false))
+  block:
+    - name: Check for an installed timer
+      stat:
+        path: /etc/systemd/system/image-watch.timer
+      register: image_watch_installed
+
+    - name: Stop and disable the timer
+      when: image_watch_installed.stat.exists
+      systemd:
+        name: image-watch.timer
+        enabled: false
+        state: stopped
+
+    - name: Remove the files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/image-watch.timer
+        - /etc/systemd/system/image-watch.service
+        - "{{ image_watch_script_path }}"
+        - "{{ image_watch_conf }}"
+        - "{{ image_watch_state_dir }}"
+      register: image_watch_removed
+
+    - name: Reload systemd after removing the units
+      when: image_watch_removed is changed
+      systemd:
+        daemon_reload: true

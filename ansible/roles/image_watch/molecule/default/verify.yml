@@ -1,0 +1,122 @@
+---
+# The live GitHub API answers these as of 2026-11-27: Traefik 3.0.4 is affected
+# by published advisories, CoreDNS 1.15.0 by none; Homepage's repository
+# advisory GHSA-qxcr-4rv3-v23r covers ">= 2.0.0, <= 2.5.0" (2.1.0 in, 2.8.0
+# out). New advisories can only add pushes, never remove these.
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    test_env:
+      IMAGE_WATCH_CONF: /tmp/test-images.conf
+      IMAGE_WATCH_STATE: /tmp/image-watch-state
+      # The four runs share one set of API answers (8 requests, not 32).
+      IMAGE_WATCH_API_CACHE: /tmp/image-watch-api-cache
+  tasks:
+    - name: Read the installed list of watched images
+      slurp:
+        src: /etc/image-watch.conf
+      register: installed_conf
+
+    - name: The installed list carries the pins from the deploying roles
+      vars:
+        conf: "{{ installed_conf.content | b64decode }}"
+      assert:
+        that:
+          - conf is search('(?m)^traefik\|v3\.[0-9.]+\|traefik/traefik\|github.com/traefik/traefik/v3$')
+          - conf is search('(?m)^coredns\|1\.[0-9.]+\|coredns/coredns\|github.com/coredns/coredns$')
+          - conf is search('(?m)^gatus\|v5\.38\.0\|TwiN/gatus\|')
+          - conf is search('(?m)^homepage\|v2\.8\.0\|gethomepage/homepage\|-$')
+
+    - name: The daily timer is enabled
+      command: systemctl is-enabled image-watch.timer
+      changed_when: false
+
+    - name: Write a test list with known answers
+      copy:
+        dest: /tmp/test-images.conf
+        mode: "0644"
+        content: |
+          traefik|v3.0.4|traefik/traefik|github.com/traefik/traefik/v3
+          coredns|1.15.0|coredns/coredns|github.com/coredns/coredns
+          homepage-old|v2.1.0|gethomepage/homepage|-
+          homepage-new|v2.8.0|gethomepage/homepage|-
+
+    - name: Start from an empty push log and state
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop: [/tmp/pushes.log, /tmp/image-watch-state, /tmp/fail-sends, /tmp/image-watch-api-cache]
+
+    - name: Run the check
+      command: /usr/local/sbin/image-watch
+      environment: "{{ test_env }}"
+      changed_when: false
+
+    - name: Read the pushes
+      slurp:
+        src: /tmp/pushes.log
+      register: run1
+
+    - name: Advisories are found by module (Go) and by range (repository)
+      vars:
+        log: "{{ run1.content | b64decode }}"
+      assert:
+        that:
+          - log is search('(?m)^urgent\|traefik v3\.0\.4 is vulnerable')
+          - log is not search('coredns 1\.15\.0 is vulnerable')
+          - log is search('(?m)^urgent\|homepage-old v2\.1\.0 is vulnerable.*GHSA-qxcr-4rv3-v23r')
+          - log is not search('homepage-new v2\.8\.0 is vulnerable.*GHSA-qxcr-4rv3-v23r')
+          - log is search('(?m)^low\|traefik v[0-9.]+ available')
+          - log is not search('check failed')
+        fail_msg: "{{ log }}"
+
+    - name: Run the check again
+      command: /usr/local/sbin/image-watch
+      environment: "{{ test_env }}"
+      changed_when: false
+
+    - name: Read the pushes again
+      slurp:
+        src: /tmp/pushes.log
+      register: run2
+
+    - name: Nothing is pushed twice
+      assert:
+        that: (run2.content | b64decode) == (run1.content | b64decode)
+
+    - name: Forget one finding and make pushes fail
+      shell: |
+        set -eu
+        grep -v '^advisory homepage-old' /tmp/image-watch-state/seen > /tmp/seen.new
+        mv /tmp/seen.new /tmp/image-watch-state/seen
+        touch /tmp/fail-sends
+      changed_when: true
+
+    - name: Run the check while pushes fail
+      command: /usr/local/sbin/image-watch
+      environment: "{{ test_env }}"
+      changed_when: false
+
+    - name: An undelivered finding is not recorded
+      command: grep -c '^advisory homepage-old' /tmp/image-watch-state/seen
+      register: not_recorded
+      changed_when: false
+      failed_when: not_recorded.stdout != '0'
+
+    - name: Let pushes succeed again
+      file:
+        path: /tmp/fail-sends
+        state: absent
+
+    - name: Run the check once more
+      command: /usr/local/sbin/image-watch
+      environment: "{{ test_env }}"
+      changed_when: false
+
+    - name: The undelivered finding is pushed on the next run
+      command: grep -c '^advisory homepage-old' /tmp/image-watch-state/seen
+      register: recorded
+      changed_when: false
+      failed_when: recorded.stdout == '0'

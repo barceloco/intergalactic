@@ -1,0 +1,5 @@
+# {{ ansible_managed | default('Managed by Ansible (image_watch)') }}
+# name|pinned tag|GitHub repository|Go module (or -)
+{% for i in image_watch_images %}
+{{ i.name }}|{{ i.tag }}|{{ i.repo }}|{{ i.module }}
+{% endfor %}

@@ -77,6 +77,7 @@ changes, with the image pulled first.
 | vega | Unidentified listeners on localhost ports 18789 and 18792 | Not managed here |
 | vega, rigel | Alerts: `fleet-notify` (ntfy), `host-alerts-follow` (logins, sudo), `host-alerts-check` timer (health, integrity, inventory), daily digest; smartd on vega. Deployed 2026-11-27 | `notify`, `host_alerts` roles |
 | vega | Gatus uptime monitor (`/opt/gatus`, port 8148 from rigel only), status page `status.exnada.com`. Deployed 2026-11-27 | `app_gatus` role |
+| vega | Daily image check (`image-watch.timer`, 09:30): urgent push for a published advisory affecting a pinned Traefik, CoreDNS, Gatus or Homepage version, low push for a new release. Deployed 2026-11-27 | `image_watch` role |
 | vega | Homepage dashboard (`/opt/homepage`, port 3070 from rigel only) at `home.exnada.com`, tiles generated from rigel's routes. Deployed 2026-11-27 | `app_homepage` role |
 
 ## Known Drift

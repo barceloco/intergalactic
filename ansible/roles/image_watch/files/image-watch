@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# image-watch: daily check of the fleet's pinned container images.
+# Managed by Ansible (role image_watch). Configuration: /etc/image-watch.conf
+#
+# For every pinned image:
+#   1. Published security advisories that affect the pinned version: urgent
+#      push. Go projects are matched by GitHub's advisory database
+#      (affects=module@version); others by evaluating the repository's own
+#      advisory version ranges.
+#   2. A newer release than the pinned one: low-priority push.
+# Each finding is pushed once (state in /var/lib/image-watch), and recorded
+# only after fleet-notify confirms delivery, so a failed push is retried on
+# the next run. Only public GitHub API queries leave this host.
+set -uo pipefail
+
+CONF="${IMAGE_WATCH_CONF:-/etc/image-watch.conf}"
+STATE="${IMAGE_WATCH_STATE:-/var/lib/image-watch}"
+NOTIFY="${IMAGE_WATCH_NOTIFY:-/usr/local/sbin/fleet-notify}"
+API="https://api.github.com"
+TODAY="$(date +%F)"
+
+log() { logger -t image-watch -- "$*"; }
+# Unauthenticated GitHub API: 60 requests an hour per public IP; a daily run
+# makes two per image. IMAGE_WATCH_API_CACHE (tests only) reuses answers.
+api() {
+  local cache=""
+  if [ -n "${IMAGE_WATCH_API_CACHE:-}" ]; then
+    cache="${IMAGE_WATCH_API_CACHE}/$(printf '%s' "$1" | sha256sum | cut -c1-16)"
+    [ -s "${cache}" ] && { cat "${cache}"; return 0; }
+  fi
+  local out
+  out="$(curl -fsS --max-time 20 -H 'Accept: application/vnd.github+json' "${API}$1")" || return 1
+  [ -n "${cache}" ] && { mkdir -p "${IMAGE_WATCH_API_CACHE}"; printf '%s' "${out}" > "${cache}"; }
+  printf '%s' "${out}"
+}
+seen() { grep -qxF -- "$1" "${STATE}/seen" 2>/dev/null; }
+remember() { echo "$1" >> "${STATE}/seen"; }
+push() {  # push <priority> <key> <title> <message>
+  seen "$2" && return 0
+  if "${NOTIFY}" -s -p "$1" -t package "$3" "$4"; then remember "$2"; else log "push not delivered: $3"; fi
+}
+
+# Version comparison with sort -V. Versions without a leading "v".
+ver_le() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" = "$1" ]; }
+ver_lt() { [ "$1" != "$2" ] && ver_le "$1" "$2"; }
+# in_range <version> "<range>": GitHub ranges such as ">= 2.0.0, <= 2.5.0".
+in_range() {
+  local v="$1" c op rv
+  local IFS=','
+  for c in $2; do
+    c="$(echo "${c}" | tr -d ' ')"
+    op="$(echo "${c}" | sed -E 's/^([<>=]+).*/\1/')"
+    rv="$(echo "${c}" | sed -E 's/^[<>=]+v?//')"
+    case "${op}" in
+      '<')  ver_lt "${v}" "${rv}" || return 1 ;;
+      '<=') ver_le "${v}" "${rv}" || return 1 ;;
+      '>')  ver_lt "${rv}" "${v}" || return 1 ;;
+      '>=') ver_le "${rv}" "${v}" || return 1 ;;
+      '='|'==') [ "${v}" = "${rv}" ] || return 1 ;;
+      *) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+mkdir -p "${STATE}"
+touch "${STATE}/seen"
+[ -r "${CONF}" ] || { log "no configuration at ${CONF}"; exit 1; }
+
+failures=0
+while IFS='|' read -r name tag repo module; do
+  case "${name}" in ''|'#'*) continue ;; esac
+  ver="${tag#v}"
+
+  # 1. Advisories affecting the pinned version: "<id>\t<severity>\t<summary>\t<url>"
+  if [ "${module}" != "-" ]; then
+    advisories="$(api "/advisories?ecosystem=go&affects=${module}@${ver}&per_page=100" \
+      | jq -r '.[] | [.ghsa_id, .severity, .summary, .html_url] | @tsv')" || advisories="ERROR"
+  else
+    raw="$(api "/repos/${repo}/security-advisories?state=published&per_page=100")" || raw=""
+    if [ -z "${raw}" ]; then
+      advisories="ERROR"
+    else
+      advisories=""
+      while IFS=$'\t' read -r id sev summary url ranges; do
+        [ -n "${id}" ] || continue
+        hit=0
+        if [ -z "${ranges}" ]; then hit=1; fi   # no range published: assume affected
+        while IFS= read -r r; do
+          [ -n "${r}" ] && in_range "${ver}" "${r}" && hit=1
+        done <<< "$(echo "${ranges}" | tr ';' '\n')"
+        [ "${hit}" = 1 ] && advisories+="${id}"$'\t'"${sev}"$'\t'"${summary}"$'\t'"${url}"$'\n'
+      done <<< "$(echo "${raw}" | jq -r '.[] | [.ghsa_id, .severity, .summary, .html_url,
+          ([.vulnerabilities[]?.vulnerable_version_range // empty] | join(";"))] | @tsv')"
+    fi
+  fi
+  if [ "${advisories}" = "ERROR" ]; then
+    failures=$((failures + 1))
+    push low "check-failed ${name} ${TODAY}" "image-watch: check failed" \
+      "Could not read the security advisories for ${name} (${repo}). Retried tomorrow."
+  else
+    while IFS=$'\t' read -r id sev summary url; do
+      [ -n "${id}" ] || continue
+      push urgent "advisory ${name}@${ver} ${id}" "${name} ${tag} is vulnerable (${sev})" \
+        "${summary}. ${url} Update the pin and deploy."
+    done <<< "${advisories}"
+  fi
+
+  # 2. A newer release than the pinned one.
+  latest="$(api "/repos/${repo}/releases/latest" | jq -r '.tag_name // empty')" || latest=""
+  if [ -z "${latest}" ]; then
+    failures=$((failures + 1))
+    push low "check-failed-release ${name} ${TODAY}" "image-watch: check failed" \
+      "Could not read the latest release of ${name} (${repo}). Retried tomorrow."
+  elif ver_lt "${ver}" "${latest#v}"; then
+    push low "release ${name} ${latest}" "${name} ${latest} available" \
+      "Pinned: ${tag}. https://github.com/${repo}/releases/tag/${latest}"
+  fi
+  log "checked ${name} ${tag}: latest ${latest:-unknown}"
+done < "${CONF}"
+
+exit "$(( failures > 0 ? 1 : 0 ))"
