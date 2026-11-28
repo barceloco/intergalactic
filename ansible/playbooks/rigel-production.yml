@@ -40,6 +40,10 @@
     - role: app_callosal
       tags: [production, services, callosal]
 
+    # 1c. mpd (exnada/mpd). After docker_deploy, for the github-mpd SSH alias.
+    - role: app_mpd
+      tags: [production, services, mpd]
+
     # (no aispector on rigel right now -- only vega runs aispector; see host_vars)
 
     # 2. Internal DNS (CoreDNS) - must be available for certificate validation

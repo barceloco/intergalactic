@@ -1,0 +1,38 @@
+---
+# app_mpd: deploy and run mpd (exnada/mpd) via its own compose file
+# (docker/compose.yaml). Thin orchestration, like app_csa: the deploy user
+# pulls the repo at a ref, ansible renders the gitignored .env, adds a restart
+# policy through an override kept outside the checkout, and runs compose.
+# The mpd repo is only ever read, never modified.
+#
+# mpd's data lives in the checkout's gitignored data/ directory (raw,
+# processed, uploads). This role creates those directories and never touches
+# their contents: the inventory is loaded through mpd's admin upload, or by
+# copying data/raw/ and running mpd's own `make inventory` on the host.
+mpd_enabled: false
+
+# Git source, pulled as the deploy user through the github-mpd SSH alias
+# (docker_deploy's git_ssh tasks; register the printed public key as a
+# read-only deploy key on exnada/mpd).
+mpd_repo_url: "git@github-mpd:exnada/mpd.git"
+mpd_repo_ref: main
+mpd_dir: /srv/mpd
+
+# Host port: 8000 + letter sum of "mpd" (33). Bound to 127.0.0.1 by mpd's
+# compose; Traefik on this host reaches it there.
+mpd_port: 8033
+
+# The container runs as HOST_UID:HOST_GID (mpd's Makefile normally sets
+# them): the deploy user, who owns the checkout and data/.
+mpd_host_uid: 1002
+mpd_host_gid: 1002
+
+# Rendered into /srv/mpd/.env. MPD_PORT and the admin token are set by the
+# role; put other overrides (MPD_LLM_PROVIDER, ...) here in host_vars.
+# Secrets: mpd_admin_token (and anthropic_api_key, if used) in all_secrets.yml.
+mpd_env: {}
+mpd_admin_token: ""
+
+# Compose override outside the checkout: restart policy (mpd declares none).
+mpd_override_file: /home/deploy/mpd.compose.override.yml
+mpd_restart_policy: unless-stopped
