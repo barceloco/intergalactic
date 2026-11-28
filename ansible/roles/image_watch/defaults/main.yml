@@ -1,0 +1,43 @@
+---
+# image_watch: a daily check of the fleet's pinned container images, run on
+# one host (vega). An urgent push when a published security advisory affects
+# a pinned version; a low-priority push when a newer release exists. Pushes go
+# through fleet-notify (role notify). Only public GitHub API queries leave the
+# host: no account, no token, no repository access.
+#
+# Disabling the role (image_watch_enabled: false, role still in the play)
+# removes the timer, script, configuration and state.
+image_watch_enabled: false
+
+# When to run (systemd OnCalendar), with a random delay so the fleet does not
+# hit the API at a fixed second.
+image_watch_on_calendar: "*-*-* 09:30:00"
+image_watch_randomized_delay: 30min
+
+# Watched images: name, pinned tag, GitHub repository, and the Go module path
+# for GitHub's advisory database ("-" when the project is not a Go module:
+# then the repository's own advisory ranges are evaluated). A module path
+# carries the major version (traefik/v3): update it with a major upgrade.
+# The pins themselves come from the roles that deploy the images, read in
+# tasks/main.yml, so there is one source of truth.
+image_watch_images:
+  - name: traefik
+    tag: "{{ image_watch_edge_tag }}"
+    repo: traefik/traefik
+    module: github.com/traefik/traefik/v3
+  - name: coredns
+    tag: "{{ image_watch_dns_tag }}"
+    repo: coredns/coredns
+    module: github.com/coredns/coredns
+  - name: gatus
+    tag: "{{ gatus_image_tag }}"
+    repo: TwiN/gatus
+    module: github.com/TwiN/gatus/v5
+  - name: homepage
+    tag: "{{ homepage_image_tag }}"
+    repo: gethomepage/homepage
+    module: "-"
+
+image_watch_script_path: /usr/local/sbin/image-watch
+image_watch_conf: /etc/image-watch.conf
+image_watch_state_dir: /var/lib/image-watch

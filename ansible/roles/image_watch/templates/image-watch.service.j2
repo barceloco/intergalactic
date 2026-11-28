@@ -1,0 +1,10 @@
+# {{ ansible_managed | default('Managed by Ansible (image_watch)') }}
+[Unit]
+Description=Check pinned container images for advisories and new releases
+Wants=network-online.target
+After=network-online.target time-sync.target
+
+[Service]
+Type=oneshot
+ExecStart={{ image_watch_script_path }}
+TimeoutStartSec=10min
