@@ -98,6 +98,21 @@ http:
 {% endif %}
 
 {% endfor %}
+{% for r in edge_ingress_extra_routers | default([]) %}
+    # Extra router {{ r.name }} (edge_ingress_extra_routers)
+    {{ r.name }}:
+      rule: "Host(`{{ r.host }}`){% if r.paths | default([]) | length > 0 %} && ({% for p in r.paths %}PathPrefix(`{{ p }}`){{ ' || ' if not loop.last else '' }}{% endfor %}){% endif %}"
+      entryPoints:
+        - {{ r.entrypoint | default('websecure') }}
+      service: {{ r.name }}
+      priority: {{ r.priority | default(1) }}
+      middlewares:
+        - security-headers
+{% if not (edge_ingress_disable_tls | default(false)) %}
+      tls: {}
+{% endif %}
+
+{% endfor %}
 
   services:
 {% for route in final_routes | default(edge_ingress_routes) %}
@@ -112,6 +127,13 @@ http:
 {% endif %}
         servers:
           - url: "{{ route.backend_resolved | default(route.backend) }}"
+
+{% endfor %}
+{% for r in edge_ingress_extra_routers | default([]) %}
+    {{ r.name }}:
+      loadBalancer:
+        servers:
+          - url: "{{ r.backend }}"
 
 {% endfor %}
 

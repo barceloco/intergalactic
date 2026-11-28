@@ -45,6 +45,27 @@ edge_ingress_preflight_enabled: true
 # old routes, the gate catches it, and the previous file is restored.
 edge_ingress_drill_invalid_dynamic: false
 edge_ingress_disable_tls: false  # Set to true to disable TLS (for testing only - not recommended for production)
+# Extra entry points (static; adding or changing one restarts Traefik once).
+#   - name: netbird
+#     address: ":8443"
+#     no_timeouts: true   # long-lived gRPC streams (NetBird); other entry
+#                         # points keep Traefik's default timeouts
+edge_ingress_extra_entrypoints: []
+
+# Extra routers for services that need more than host -> backend: several
+# path-based routers on one name, an h2c (gRPC) backend, another entry point.
+# They reload live like routes and are gated (gate_path, on the entry
+# point's port). Their names must be unique. DNS for their host is not
+# derived: list the host in internal_dns_private_hosts.
+#   - name: netbird-grpc
+#     host: netbird.exnada.com
+#     entrypoint: netbird
+#     paths: ["/signalexchange.SignalExchange/", "/management.ManagementService/"]
+#     backend: h2c://127.0.0.1:8072
+#     priority: 100
+#     gate_path: /management.ManagementService/
+edge_ingress_extra_routers: []
+
 edge_ingress_routes: []
   # Example:
   # - host: mpnas.exnada.com

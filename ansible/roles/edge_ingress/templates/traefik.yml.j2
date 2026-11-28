@@ -19,6 +19,19 @@ entryPoints:
   websecure:
     address: ":443"
     # HTTPS-only entrypoint - all traffic must use this
+{% for ep in edge_ingress_extra_entrypoints | default([]) %}
+
+  {{ ep.name }}:
+    address: "{{ ep.address }}"
+{% if ep.no_timeouts | default(false) %}
+    # No timeouts on this entry point only: long-lived gRPC streams.
+    transport:
+      respondingTimeouts:
+        readTimeout: 0
+        writeTimeout: 0
+        idleTimeout: 0
+{% endif %}
+{% endfor %}
 
 certificatesResolvers:
   letsencrypt:
